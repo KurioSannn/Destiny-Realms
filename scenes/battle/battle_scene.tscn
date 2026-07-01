@@ -1,0 +1,119 @@
+[gd_scene load_steps=5 format=3 uid="uid://b4pxq6xcn26n0"]
+
+[ext_resource type="Script" path="res://scripts/battle/battle_manager.gd" id="1_bm"]
+[ext_resource type="Script" path="res://scripts/battle/combatant.gd" id="2_cb"]
+[ext_resource type="Script" path="res://scripts/battle/battle_ui.gd" id="3_ui"]
+[ext_resource type="Script" path="res://scripts/battle/timing_bar.gd" id="4_tb"]
+
+[node name="BattleScene" type="Node2D"]
+
+[node name="BattleCamera" type="Camera2D" parent="."]
+position = Vector2(480, 300)
+enabled = true
+
+[node name="BattleManager" type="Node" parent="."]
+script = ExtResource("1_bm")
+
+[node name="Player" type="Node2D" parent="."]
+position = Vector2(220, 290)
+script = ExtResource("2_cb")
+
+[node name="PlaceholderVisual" type="ColorRect" parent="Player"]
+offset_left = -42.0
+offset_top = -62.0
+offset_right = 42.0
+offset_bottom = 62.0
+color = Color(0.2, 0.52, 0.86, 1)
+
+[node name="NameLabel" type="Label" parent="Player"]
+offset_left = -31.0
+offset_top = 76.0
+offset_right = 33.0
+offset_bottom = 99.0
+text = "Player"
+
+[node name="Enemy" type="Node2D" parent="."]
+position = Vector2(720, 270)
+script = ExtResource("2_cb")
+
+[node name="PlaceholderVisual" type="ColorRect" parent="Enemy"]
+offset_left = -46.0
+offset_top = -70.0
+offset_right = 46.0
+offset_bottom = 70.0
+color = Color(0.82, 0.28, 0.24, 1)
+
+[node name="NameLabel" type="Label" parent="Enemy"]
+offset_left = -29.0
+offset_top = 84.0
+offset_right = 32.0
+offset_bottom = 107.0
+text = "Enemy"
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="BattleUI" type="Control" parent="CanvasLayer"]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("3_ui")
+
+[node name="PlayerHpLabel" type="Label" parent="CanvasLayer/BattleUI"]
+offset_left = 28.0
+offset_top = 24.0
+offset_right = 216.0
+offset_bottom = 48.0
+text = "Player HP: 100/100"
+
+[node name="EnemyHpLabel" type="Label" parent="CanvasLayer/BattleUI"]
+offset_left = 672.0
+offset_top = 24.0
+offset_right = 844.0
+offset_bottom = 48.0
+text = "Enemy HP: 80/80"
+
+[node name="TurnLabel" type="Label" parent="CanvasLayer/BattleUI"]
+offset_left = 28.0
+offset_top = 430.0
+offset_right = 284.0
+offset_bottom = 455.0
+text = "Player Turn"
+
+[node name="BattleLogLabel" type="Label" parent="CanvasLayer/BattleUI"]
+offset_left = 28.0
+offset_top = 462.0
+offset_right = 900.0
+offset_bottom = 510.0
+text = "Battle started. Choose an action."
+autowrap_mode = 3
+
+[node name="ActionButtons" type="HBoxContainer" parent="CanvasLayer/BattleUI"]
+offset_left = 28.0
+offset_top = 522.0
+offset_right = 412.0
+offset_bottom = 562.0
+theme_override_constants/separation = 10
+
+[node name="AttackButton" type="Button" parent="CanvasLayer/BattleUI/ActionButtons"]
+custom_minimum_size = Vector2(110, 38)
+text = "Attack"
+
+[node name="GuardButton" type="Button" parent="CanvasLayer/BattleUI/ActionButtons"]
+custom_minimum_size = Vector2(110, 38)
+text = "Guard"
+
+[node name="RestartButton" type="Button" parent="CanvasLayer/BattleUI/ActionButtons"]
+custom_minimum_size = Vector2(110, 38)
+text = "Restart"
+
+[node name="TimingBar" type="ProgressBar" parent="CanvasLayer/BattleUI"]
+visible = false
+offset_left = 28.0
+offset_top = 386.0
+offset_right = 412.0
+offset_bottom = 414.0
+value = 0.0
+show_percentage = false
+script = ExtResource("4_tb")
