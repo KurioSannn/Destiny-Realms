@@ -2,11 +2,23 @@ extends Panel
 class_name DialogueManager
 
 signal dialogue_finished
+signal speaker_changed(speaker_name: String)
 
-@onready var speaker_name_label: Label = get_node_or_null("SpeakerNameLabel") as Label
-@onready var dialogue_text_label: Label = get_node_or_null("DialogueTextLabel") as Label
-@onready var next_button: Button = get_node_or_null("NextButton") as Button
-@onready var choices_container: VBoxContainer = get_node_or_null("ChoicesContainer") as VBoxContainer
+const TAKASHI_TALK_TEXTURE: Texture2D = preload("res://public/Takashi portrait 2 (talk).png")
+const MITSUKI_TALK_TEXTURE: Texture2D = preload("res://public/Mitsuki portrait 2 (talk).png")
+const MAKOTO_TALK_TEXTURE: Texture2D = preload("res://public/Makoto portrait 2 (Talk).png")
+const TEXT_COLOR: Color = Color(0.9, 0.88, 0.82, 1.0)
+const BUTTON_NORMAL_COLOR: Color = Color(0.035, 0.047, 0.07, 0.82)
+const BUTTON_HOVER_COLOR: Color = Color(0.085, 0.105, 0.14, 0.9)
+const BUTTON_PRESSED_COLOR: Color = Color(0.12, 0.1, 0.06, 0.92)
+const BUTTON_BORDER_COLOR: Color = Color(0.55, 0.45, 0.26, 0.78)
+
+@onready var speaker_name_label: Label = $DialoguePanel/SpeakerNameLabel
+@onready var dialogue_text_label: Label = $DialoguePanel/DialogueTextLabel
+@onready var next_button: Button = $DialoguePanel/NextButton
+@onready var choices_container: VBoxContainer = $DialoguePanel/ChoicesContainer
+@onready var portrait_frame: Control = $DialoguePanel/PortraitFrame
+@onready var portrait_texture_rect: TextureRect = $DialoguePanel/PortraitFrame/PortraitTextureRect
 
 var _active: bool = false
 var _current_index: int = 0
@@ -99,8 +111,8 @@ var _dialogue_entries: Array[Dictionary] = [
 
 func _ready() -> void:
 	_build_id_lookup()
-	if next_button != null:
-		next_button.pressed.connect(_advance)
+	next_button.pressed.connect(_advance)
+	_apply_button_style(next_button)
 	visible = false
 	_set_choices_visible(false)
 
@@ -141,27 +153,26 @@ func _show_current_entry() -> void:
 		return
 
 	var entry: Dictionary = _dialogue_entries[_current_index]
-	if speaker_name_label != null:
-		speaker_name_label.text = str(entry.get("speaker", ""))
-	if dialogue_text_label != null:
-		dialogue_text_label.text = str(entry.get("text", ""))
+	var speaker_name: String = str(entry.get("speaker", ""))
+	speaker_name_label.text = speaker_name
+	dialogue_text_label.text = str(entry.get("text", ""))
+	_update_portrait(speaker_name)
+	speaker_changed.emit(speaker_name)
 
 	var choices: Array = entry.get("choices", []) as Array
 	if choices.is_empty():
 		_set_choices_visible(false)
-		if next_button != null:
-			next_button.visible = true
-			next_button.disabled = false
-			next_button.text = "Next"
+		dialogue_text_label.offset_bottom = 132.0
+		next_button.visible = true
+		next_button.disabled = false
+		next_button.text = "Next >"
 	else:
+		dialogue_text_label.offset_bottom = 98.0
 		_show_choices(choices)
 
 
 func _show_choices(choices: Array) -> void:
-	if next_button != null:
-		next_button.visible = false
-	if choices_container == null:
-		return
+	next_button.visible = false
 
 	_clear_choices()
 	choices_container.visible = true
@@ -170,23 +181,20 @@ func _show_choices(choices: Array) -> void:
 		var choice_data: Dictionary = choice as Dictionary
 		var button: Button = Button.new()
 		button.text = str(choice_data.get("text", "Choice"))
-		button.custom_minimum_size = Vector2(0.0, 42.0)
+		button.custom_minimum_size = Vector2(0.0, 40.0)
 		button.alignment = HORIZONTAL_ALIGNMENT_LEFT
+		_apply_button_style(button)
 		button.pressed.connect(_on_choice_selected.bind(str(choice_data.get("next", ""))))
 		choices_container.add_child(button)
 
 
 func _set_choices_visible(show_choices: bool) -> void:
-	if choices_container != null:
-		choices_container.visible = show_choices
-		if not show_choices:
-			_clear_choices()
+	choices_container.visible = show_choices
+	if not show_choices:
+		_clear_choices()
 
 
 func _clear_choices() -> void:
-	if choices_container == null:
-		return
-
 	for child in choices_container.get_children():
 		child.queue_free()
 
@@ -227,6 +235,55 @@ func _finish_dialogue() -> void:
 	visible = false
 	_set_choices_visible(false)
 	dialogue_finished.emit()
+
+
+func _update_portrait(speaker_name: String) -> void:
+	match speaker_name:
+		"Takashi":
+			portrait_texture_rect.texture = TAKASHI_TALK_TEXTURE
+			portrait_texture_rect.visible = true
+			portrait_frame.visible = true
+		"Mitsuki":
+			portrait_texture_rect.texture = MITSUKI_TALK_TEXTURE
+			portrait_texture_rect.visible = true
+			portrait_frame.visible = true
+		"Makoto":
+			portrait_texture_rect.texture = MAKOTO_TALK_TEXTURE
+			portrait_texture_rect.visible = true
+			portrait_frame.visible = true
+		_:
+			portrait_texture_rect.visible = false
+			portrait_frame.visible = false
+
+
+func _apply_button_style(button: Button) -> void:
+	button.add_theme_color_override("font_color", TEXT_COLOR)
+	button.add_theme_color_override("font_hover_color", TEXT_COLOR)
+	button.add_theme_color_override("font_pressed_color", TEXT_COLOR)
+	button.add_theme_font_size_override("font_size", 19)
+	button.add_theme_stylebox_override("normal", _make_button_style(BUTTON_NORMAL_COLOR))
+	button.add_theme_stylebox_override("hover", _make_button_style(BUTTON_HOVER_COLOR))
+	button.add_theme_stylebox_override("pressed", _make_button_style(BUTTON_PRESSED_COLOR))
+	button.add_theme_stylebox_override("focus", _make_button_style(Color(0.0, 0.0, 0.0, 0.0)))
+
+
+func _make_button_style(background_color: Color) -> StyleBoxFlat:
+	var style: StyleBoxFlat = StyleBoxFlat.new()
+	style.bg_color = background_color
+	style.border_color = BUTTON_BORDER_COLOR
+	style.border_width_left = 1
+	style.border_width_top = 1
+	style.border_width_right = 1
+	style.border_width_bottom = 1
+	style.corner_radius_top_left = 5
+	style.corner_radius_top_right = 5
+	style.corner_radius_bottom_right = 5
+	style.corner_radius_bottom_left = 5
+	style.content_margin_left = 12.0
+	style.content_margin_right = 12.0
+	style.content_margin_top = 6.0
+	style.content_margin_bottom = 6.0
+	return style
 
 
 func _is_advance_input(event: InputEvent) -> bool:

@@ -28,6 +28,7 @@ Pressing `Back to Prologue` from `EndingScene` returns to the prologue.
 
 - One intro dialogue scene before battle.
 - Named speakers and readable dialogue text.
+- Takashi, Mitsuki, and Makoto dialogue portraits loaded from `res://public/`.
 - Next button and Space/Enter dialogue advance.
 - One Takashi dialogue choice with two options.
 - Different Mitsuki/Makoto responses based on the selected choice.
@@ -61,15 +62,41 @@ It supports:
 
 - Speaker name display.
 - Dialogue text display.
+- Takashi/Mitsuki/Makoto portrait display when those speakers are active.
 - Next button.
 - Space/Enter to advance when no choices are visible.
 - Two clickable dialogue choices.
 - Different response branches.
 - A `dialogue_finished` signal that starts the battle.
 
-The dialogue panel is intentionally placed near the bottom of the screen. The speaker name is visually separated from the dialogue text, choices appear as larger stacked buttons, and the Next button is hidden while choices are active. This keeps the prologue UI separate from the battle log UI.
+The dialogue panel is intentionally placed near the bottom of the screen. The speaker name is visually separated from the dialogue text, Takashi, Mitsuki, and Makoto portraits appear in the panel when they are speaking, choices appear as larger stacked buttons, and the Next button is hidden while choices are active. This keeps the prologue UI separate from the battle log UI.
 
 After the dialogue ends, `PrologueScene` changes to `BattleScene`. The battle scene no longer contains the intro dialogue UI, so battle controls are active immediately when combat starts.
+
+## Prologue UI Assets
+
+The prologue now uses visual assets from `res://public/`:
+
+- Forest background: `res://public/BG1Forest.png`
+- Takashi screen portrait: `res://public/Takashi portrait 1.png`
+- Mitsuki screen portrait: `res://public/Mitsuki portrait 1.png`
+- Makoto screen portrait: `res://public/Makoto portrait 1.png`
+- Takashi talking portrait: `res://public/Takashi portrait 2 (talk).png`
+- Mitsuki talking portrait: `res://public/Mitsuki portrait 2 (talk).png`
+- Makoto talking portrait: `res://public/Makoto portrait 2 (Talk).png`
+
+`res://public/DialogFrame.png` is available, but the current prologue UI intentionally does not use it as a full raw panel because it is too large and ornate for the 1280x720 dialogue layout.
+
+`PrologueScene` keeps the forest and screen portraits outside `CanvasLayer`. The dialogue UI stays inside `CanvasLayer`, with a dark transparent bottom overlay, a Godot-native `StyleBoxFlat` dialogue panel, portrait frame, speaker name, dialogue text, styled Next button, and choice container.
+
+The prologue uses two portrait layers:
+
+- `portrait 1` assets are used as large character portraits on the screen.
+- `portrait 2` talking assets are used inside the dialogue portrait frame.
+
+Speaker portrait mapping is handled in `res://scripts/dialogue/dialogue_manager.gd`. Takashi, Mitsuki, and Makoto each use their matching talking portrait when they are the current speaker. `PrologueScene` also highlights the active speaker's screen portrait and dims the inactive screen portraits.
+
+No custom font files are currently present in `public/`, so the prototype uses Godot's default font with explicit font sizes, colors, and button styles. Recommended future font files are Cinzel or Cormorant Garamond for speaker names, and Noto Sans or Inter for dialogue text.
 
 ## Ending Scene
 
@@ -149,10 +176,19 @@ They are simple shape silhouettes for prototype readability:
 
 - Takashi/player placeholder on the left.
 - Lesser Abyss/enemy placeholder on the right.
-- Mitsuki and Makoto placeholder figures in the prologue and ending scenes.
+- Takashi, Mitsuki, and Makoto screen portraits and dialogue portraits in the prologue.
+- Mitsuki and Makoto temporary scene placeholders in the prologue and ending scenes.
 - A simple Godot-node forest background behind the characters.
 
 These are not final Destiny Realms art, not AI-generated external images, and not copied from any existing game.
+
+The `public` folder also contains Takashi skill icon assets for later battle UI polish:
+
+- `res://public/BasicSkillTakashi.png`
+- `res://public/AttackSkillTakashi.png`
+- `res://public/UltimateSkillTakashi.png`
+
+Those skill icons are present but not yet wired into the battle buttons.
 
 The battle scene applies a small runtime layout pass when it starts. Takashi is placed around 25% of the viewport width and 68% of the viewport height, while the Lesser Abyss is placed around 72% width and 68% height. This keeps both placeholders visible when the project is run, even if the editor window size differs from the base resolution.
 
@@ -217,7 +253,9 @@ The battle scene applies a small runtime layout pass when it starts. Takashi is 
 
 - Dialogue content is a short intro scene, not a full visual novel system.
 - Placeholder visuals are temporary prototype art, not final Destiny Realms art.
-- Mitsuki and Makoto use simple temporary scene placeholders, not final portraits.
+- Takashi, Mitsuki, and Makoto use temporary dialogue portraits plus simple scene placeholders.
+- Dialogue currently uses active talking portraits inside the frame and dimmed neutral portraits on screen.
+- The generated `DialogFrame.png` is kept in `public/` but not used as the main prologue panel until it can be cropped or redesigned for a smaller UI layout.
 - Octagram Fragment is only a small power hint for the prototype.
 - Enemy behavior is deterministic and has no AI variation.
 - Floating damage text uses default Godot label rendering.
@@ -231,7 +269,7 @@ The battle scene applies a small runtime layout pass when it starts. Takashi is 
 - Replace placeholders with final Destiny Realms illustrated character assets.
 - Add a main menu before the prologue.
 - Expand the ending scene later if the comic chapter needs a longer closing beat.
-- Add simple Mitsuki and Makoto portraits during dialogue.
+- Replace temporary dialogue portraits with final Destiny Realms portrait art when ready.
 - Add authored hit, skill, and ultimate animations.
 - Add SFX/BGM.
 - Continue refining UI styling while keeping it original.
