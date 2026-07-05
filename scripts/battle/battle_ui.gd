@@ -10,14 +10,26 @@ signal confirm_pressed
 const ATTACK_LABEL: String = "Void Strike"
 const SKILL_LABEL: String = "Triangle Rift"
 const ULTIMATE_LABEL: String = "Octagram Fragment"
+const TEXT_COLOR: Color = Color(0.9, 0.88, 0.82, 1.0)
+const MUTED_TEXT_COLOR: Color = Color(0.56, 0.6, 0.68, 1.0)
+const READY_TEXT_COLOR: Color = Color(1.0, 0.86, 0.35, 1.0)
+const BUTTON_NORMAL_COLOR: Color = Color(0.035, 0.045, 0.065, 0.9)
+const BUTTON_HOVER_COLOR: Color = Color(0.075, 0.092, 0.13, 0.95)
+const BUTTON_PRESSED_COLOR: Color = Color(0.12, 0.1, 0.055, 0.96)
+const BUTTON_DISABLED_COLOR: Color = Color(0.018, 0.022, 0.03, 0.78)
+const BUTTON_BORDER_COLOR: Color = Color(0.44, 0.38, 0.24, 0.78)
+const BUTTON_READY_BORDER_COLOR: Color = Color(0.82, 0.66, 0.28, 1.0)
 
 @onready var player_hp_label: Label = $PlayerStatusPanel/PlayerHpLabel
+@onready var player_hp_bar: ProgressBar = $PlayerStatusPanel/PlayerHpBar
 @onready var enemy_hp_label: Label = $EnemyStatusPanel/EnemyHpLabel
+@onready var enemy_hp_bar: ProgressBar = $EnemyStatusPanel/EnemyHpBar
 @onready var turn_label: Label = $LogPanel/TurnLabel
 @onready var battle_log_label: Label = $LogPanel/BattleLogLabel
 @onready var energy_label: Label = $PlayerStatusPanel/EnergyLabel
 @onready var energy_bar: ProgressBar = $PlayerStatusPanel/EnergyBar
 @onready var skill_points_label: Label = $PlayerStatusPanel/SkillPointsLabel
+@onready var skill_point_pips: HBoxContainer = $PlayerStatusPanel/SkillPointPips
 @onready var attack_button: Button = $ActionPanel/ActionButtons/AttackButton
 @onready var skill_button: Button = $ActionPanel/ActionButtons/SkillButton
 @onready var ultimate_button: Button = $ActionPanel/ActionButtons/UltimateButton
@@ -33,6 +45,11 @@ func _ready() -> void:
 	skill_button.pressed.connect(_on_skill_button_pressed)
 	ultimate_button.pressed.connect(_on_ultimate_button_pressed)
 	restart_button.pressed.connect(_on_restart_button_pressed)
+	_apply_action_button_style(attack_button, false, false)
+	_apply_action_button_style(skill_button, false, false)
+	_apply_action_button_style(ultimate_button, false, false)
+	_apply_restart_button_style()
+	set_restart_visible(false)
 	set_timing_mode(false)
 
 
@@ -48,9 +65,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		get_viewport().set_input_as_handled()
 
 
-func set_hp_text(player_text: String, enemy_text: String) -> void:
-	player_hp_label.text = player_text
-	enemy_hp_label.text = enemy_text
+func set_hp_values(player_current_hp: int, player_max_hp: int, enemy_current_hp: int, enemy_max_hp: int) -> void:
+	player_hp_label.text = "HP: %d/%d" % [player_current_hp, player_max_hp]
+	player_hp_bar.max_value = player_max_hp
+	player_hp_bar.value = player_current_hp
+	enemy_hp_label.text = "HP: %d/%d" % [enemy_current_hp, enemy_max_hp]
+	enemy_hp_bar.max_value = enemy_max_hp
+	enemy_hp_bar.value = enemy_current_hp
 
 
 func set_turn_text(text: String) -> void:
@@ -71,6 +92,14 @@ func set_energy(energy: int, max_energy: int) -> void:
 
 func set_skill_points(skill_points: int, max_skill_points: int) -> void:
 	skill_points_label.text = "Skill Points: %d/%d" % [skill_points, max_skill_points]
+	for index in range(skill_point_pips.get_child_count()):
+		var pip: ColorRect = skill_point_pips.get_child(index) as ColorRect
+		if pip == null:
+			continue
+		if index < skill_points:
+			pip.color = Color(0.75, 0.66, 0.36, 1.0)
+		else:
+			pip.color = Color(0.18, 0.2, 0.25, 0.85)
 
 
 func set_battle_input_enabled(enabled: bool) -> void:
@@ -79,53 +108,57 @@ func set_battle_input_enabled(enabled: bool) -> void:
 
 func set_actions_enabled(enabled: bool, ultimate_ready: bool = false, skill_ready: bool = true) -> void:
 	attack_button.disabled = not enabled
-	if enabled:
-		attack_button.text = "%s\nBasic | +1 SP | +Energy" % ATTACK_LABEL
-	else:
-		attack_button.text = "%s\nWaiting for turn" % ATTACK_LABEL
+	attack_button.text = ""
+	attack_button.tooltip_text = ATTACK_LABEL
+	_apply_action_button_style(attack_button, enabled, false)
 
 	skill_button.disabled = not enabled or not skill_ready
-	if not enabled:
-		skill_button.text = "%s\nWaiting for turn" % SKILL_LABEL
-	elif not skill_ready:
-		skill_button.text = "%s\nNeed 1 Skill Point" % SKILL_LABEL
-	else:
-		skill_button.text = "%s\nSkill | Cost 1 SP" % SKILL_LABEL
+	skill_button.text = ""
+	skill_button.tooltip_text = SKILL_LABEL
+	_apply_action_button_style(skill_button, enabled and skill_ready, false)
 
 	ultimate_button.disabled = not enabled or not ultimate_ready
+	ultimate_button.text = ""
+	ultimate_button.tooltip_text = ULTIMATE_LABEL
 	if ultimate_ready and enabled:
-		ultimate_button.text = "[READY] %s\nUltimate | 100 Energy" % ULTIMATE_LABEL
-		ultimate_button.add_theme_color_override("font_color", Color(1.0, 0.86, 0.35, 1.0))
-		ultimate_button.add_theme_color_override("font_hover_color", Color(1.0, 0.94, 0.58, 1.0))
-		ultimate_button.add_theme_color_override("font_pressed_color", Color(1.0, 0.8, 0.25, 1.0))
+		_apply_action_button_style(ultimate_button, true, true)
 	elif ultimate_ready:
-		ultimate_button.text = "[READY] %s\nWaiting for turn" % ULTIMATE_LABEL
-		ultimate_button.add_theme_color_override("font_color", Color(1.0, 0.86, 0.35, 1.0))
-		ultimate_button.add_theme_color_override("font_hover_color", Color(1.0, 0.94, 0.58, 1.0))
-		ultimate_button.add_theme_color_override("font_pressed_color", Color(1.0, 0.8, 0.25, 1.0))
+		_apply_action_button_style(ultimate_button, false, true)
 	else:
-		ultimate_button.text = "%s\nEnergy %d/%d" % [ULTIMATE_LABEL, current_energy, current_max_energy]
-		ultimate_button.remove_theme_color_override("font_color")
-		ultimate_button.remove_theme_color_override("font_hover_color")
-		ultimate_button.remove_theme_color_override("font_pressed_color")
+		_apply_action_button_style(ultimate_button, false, false)
 
 
 func set_restart_visible(show_restart: bool) -> void:
-	restart_button.visible = show_restart
-	restart_button.disabled = not show_restart
-	restart_button.text = "Restart Story"
+	restart_button.visible = false
+	restart_button.disabled = true
 
 
 func set_timing_mode(enabled: bool) -> void:
 	if enabled:
-		attack_button.text = "Confirm\nVoid Strike timing"
+		attack_button.text = ""
 		attack_button.disabled = false
+		_apply_action_button_style(attack_button, true, false)
 		skill_button.disabled = true
-		skill_button.text = "%s\nTiming active" % SKILL_LABEL
+		skill_button.text = ""
+		_apply_action_button_style(skill_button, false, false)
 		ultimate_button.disabled = true
-		ultimate_button.text = "%s\nTiming active" % ULTIMATE_LABEL
+		ultimate_button.text = ""
+		_apply_action_button_style(ultimate_button, false, false)
 	else:
-		attack_button.text = "%s\nBasic | +1 SP | +Energy" % ATTACK_LABEL
+		attack_button.text = ""
+
+
+func play_skill_cast_feedback() -> void:
+	skill_button.pivot_offset = skill_button.size * 0.5
+	skill_button.scale = Vector2.ONE
+	var original_modulate: Color = skill_button.modulate
+	var tween: Tween = create_tween()
+	tween.tween_property(skill_button, "scale", Vector2(1.16, 1.16), 0.12)
+	tween.parallel().tween_property(skill_button, "modulate", Color(0.75, 0.95, 1.0, 1.0), 0.12)
+	tween.tween_property(skill_button, "scale", Vector2(0.94, 0.94), 0.08)
+	tween.tween_property(skill_button, "scale", Vector2.ONE, 0.14)
+	tween.parallel().tween_property(skill_button, "modulate", original_modulate, 0.14)
+	await tween.finished
 
 
 func _on_attack_button_pressed() -> void:
@@ -142,6 +175,53 @@ func _on_ultimate_button_pressed() -> void:
 
 func _on_restart_button_pressed() -> void:
 	restart_pressed.emit()
+
+
+func _apply_action_button_style(button: Button, enabled: bool, ready: bool) -> void:
+	var font_color: Color = READY_TEXT_COLOR if ready else TEXT_COLOR
+	if not enabled and not ready:
+		font_color = MUTED_TEXT_COLOR
+
+	button.add_theme_color_override("font_color", font_color)
+	button.add_theme_color_override("font_hover_color", font_color)
+	button.add_theme_color_override("font_pressed_color", font_color)
+	button.add_theme_color_override("font_disabled_color", MUTED_TEXT_COLOR)
+	button.add_theme_font_size_override("font_size", 1)
+	button.add_theme_stylebox_override("normal", _make_button_style(BUTTON_NORMAL_COLOR, ready))
+	button.add_theme_stylebox_override("hover", _make_button_style(BUTTON_HOVER_COLOR, ready))
+	button.add_theme_stylebox_override("pressed", _make_button_style(BUTTON_PRESSED_COLOR, ready))
+	button.add_theme_stylebox_override("disabled", _make_button_style(BUTTON_DISABLED_COLOR, ready))
+	button.add_theme_stylebox_override("focus", _make_button_style(Color(0.0, 0.0, 0.0, 0.0), ready))
+	button.modulate = Color(1.0, 1.0, 1.0, 1.0) if enabled or ready else Color(0.48, 0.5, 0.56, 0.88)
+
+
+func _apply_restart_button_style() -> void:
+	restart_button.add_theme_color_override("font_color", TEXT_COLOR)
+	restart_button.add_theme_color_override("font_hover_color", TEXT_COLOR)
+	restart_button.add_theme_font_size_override("font_size", 15)
+	restart_button.add_theme_stylebox_override("normal", _make_button_style(Color(0.03, 0.034, 0.045, 0.88), false))
+	restart_button.add_theme_stylebox_override("hover", _make_button_style(BUTTON_HOVER_COLOR, false))
+	restart_button.add_theme_stylebox_override("pressed", _make_button_style(BUTTON_PRESSED_COLOR, false))
+	restart_button.add_theme_stylebox_override("disabled", _make_button_style(BUTTON_DISABLED_COLOR, false))
+
+
+func _make_button_style(background_color: Color, ready: bool) -> StyleBoxFlat:
+	var style: StyleBoxFlat = StyleBoxFlat.new()
+	style.bg_color = background_color
+	style.border_color = BUTTON_READY_BORDER_COLOR if ready else BUTTON_BORDER_COLOR
+	style.border_width_left = 1
+	style.border_width_top = 1
+	style.border_width_right = 1
+	style.border_width_bottom = 1
+	style.corner_radius_top_left = 34
+	style.corner_radius_top_right = 34
+	style.corner_radius_bottom_right = 34
+	style.corner_radius_bottom_left = 34
+	style.content_margin_left = 7.0
+	style.content_margin_right = 7.0
+	style.content_margin_top = 7.0
+	style.content_margin_bottom = 7.0
+	return style
 
 
 func _is_confirm_input(event: InputEvent) -> bool:

@@ -3,7 +3,6 @@ class_name BattleManager
 
 enum BattleState {
 	PLAYER_TURN,
-	ATTACK_TIMING,
 	ACTION_RESOLUTION,
 	ENEMY_TURN,
 	WIN,
@@ -13,7 +12,6 @@ enum BattleState {
 const PLAYER_MAX_HP: int = 100
 const ENEMY_MAX_HP: int = 120
 const BASIC_ATTACK_DAMAGE: int = 12
-const BASIC_ATTACK_GOOD_DAMAGE: int = 18
 const BASIC_ATTACK_ENERGY: int = 25
 const SKILL_DAMAGE: int = 25
 const SKILL_ENERGY: int = 15
@@ -39,9 +37,12 @@ const ENDING_SCENE_PATH: String = "res://scenes/ending/ending_scene.tscn"
 @onready var timing_bar: TimingBar = $"../CanvasLayer/BattleUI/TimingBar"
 @onready var battle_scene: Node2D = $".."
 @onready var battle_camera: Camera2D = get_node_or_null("../BattleCamera") as Camera2D
+@onready var forest_background: Sprite2D = get_node_or_null("../Background/ForestBackground") as Sprite2D
 @onready var sky: Polygon2D = get_node_or_null("../Background/Sky") as Polygon2D
 @onready var forest_line: Polygon2D = get_node_or_null("../Background/ForestLine") as Polygon2D
 @onready var ground: Polygon2D = get_node_or_null("../Background/Ground") as Polygon2D
+@onready var battle_intro_overlay: ColorRect = get_node_or_null("../CanvasLayer/BattleIntroOverlay") as ColorRect
+@onready var battle_intro_label: Label = get_node_or_null("../CanvasLayer/BattleIntroOverlay/IntroLabel") as Label
 
 var state: int = BattleState.PLAYER_TURN
 var ultimate_energy: int = 0
@@ -57,13 +58,13 @@ func _ready() -> void:
 	ui.ultimate_pressed.connect(_on_ultimate_pressed)
 	ui.restart_pressed.connect(_on_restart_pressed)
 	ui.confirm_pressed.connect(_on_confirm_pressed)
-	timing_bar.timing_finished.connect(_on_timing_finished)
 	if battle_camera != null:
 		battle_camera.enabled = true
 
 	await get_tree().process_frame
 	_apply_runtime_layout()
 	restart_battle()
+	_play_battle_intro_effect()
 
 
 func restart_battle() -> void:
@@ -94,6 +95,12 @@ func _apply_runtime_layout() -> void:
 		battle_camera.enabled = true
 		battle_camera.position = viewport_size * 0.5
 		battle_camera.offset = Vector2.ZERO
+
+	if forest_background != null and forest_background.texture != null:
+		var texture_size: Vector2 = forest_background.texture.get_size()
+		var cover_scale: float = maxf(viewport_size.x / texture_size.x, viewport_size.y / texture_size.y)
+		forest_background.position = Vector2.ZERO
+		forest_background.scale = Vector2(cover_scale, cover_scale)
 
 	if sky != null:
 		sky.polygon = PackedVector2Array([
@@ -130,6 +137,30 @@ func _apply_runtime_layout() -> void:
 	enemy.set_home_position(Vector2(viewport_size.x * ENEMY_VIEWPORT_POSITION.x, viewport_size.y * ENEMY_VIEWPORT_POSITION.y))
 
 
+func _play_battle_intro_effect() -> void:
+	if battle_intro_overlay == null:
+		return
+
+	battle_intro_overlay.visible = true
+	battle_intro_overlay.modulate = Color(1.0, 1.0, 1.0, 1.0)
+	if battle_intro_label != null:
+		battle_intro_label.position.x = 0.0
+		battle_intro_label.modulate = Color(1.0, 1.0, 1.0, 1.0)
+		var label_tween: Tween = create_tween()
+		label_tween.tween_property(battle_intro_label, "position:x", 22.0, 0.32)
+		label_tween.tween_property(battle_intro_label, "modulate:a", 0.0, 0.35)
+
+	var overlay_tween: Tween = create_tween()
+	overlay_tween.tween_interval(0.28)
+	overlay_tween.tween_property(battle_intro_overlay, "modulate:a", 0.0, 0.45)
+	overlay_tween.tween_callback(Callable(self, "_hide_battle_intro_overlay"))
+
+
+func _hide_battle_intro_overlay() -> void:
+	if battle_intro_overlay != null:
+		battle_intro_overlay.visible = false
+
+
 func _begin_player_turn(log_text: String = "Your turn. Choose an action.") -> void:
 	if _is_battle_over():
 		return
@@ -158,14 +189,6 @@ func _begin_enemy_turn(log_text: String = "Enemy is preparing to attack.") -> vo
 		_enemy_attack()
 
 
-func _start_attack_timing() -> void:
-	state = BattleState.ATTACK_TIMING
-	ui.set_turn_text("Void Strike")
-	ui.set_battle_log("Confirm near the green timing zone for stronger Void Strike damage.")
-	ui.set_timing_mode(true)
-	timing_bar.start_window()
-
-
 func _enemy_attack() -> void:
 	var damage: int = enemy.base_attack_damage
 	var log_text: String = "Enemy attacks for %d damage." % damage
@@ -188,15 +211,29 @@ func _enemy_attack() -> void:
 
 
 func _on_attack_pressed() -> void:
-	if state == BattleState.PLAYER_TURN:
-		_start_attack_timing()
-	elif state == BattleState.ATTACK_TIMING:
-		timing_bar.confirm()
+	if state != BattleState.PLAYER_TURN:
+		return
+
+	state = BattleState.ACTION_RESOLUTION
+	_update_action_buttons(false)
+	ui.set_turn_text("Void Strike")
+	ui.set_battle_log("Void Strike cuts forward.")
+	await player.play_attack_movement(enemy)
+	if state != BattleState.ACTION_RESOLUTION:
+		return
+
+	enemy.take_damage(BASIC_ATTACK_DAMAGE)
+	_show_floating_damage(enemy, BASIC_ATTACK_DAMAGE)
+	await enemy.play_hit_feedback()
+	_shake_camera()
+	_add_ultimate_energy(BASIC_ATTACK_ENERGY)
+	_add_skill_points(SKILL_POINT_GAIN_BASIC)
+	_refresh_hp_labels()
+	_finish_player_action("Void Strike deals %d damage, gains %d energy, and restores %d Skill Point." % [BASIC_ATTACK_DAMAGE, BASIC_ATTACK_ENERGY, SKILL_POINT_GAIN_BASIC])
 
 
 func _on_confirm_pressed() -> void:
-	if state == BattleState.ATTACK_TIMING:
-		timing_bar.confirm()
+	pass
 
 
 func _on_skill_pressed() -> void:
@@ -206,8 +243,13 @@ func _on_skill_pressed() -> void:
 	state = BattleState.ACTION_RESOLUTION
 	_update_action_buttons(false)
 	ui.set_turn_text("Triangle Rift")
-	ui.set_battle_log("Triangle Rift spends %d Skill Point and generates %d energy." % [SKILL_POINT_COST_SKILL, SKILL_ENERGY])
+	ui.set_battle_log("Triangle Rift charging...")
 	_spend_skill_points(SKILL_POINT_COST_SKILL)
+	await ui.play_skill_cast_feedback()
+	if state != BattleState.ACTION_RESOLUTION:
+		return
+
+	ui.set_battle_log("Triangle Rift spends %d Skill Point and generates %d energy." % [SKILL_POINT_COST_SKILL, SKILL_ENERGY])
 	await player.play_skill_movement(enemy)
 	if state != BattleState.ACTION_RESOLUTION:
 		return
@@ -251,36 +293,6 @@ func _on_restart_pressed() -> void:
 	get_tree().change_scene_to_file(PROLOGUE_SCENE_PATH)
 
 
-func _on_timing_finished(good_timing: bool, confirmed: bool) -> void:
-	if state != BattleState.ATTACK_TIMING:
-		return
-
-	ui.set_timing_mode(false)
-	_update_action_buttons(false)
-	state = BattleState.ACTION_RESOLUTION
-
-	var damage: int = BASIC_ATTACK_GOOD_DAMAGE if good_timing else BASIC_ATTACK_DAMAGE
-	await player.play_attack_movement(enemy)
-	if state != BattleState.ACTION_RESOLUTION:
-		return
-
-	enemy.take_damage(damage)
-	_show_floating_damage(enemy, damage)
-	await enemy.play_hit_feedback()
-	_shake_camera()
-	_add_ultimate_energy(BASIC_ATTACK_ENERGY)
-	_add_skill_points(SKILL_POINT_GAIN_BASIC)
-	_refresh_hp_labels()
-
-	var log_text: String = "Void Strike deals %d damage, gains %d energy, and restores %d Skill Point." % [damage, BASIC_ATTACK_ENERGY, SKILL_POINT_GAIN_BASIC]
-	if good_timing:
-		log_text = "Good timing. Void Strike deals %d damage, gains %d energy, and restores %d Skill Point." % [damage, BASIC_ATTACK_ENERGY, SKILL_POINT_GAIN_BASIC]
-	elif not confirmed:
-		log_text = "Timing window closes. Void Strike deals %d damage, gains %d energy, and restores %d Skill Point." % [damage, BASIC_ATTACK_ENERGY, SKILL_POINT_GAIN_BASIC]
-
-	_finish_player_action(log_text)
-
-
 func _win(log_text: String) -> void:
 	state = BattleState.WIN
 	timing_bar.cancel_window()
@@ -305,7 +317,7 @@ func _lose(log_text: String) -> void:
 
 
 func _refresh_hp_labels() -> void:
-	ui.set_hp_text(player.get_hp_text(), enemy.get_hp_text())
+	ui.set_hp_values(player.current_hp, player.max_hp, enemy.current_hp, enemy.max_hp)
 
 
 func _refresh_energy_ui() -> void:

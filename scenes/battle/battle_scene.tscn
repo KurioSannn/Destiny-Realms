@@ -4,20 +4,65 @@
 [ext_resource type="Script" uid="uid://coa5gqlwqpyja" path="res://scripts/battle/combatant.gd" id="2_cb"]
 [ext_resource type="Script" uid="uid://df107tvw3dbxk" path="res://scripts/battle/battle_ui.gd" id="3_ui"]
 [ext_resource type="Script" uid="uid://cinyx3w5lno3f" path="res://scripts/battle/timing_bar.gd" id="4_tb"]
+[ext_resource type="Texture2D" path="res://public/BasicSkillTakashi.png" id="5_basic_icon"]
+[ext_resource type="Texture2D" path="res://public/AttackSkillTakashi.png" id="6_skill_icon"]
+[ext_resource type="Texture2D" path="res://public/UltimateSkillTakashi.png" id="7_ultimate_icon"]
+[ext_resource type="Texture2D" path="res://public/BG1Forest.png" id="8_forest_bg"]
+[ext_resource type="Texture2D" path="res://public/Takashi portrait 1.png" id="9_takashi_profile"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hud_panel"]
+bg_color = Color(0.02, 0.027, 0.04, 0.84)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.44, 0.38, 0.24, 0.72)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_command_panel"]
+bg_color = Color(0.018, 0.023, 0.036, 0.9)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.5, 0.42, 0.24, 0.82)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hp_bar"]
+bg_color = Color(0.18, 0.68, 0.28, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_enemy_hp_bar"]
+bg_color = Color(0.72, 0.13, 0.14, 1)
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_energy_bar"]
+bg_color = Color(0.18, 0.52, 0.76, 1)
 
 [node name="BattleScene" type="Node2D" unique_id=1154078697]
 
 [node name="Background" type="Node2D" parent="." unique_id=1452145124]
 
+[node name="ForestBackground" type="Sprite2D" parent="Background"]
+texture = ExtResource("8_forest_bg")
+centered = false
+
 [node name="Sky" type="Polygon2D" parent="Background" unique_id=1260451782]
+visible = false
 color = Color(0.113725, 0.156863, 0.180392, 1)
 polygon = PackedVector2Array(0, 0, 1280, 0, 1280, 720, 0, 720)
 
 [node name="ForestLine" type="Polygon2D" parent="Background" unique_id=1817632711]
+visible = false
 color = Color(0.0784314, 0.184314, 0.137255, 1)
 polygon = PackedVector2Array(0, 223, 102, 158, 205, 245, 358, 151, 550, 259, 730, 158, 922, 259, 1101, 151, 1280, 223, 1280, 720, 0, 720)
 
 [node name="Ground" type="Polygon2D" parent="Background" unique_id=1481111942]
+visible = false
 color = Color(0.141176, 0.137255, 0.101961, 1)
 polygon = PackedVector2Array(0, 518, 1280, 497, 1280, 720, 0, 720)
 
@@ -171,75 +216,149 @@ script = ExtResource("3_ui")
 layout_mode = 0
 offset_left = 28.0
 offset_top = 24.0
-offset_right = 378.0
-offset_bottom = 174.0
+offset_right = 346.0
+offset_bottom = 154.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_hud_panel")
+
+[node name="ProfileTexture" type="TextureRect" parent="CanvasLayer/BattleUI/PlayerStatusPanel"]
+layout_mode = 0
+offset_left = 14.0
+offset_top = 16.0
+offset_right = 78.0
+offset_bottom = 102.0
+texture = ExtResource("9_takashi_profile")
+expand_mode = 1
+stretch_mode = 5
 
 [node name="PlayerTitleLabel" type="Label" parent="CanvasLayer/BattleUI/PlayerStatusPanel"]
 layout_mode = 0
-offset_left = 18.0
+offset_left = 92.0
 offset_top = 12.0
-offset_right = 320.0
-offset_bottom = 38.0
-theme_override_font_sizes/font_size = 22
+offset_right = 300.0
+offset_bottom = 34.0
+theme_override_colors/font_color = Color(0.9, 0.82, 0.56, 1)
+theme_override_font_sizes/font_size = 18
 text = "Takashi"
 
 [node name="PlayerHpLabel" type="Label" parent="CanvasLayer/BattleUI/PlayerStatusPanel" unique_id=33009242]
 layout_mode = 0
-offset_left = 18.0
-offset_top = 44.0
-offset_right = 320.0
-offset_bottom = 68.0
+offset_left = 92.0
+offset_top = 38.0
+offset_right = 300.0
+offset_bottom = 58.0
+theme_override_colors/font_color = Color(0.9, 0.88, 0.82, 1)
+theme_override_font_sizes/font_size = 14
 text = "Takashi HP: 100/100"
+
+[node name="PlayerHpBar" type="ProgressBar" parent="CanvasLayer/BattleUI/PlayerStatusPanel"]
+layout_mode = 0
+offset_left = 92.0
+offset_top = 60.0
+offset_right = 300.0
+offset_bottom = 70.0
+theme_override_styles/fill = SubResource("StyleBoxFlat_hp_bar")
+show_percentage = false
 
 [node name="EnergyLabel" type="Label" parent="CanvasLayer/BattleUI/PlayerStatusPanel" unique_id=2001091825]
 layout_mode = 0
-offset_left = 18.0
-offset_top = 76.0
-offset_right = 320.0
-offset_bottom = 100.0
+offset_left = 92.0
+offset_top = 78.0
+offset_right = 300.0
+offset_bottom = 98.0
+theme_override_colors/font_color = Color(0.82, 0.9, 0.96, 1)
+theme_override_font_sizes/font_size = 14
 text = "Takashi Energy: 0/100"
 
 [node name="EnergyBar" type="ProgressBar" parent="CanvasLayer/BattleUI/PlayerStatusPanel" unique_id=718535470]
 layout_mode = 0
-offset_left = 18.0
-offset_top = 104.0
-offset_right = 318.0
-offset_bottom = 124.0
+offset_left = 92.0
+offset_top = 100.0
+offset_right = 300.0
+offset_bottom = 110.0
+theme_override_styles/fill = SubResource("StyleBoxFlat_energy_bar")
 show_percentage = false
 
 [node name="SkillPointsLabel" type="Label" parent="CanvasLayer/BattleUI/PlayerStatusPanel" unique_id=1925744664]
 layout_mode = 0
-offset_left = 18.0
-offset_top = 128.0
-offset_right = 320.0
-offset_bottom = 150.0
+offset_left = 14.0
+offset_top = 110.0
+offset_right = 150.0
+offset_bottom = 132.0
+theme_override_colors/font_color = Color(0.9, 0.88, 0.82, 1)
+theme_override_font_sizes/font_size = 13
 text = "Skill Points: 3/5"
+
+[node name="SkillPointPips" type="HBoxContainer" parent="CanvasLayer/BattleUI/PlayerStatusPanel"]
+layout_mode = 0
+offset_left = 154.0
+offset_top = 114.0
+offset_right = 300.0
+offset_bottom = 128.0
+theme_override_constants/separation = 5
+
+[node name="Pip1" type="ColorRect" parent="CanvasLayer/BattleUI/PlayerStatusPanel/SkillPointPips"]
+custom_minimum_size = Vector2(18, 8)
+layout_mode = 2
+color = Color(0.75, 0.66, 0.36, 1)
+
+[node name="Pip2" type="ColorRect" parent="CanvasLayer/BattleUI/PlayerStatusPanel/SkillPointPips"]
+custom_minimum_size = Vector2(18, 8)
+layout_mode = 2
+color = Color(0.75, 0.66, 0.36, 1)
+
+[node name="Pip3" type="ColorRect" parent="CanvasLayer/BattleUI/PlayerStatusPanel/SkillPointPips"]
+custom_minimum_size = Vector2(18, 8)
+layout_mode = 2
+color = Color(0.75, 0.66, 0.36, 1)
+
+[node name="Pip4" type="ColorRect" parent="CanvasLayer/BattleUI/PlayerStatusPanel/SkillPointPips"]
+custom_minimum_size = Vector2(18, 8)
+layout_mode = 2
+color = Color(0.18, 0.2, 0.25, 0.85)
+
+[node name="Pip5" type="ColorRect" parent="CanvasLayer/BattleUI/PlayerStatusPanel/SkillPointPips"]
+custom_minimum_size = Vector2(18, 8)
+layout_mode = 2
+color = Color(0.18, 0.2, 0.25, 0.85)
 
 [node name="EnemyStatusPanel" type="Panel" parent="CanvasLayer/BattleUI"]
 layout_mode = 0
-offset_left = 902.0
+offset_left = 944.0
 offset_top = 24.0
 offset_right = 1252.0
 offset_bottom = 112.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_hud_panel")
 
 [node name="EnemyTitleLabel" type="Label" parent="CanvasLayer/BattleUI/EnemyStatusPanel"]
 layout_mode = 0
 offset_left = 18.0
 offset_top = 12.0
-offset_right = 320.0
-offset_bottom = 38.0
-theme_override_font_sizes/font_size = 22
+offset_right = 286.0
+offset_bottom = 34.0
+theme_override_colors/font_color = Color(0.9, 0.82, 0.56, 1)
+theme_override_font_sizes/font_size = 18
 text = "Lesser Abyss"
 horizontal_alignment = 2
 
 [node name="EnemyHpLabel" type="Label" parent="CanvasLayer/BattleUI/EnemyStatusPanel" unique_id=975063342]
 layout_mode = 0
 offset_left = 18.0
-offset_top = 48.0
-offset_right = 320.0
-offset_bottom = 72.0
+offset_top = 42.0
+offset_right = 286.0
+offset_bottom = 62.0
+theme_override_colors/font_color = Color(0.9, 0.88, 0.82, 1)
+theme_override_font_sizes/font_size = 14
 text = "Lesser Abyss HP: 120/120"
 horizontal_alignment = 2
+
+[node name="EnemyHpBar" type="ProgressBar" parent="CanvasLayer/BattleUI/EnemyStatusPanel"]
+layout_mode = 0
+offset_left = 18.0
+offset_top = 66.0
+offset_right = 286.0
+offset_bottom = 76.0
+theme_override_styles/fill = SubResource("StyleBoxFlat_enemy_hp_bar")
+show_percentage = false
 
 [node name="TimingBar" type="ProgressBar" parent="CanvasLayer/BattleUI" unique_id=1839870862]
 visible = false
@@ -254,72 +373,106 @@ script = ExtResource("4_tb")
 [node name="LogPanel" type="Panel" parent="CanvasLayer/BattleUI"]
 layout_mode = 0
 offset_left = 28.0
-offset_top = 500.0
-offset_right = 790.0
-offset_bottom = 684.0
+offset_top = 534.0
+offset_right = 690.0
+offset_bottom = 682.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_hud_panel")
 
 [node name="TurnLabel" type="Label" parent="CanvasLayer/BattleUI/LogPanel" unique_id=5352842]
 layout_mode = 0
 offset_left = 20.0
 offset_top = 16.0
 offset_right = 320.0
-offset_bottom = 42.0
-theme_override_font_sizes/font_size = 22
+offset_bottom = 38.0
+theme_override_colors/font_color = Color(0.9, 0.82, 0.56, 1)
+theme_override_font_sizes/font_size = 18
 text = "Player Turn"
 
 [node name="BattleLogLabel" type="Label" parent="CanvasLayer/BattleUI/LogPanel" unique_id=329072349]
 layout_mode = 0
 offset_left = 20.0
-offset_top = 54.0
-offset_right = 730.0
-offset_bottom = 152.0
-theme_override_font_sizes/font_size = 18
+offset_top = 46.0
+offset_right = 630.0
+offset_bottom = 122.0
+theme_override_colors/font_color = Color(0.9, 0.88, 0.82, 1)
+theme_override_font_sizes/font_size = 15
 text = "Battle started. Choose an action."
 autowrap_mode = 3
 
 [node name="ActionPanel" type="Panel" parent="CanvasLayer/BattleUI"]
 layout_mode = 0
-offset_left = 820.0
-offset_top = 446.0
+offset_left = 1000.0
+offset_top = 568.0
 offset_right = 1252.0
-offset_bottom = 684.0
+offset_bottom = 672.0
+theme_override_styles/panel = SubResource("StyleBoxFlat_command_panel")
 
 [node name="ActionTitleLabel" type="Label" parent="CanvasLayer/BattleUI/ActionPanel"]
+visible = false
 layout_mode = 0
 offset_left = 18.0
 offset_top = 12.0
 offset_right = 400.0
-offset_bottom = 36.0
-theme_override_font_sizes/font_size = 20
-text = "Action Command"
+offset_bottom = 34.0
+theme_override_colors/font_color = Color(0.9, 0.82, 0.56, 1)
+theme_override_font_sizes/font_size = 18
+text = ""
 
-[node name="ActionButtons" type="VBoxContainer" parent="CanvasLayer/BattleUI/ActionPanel" unique_id=896587501]
+[node name="ActionButtons" type="HBoxContainer" parent="CanvasLayer/BattleUI/ActionPanel" unique_id=896587501]
 layout_mode = 0
-offset_left = 18.0
-offset_top = 48.0
-offset_right = 414.0
-offset_bottom = 218.0
-theme_override_constants/separation = 8
+offset_left = 14.0
+offset_top = 14.0
+offset_right = 238.0
+offset_bottom = 90.0
+theme_override_constants/separation = 10
 
 [node name="AttackButton" type="Button" parent="CanvasLayer/BattleUI/ActionPanel/ActionButtons" unique_id=1989041952]
-custom_minimum_size = Vector2(396, 48)
+custom_minimum_size = Vector2(68, 68)
 layout_mode = 2
-text = "Void Strike\nBasic | +1 SP | +Energy"
-alignment = 0
+tooltip_text = "Void Strike"
+icon = ExtResource("5_basic_icon")
+expand_icon = true
+text = ""
 
 [node name="SkillButton" type="Button" parent="CanvasLayer/BattleUI/ActionPanel/ActionButtons" unique_id=670048631]
-custom_minimum_size = Vector2(396, 48)
+custom_minimum_size = Vector2(68, 68)
 layout_mode = 2
-text = "Triangle Rift\nSkill | Cost 1 SP"
-alignment = 0
+tooltip_text = "Triangle Rift"
+icon = ExtResource("6_skill_icon")
+expand_icon = true
+text = ""
 
 [node name="UltimateButton" type="Button" parent="CanvasLayer/BattleUI/ActionPanel/ActionButtons" unique_id=295655566]
-custom_minimum_size = Vector2(396, 48)
+custom_minimum_size = Vector2(68, 68)
 layout_mode = 2
-text = "Octagram Fragment\nEnergy 0/100"
-alignment = 0
+tooltip_text = "Octagram Fragment"
+icon = ExtResource("7_ultimate_icon")
+expand_icon = true
+text = ""
 
 [node name="RestartButton" type="Button" parent="CanvasLayer/BattleUI/ActionPanel/ActionButtons" unique_id=759267459]
-custom_minimum_size = Vector2(396, 38)
+visible = false
+custom_minimum_size = Vector2(0, 0)
 layout_mode = 2
-text = "Restart Story"
+text = ""
+
+[node name="BattleIntroOverlay" type="ColorRect" parent="CanvasLayer"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.01, 0.012, 0.018, 0.72)
+
+[node name="IntroLabel" type="Label" parent="CanvasLayer/BattleIntroOverlay"]
+layout_mode = 0
+offset_left = 0.0
+offset_top = 318.0
+offset_right = 1280.0
+offset_bottom = 374.0
+theme_override_colors/font_color = Color(0.92, 0.78, 0.38, 1)
+theme_override_font_sizes/font_size = 38
+text = "BATTLE START"
+horizontal_alignment = 1
