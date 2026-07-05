@@ -104,6 +104,8 @@ No custom font files are currently present in `public/`, so the prototype uses G
 
 The ending has a `Back to Prologue` button that returns to `res://scenes/prologue/prologue_scene.tscn`.
 
+The ending UI now matches the prologue style: forest background, large screen portraits, active-speaker highlight, talking portrait inside the dialogue frame, bottom dialogue panel, and styled final panel.
+
 ## Controls
 
 Dialogue:
@@ -256,7 +258,7 @@ The battle scene applies a small runtime layout pass when it starts. Takashi is 
 
 1. Defeat the Lesser Abyss.
 2. Confirm `EndingScene` appears.
-3. Confirm Takashi, Mitsuki, and Makoto ending dialogue appears.
+3. Confirm Takashi, Mitsuki, and Makoto ending dialogue appears with the same portrait/dialogue layout as the prologue.
 4. Click `Next` or press Space/Enter to advance.
 5. Confirm `Destiny Realms: Awakening in Werdonia` and `To be continued...` appear.
 6. Click `Back to Prologue` and confirm the prologue starts again.

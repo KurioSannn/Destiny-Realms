@@ -3,7 +3,11 @@ class_name EndingScene
 
 const PROLOGUE_SCENE_PATH: String = "res://scenes/prologue/prologue_scene.tscn"
 const BASE_VIEWPORT_SIZE: Vector2 = Vector2(1280.0, 720.0)
+const TAKASHI_TALK_TEXTURE: Texture2D = preload("res://public/Takashi portrait 2 (talk).png")
+const MITSUKI_TALK_TEXTURE: Texture2D = preload("res://public/Mitsuki portrait 2 (talk).png")
+const MAKOTO_TALK_TEXTURE: Texture2D = preload("res://public/Makoto portrait 2 (Talk).png")
 
+@onready var forest_background: Sprite2D = get_node_or_null("Background/ForestBackground") as Sprite2D
 @onready var sky: Polygon2D = get_node_or_null("Background/Sky") as Polygon2D
 @onready var forest_line: Polygon2D = get_node_or_null("Background/ForestLine") as Polygon2D
 @onready var ground: Polygon2D = get_node_or_null("Background/Ground") as Polygon2D
@@ -12,9 +16,22 @@ const BASE_VIEWPORT_SIZE: Vector2 = Vector2(1280.0, 720.0)
 @onready var makoto_visual: Node2D = get_node_or_null("CharacterLayer/MakotoVisual") as Node2D
 @onready var speaker_name_label: Label = get_node_or_null("CanvasLayer/DialoguePanel/SpeakerNameLabel") as Label
 @onready var dialogue_text_label: Label = get_node_or_null("CanvasLayer/DialoguePanel/DialogueTextLabel") as Label
+@onready var portrait_frame: Control = get_node_or_null("CanvasLayer/DialoguePanel/PortraitFrame") as Control
+@onready var portrait_texture_rect: TextureRect = get_node_or_null("CanvasLayer/DialoguePanel/PortraitFrame/PortraitTextureRect") as TextureRect
 @onready var next_button: Button = get_node_or_null("CanvasLayer/DialoguePanel/NextButton") as Button
+@onready var dialogue_panel: Panel = get_node_or_null("CanvasLayer/DialoguePanel") as Panel
 @onready var final_panel: Panel = get_node_or_null("CanvasLayer/FinalPanel") as Panel
 @onready var back_button: Button = get_node_or_null("CanvasLayer/FinalPanel/BackButton") as Button
+@onready var world_portraits: Dictionary = {
+	"Takashi": get_node_or_null("CharacterLayer/WorldTakashiPortrait") as Sprite2D,
+	"Mitsuki": get_node_or_null("CharacterLayer/WorldMitsukiPortrait") as Sprite2D,
+	"Makoto": get_node_or_null("CharacterLayer/WorldMakotoPortrait") as Sprite2D
+}
+@onready var world_name_labels: Array[Label] = [
+	get_node_or_null("CharacterLayer/TakashiVisual/TakashiLabel") as Label,
+	get_node_or_null("CharacterLayer/MitsukiVisual/MitsukiLabel") as Label,
+	get_node_or_null("CharacterLayer/MakotoVisual/MakotoLabel") as Label
+]
 
 var _current_index: int = 0
 var _dialogue_entries: Array[Dictionary] = [
@@ -60,6 +77,7 @@ func _ready() -> void:
 		back_button.pressed.connect(_back_to_prologue)
 	if final_panel != null:
 		final_panel.visible = false
+	_hide_world_name_labels()
 
 	await get_tree().process_frame
 	_apply_runtime_layout()
@@ -79,6 +97,12 @@ func _apply_runtime_layout() -> void:
 	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
 	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
 		viewport_size = BASE_VIEWPORT_SIZE
+
+	if forest_background != null and forest_background.texture != null:
+		var texture_size: Vector2 = forest_background.texture.get_size()
+		var cover_scale: float = maxf(viewport_size.x / texture_size.x, viewport_size.y / texture_size.y)
+		forest_background.position = Vector2.ZERO
+		forest_background.scale = Vector2(cover_scale, cover_scale)
 
 	if sky != null:
 		sky.polygon = PackedVector2Array([
@@ -113,6 +137,7 @@ func _apply_runtime_layout() -> void:
 		mitsuki_visual.position = Vector2(viewport_size.x * 0.54, viewport_size.y * 0.66)
 	if makoto_visual != null:
 		makoto_visual.position = Vector2(viewport_size.x * 0.7, viewport_size.y * 0.66)
+	_layout_world_portraits(viewport_size)
 
 
 func _show_current_entry() -> void:
@@ -125,6 +150,9 @@ func _show_current_entry() -> void:
 		speaker_name_label.text = str(entry.get("speaker", ""))
 	if dialogue_text_label != null:
 		dialogue_text_label.text = str(entry.get("text", ""))
+	var speaker_name: String = str(entry.get("speaker", ""))
+	_update_dialogue_portrait(speaker_name)
+	_highlight_world_speaker(speaker_name)
 
 
 func _advance() -> void:
@@ -135,6 +163,8 @@ func _advance() -> void:
 func _show_final_panel() -> void:
 	if final_panel != null:
 		final_panel.visible = true
+	if dialogue_panel != null:
+		dialogue_panel.visible = false
 	if next_button != null:
 		next_button.disabled = true
 		next_button.visible = false
@@ -142,6 +172,10 @@ func _show_final_panel() -> void:
 		speaker_name_label.text = ""
 	if dialogue_text_label != null:
 		dialogue_text_label.text = ""
+	for character_name in world_portraits.keys():
+		var portrait: Sprite2D = world_portraits[character_name] as Sprite2D
+		if portrait != null:
+			portrait.modulate = Color(0.72, 0.76, 0.84, 0.82)
 
 
 func _back_to_prologue() -> void:
@@ -156,3 +190,58 @@ func _is_advance_input(event: InputEvent) -> bool:
 		return event.keycode == KEY_SPACE or event.keycode == KEY_ENTER
 
 	return false
+
+
+func _update_dialogue_portrait(speaker_name: String) -> void:
+	if portrait_texture_rect == null or portrait_frame == null:
+		return
+
+	match speaker_name:
+		"Takashi":
+			portrait_texture_rect.texture = TAKASHI_TALK_TEXTURE
+		"Mitsuki":
+			portrait_texture_rect.texture = MITSUKI_TALK_TEXTURE
+		"Makoto":
+			portrait_texture_rect.texture = MAKOTO_TALK_TEXTURE
+		_:
+			portrait_texture_rect.texture = null
+
+	var has_texture: bool = portrait_texture_rect.texture != null
+	portrait_texture_rect.visible = has_texture
+	portrait_frame.visible = has_texture
+
+
+func _highlight_world_speaker(speaker_name: String) -> void:
+	for character_name in world_portraits.keys():
+		var portrait: Sprite2D = world_portraits[character_name] as Sprite2D
+		if portrait == null:
+			continue
+
+		if character_name == speaker_name:
+			portrait.modulate = Color(1.0, 1.0, 1.0, 1.0)
+			portrait.z_index = 4
+		else:
+			portrait.modulate = Color(0.52, 0.56, 0.64, 0.72)
+			portrait.z_index = 2
+
+
+func _layout_world_portraits(viewport_size: Vector2) -> void:
+	var positions: Dictionary = {
+		"Takashi": Vector2(viewport_size.x * 0.2, viewport_size.y * 0.52),
+		"Makoto": Vector2(viewport_size.x * 0.65, viewport_size.y * 0.515),
+		"Mitsuki": Vector2(viewport_size.x * 0.8, viewport_size.y * 0.51)
+	}
+
+	for character_name in world_portraits.keys():
+		var portrait: Sprite2D = world_portraits[character_name] as Sprite2D
+		if portrait == null:
+			continue
+
+		portrait.position = positions[character_name]
+		portrait.scale = Vector2(0.24, 0.24)
+
+
+func _hide_world_name_labels() -> void:
+	for label in world_name_labels:
+		if label != null:
+			label.visible = false
