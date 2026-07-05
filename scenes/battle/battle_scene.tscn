@@ -1,119 +1,325 @@
-[gd_scene load_steps=5 format=3 uid="uid://b4pxq6xcn26n0"]
+[gd_scene format=3 uid="uid://b4pxq6xcn26n0"]
 
-[ext_resource type="Script" path="res://scripts/battle/battle_manager.gd" id="1_bm"]
-[ext_resource type="Script" path="res://scripts/battle/combatant.gd" id="2_cb"]
-[ext_resource type="Script" path="res://scripts/battle/battle_ui.gd" id="3_ui"]
-[ext_resource type="Script" path="res://scripts/battle/timing_bar.gd" id="4_tb"]
+[ext_resource type="Script" uid="uid://du1pmvvl7uirv" path="res://scripts/battle/battle_manager.gd" id="1_bm"]
+[ext_resource type="Script" uid="uid://coa5gqlwqpyja" path="res://scripts/battle/combatant.gd" id="2_cb"]
+[ext_resource type="Script" uid="uid://df107tvw3dbxk" path="res://scripts/battle/battle_ui.gd" id="3_ui"]
+[ext_resource type="Script" uid="uid://cinyx3w5lno3f" path="res://scripts/battle/timing_bar.gd" id="4_tb"]
 
-[node name="BattleScene" type="Node2D"]
+[node name="BattleScene" type="Node2D" unique_id=1154078697]
 
-[node name="BattleCamera" type="Camera2D" parent="."]
-position = Vector2(480, 300)
+[node name="Background" type="Node2D" parent="." unique_id=1452145124]
+
+[node name="Sky" type="Polygon2D" parent="Background" unique_id=1260451782]
+color = Color(0.113725, 0.156863, 0.180392, 1)
+polygon = PackedVector2Array(0, 0, 1280, 0, 1280, 720, 0, 720)
+
+[node name="ForestLine" type="Polygon2D" parent="Background" unique_id=1817632711]
+color = Color(0.0784314, 0.184314, 0.137255, 1)
+polygon = PackedVector2Array(0, 223, 102, 158, 205, 245, 358, 151, 550, 259, 730, 158, 922, 259, 1101, 151, 1280, 223, 1280, 720, 0, 720)
+
+[node name="Ground" type="Polygon2D" parent="Background" unique_id=1481111942]
+color = Color(0.141176, 0.137255, 0.101961, 1)
+polygon = PackedVector2Array(0, 518, 1280, 497, 1280, 720, 0, 720)
+
+[node name="BattleCamera" type="Camera2D" parent="." unique_id=2126337820]
+position = Vector2(640, 360)
 enabled = true
 
-[node name="BattleManager" type="Node" parent="."]
+[node name="BattleManager" type="Node" parent="." unique_id=1637246034]
 script = ExtResource("1_bm")
 
-[node name="Player" type="Node2D" parent="."]
-position = Vector2(220, 290)
+[node name="Player" type="Node2D" parent="." unique_id=1427193307]
+z_index = 5
+position = Vector2(320, 490)
 script = ExtResource("2_cb")
 
-[node name="PlaceholderVisual" type="ColorRect" parent="Player"]
-offset_left = -42.0
-offset_top = -62.0
-offset_right = 42.0
-offset_bottom = 62.0
-color = Color(0.2, 0.52, 0.86, 1)
+[node name="PlaceholderVisual" type="Node2D" parent="Player" unique_id=2129157643]
 
-[node name="NameLabel" type="Label" parent="Player"]
-offset_left = -31.0
-offset_top = 76.0
-offset_right = 33.0
-offset_bottom = 99.0
-text = "Player"
+[node name="Shadow" type="Polygon2D" parent="Player/PlaceholderVisual" unique_id=794961310]
+position = Vector2(0, 122)
+color = Color(0.113725, 0.14902, 0.2, 0.35)
+polygon = PackedVector2Array(-52, 8, -36, -2, 34, -2, 56, 8, 38, 17, -32, 17)
 
-[node name="Enemy" type="Node2D" parent="."]
-position = Vector2(720, 270)
+[node name="Cape" type="Polygon2D" parent="Player/PlaceholderVisual" unique_id=1466337855]
+color = Color(0.0862745, 0.152941, 0.282353, 1)
+polygon = PackedVector2Array(-28, -14, -68, 68, -32, 113, 8, 52, 22, -8)
+
+[node name="Body" type="Polygon2D" parent="Player/PlaceholderVisual" unique_id=1280199127]
+color = Color(0.184314, 0.372549, 0.533333, 1)
+polygon = PackedVector2Array(-24, 8, 24, 8, 45, 86, -43, 86)
+
+[node name="ChestAccent" type="Polygon2D" parent="Player/PlaceholderVisual" unique_id=1270619671]
+color = Color(0.431373, 0.698039, 0.788235, 1)
+polygon = PackedVector2Array(-8, 12, 20, 12, 32, 74, -2, 62)
+
+[node name="Head" type="Polygon2D" parent="Player/PlaceholderVisual" unique_id=1823540867]
+color = Color(0.941176, 0.764706, 0.541176, 1)
+polygon = PackedVector2Array(-17, -42, 7, -51, 27, -36, 25, -12, 8, 2, -14, -4, -24, -22)
+
+[node name="Hair" type="Polygon2D" parent="Player/PlaceholderVisual" unique_id=1503722514]
+color = Color(0.121569, 0.184314, 0.290196, 1)
+polygon = PackedVector2Array(-26, -24, -16, -52, 15, -58, 35, -34, 22, -18, 2, -28)
+
+[node name="FrontArm" type="Polygon2D" parent="Player/PlaceholderVisual" unique_id=1353373417]
+color = Color(0.137255, 0.254902, 0.372549, 1)
+polygon = PackedVector2Array(25, 19, 68, 42, 58, 58, 16, 35)
+
+[node name="BackArm" type="Polygon2D" parent="Player/PlaceholderVisual" unique_id=116175553]
+color = Color(0.137255, 0.254902, 0.372549, 1)
+polygon = PackedVector2Array(-24, 24, -62, 58, -48, 72, -7, 39)
+
+[node name="Blade" type="Polygon2D" parent="Player/PlaceholderVisual" unique_id=646332816]
+color = Color(0.847059, 0.898039, 0.933333, 1)
+polygon = PackedVector2Array(64, 35, 105, -20, 112, -14, 76, 45)
+
+[node name="LeftLeg" type="Polygon2D" parent="Player/PlaceholderVisual" unique_id=1071175999]
+color = Color(0.121569, 0.184314, 0.290196, 1)
+polygon = PackedVector2Array(-32, 86, -9, 86, -15, 125, -42, 125)
+
+[node name="RightLeg" type="Polygon2D" parent="Player/PlaceholderVisual" unique_id=1473551456]
+color = Color(0.121569, 0.184314, 0.290196, 1)
+polygon = PackedVector2Array(12, 86, 34, 86, 48, 125, 21, 125)
+
+[node name="NameLabel" type="Label" parent="Player" unique_id=1170190611]
+offset_left = -38.0
+offset_top = 82.0
+offset_right = 43.0
+offset_bottom = 105.0
+text = "Takashi"
+
+[node name="Enemy" type="Node2D" parent="." unique_id=283677820]
+z_index = 5
+position = Vector2(922, 490)
 script = ExtResource("2_cb")
 
-[node name="PlaceholderVisual" type="ColorRect" parent="Enemy"]
-offset_left = -46.0
-offset_top = -70.0
-offset_right = 46.0
-offset_bottom = 70.0
-color = Color(0.82, 0.28, 0.24, 1)
+[node name="PlaceholderVisual" type="Node2D" parent="Enemy" unique_id=1356944601]
+scale = Vector2(-1, 1)
 
-[node name="NameLabel" type="Label" parent="Enemy"]
-offset_left = -29.0
-offset_top = 84.0
-offset_right = 32.0
-offset_bottom = 107.0
-text = "Enemy"
+[node name="Shadow" type="Polygon2D" parent="Enemy/PlaceholderVisual" unique_id=160621949]
+position = Vector2(0, 132)
+color = Color(0.0823529, 0.0470588, 0.0784314, 0.45)
+polygon = PackedVector2Array(-60, 8, -40, -3, 42, -3, 64, 8, 42, 19, -42, 19)
 
-[node name="CanvasLayer" type="CanvasLayer" parent="."]
+[node name="BackShape" type="Polygon2D" parent="Enemy/PlaceholderVisual" unique_id=326737509]
+color = Color(0.14902, 0.109804, 0.176471, 1)
+polygon = PackedVector2Array(-36, -8, -78, 66, -48, 123, 10, 72, 38, 118, 68, 58, 28, -14)
 
-[node name="BattleUI" type="Control" parent="CanvasLayer"]
-anchors_preset = 15
+[node name="Body" type="Polygon2D" parent="Enemy/PlaceholderVisual" unique_id=1248135299]
+color = Color(0.227451, 0.160784, 0.239216, 1)
+polygon = PackedVector2Array(-34, 12, 30, 12, 58, 96, -54, 96)
+
+[node name="ChestMark" type="Polygon2D" parent="Enemy/PlaceholderVisual" unique_id=914318112]
+color = Color(0.427451, 0.184314, 0.270588, 1)
+polygon = PackedVector2Array(-10, 18, 35, 92, 2, 78, -34, 96)
+
+[node name="Head" type="Polygon2D" parent="Enemy/PlaceholderVisual" unique_id=687927118]
+color = Color(0.164706, 0.12549, 0.188235, 1)
+polygon = PackedVector2Array(-20, -43, 12, -55, 38, -35, 34, -4, 8, 10, -18, 3, -31, -22)
+
+[node name="LeftHorn" type="Polygon2D" parent="Enemy/PlaceholderVisual" unique_id=1640634716]
+color = Color(0.286275, 0.2, 0.286275, 1)
+polygon = PackedVector2Array(-23, -35, -62, -72, -42, -21)
+
+[node name="RightHorn" type="Polygon2D" parent="Enemy/PlaceholderVisual" unique_id=1578938994]
+color = Color(0.286275, 0.2, 0.286275, 1)
+polygon = PackedVector2Array(28, -36, 72, -68, 44, -18)
+
+[node name="EyeLeft" type="Polygon2D" parent="Enemy/PlaceholderVisual" unique_id=663468573]
+color = Color(0.878431, 0.352941, 0.427451, 1)
+polygon = PackedVector2Array(-10, -19, 1, -14, -10, -8)
+
+[node name="EyeRight" type="Polygon2D" parent="Enemy/PlaceholderVisual" unique_id=443966899]
+color = Color(0.878431, 0.352941, 0.427451, 1)
+polygon = PackedVector2Array(17, -19, 6, -14, 18, -8)
+
+[node name="FrontArm" type="Polygon2D" parent="Enemy/PlaceholderVisual" unique_id=515552336]
+color = Color(0.129412, 0.0901961, 0.133333, 1)
+polygon = PackedVector2Array(30, 26, 82, 50, 70, 70, 19, 44)
+
+[node name="BackArm" type="Polygon2D" parent="Enemy/PlaceholderVisual" unique_id=369553577]
+color = Color(0.129412, 0.0901961, 0.133333, 1)
+polygon = PackedVector2Array(-34, 26, -78, 66, -62, 82, -14, 46)
+
+[node name="LeftLeg" type="Polygon2D" parent="Enemy/PlaceholderVisual" unique_id=959810878]
+color = Color(0.129412, 0.0901961, 0.133333, 1)
+polygon = PackedVector2Array(-42, 96, -16, 96, -25, 133, -54, 133)
+
+[node name="RightLeg" type="Polygon2D" parent="Enemy/PlaceholderVisual" unique_id=1983823344]
+color = Color(0.129412, 0.0901961, 0.133333, 1)
+polygon = PackedVector2Array(15, 96, 40, 96, 58, 133, 28, 133)
+
+[node name="NameLabel" type="Label" parent="Enemy" unique_id=809947183]
+offset_left = -34.0
+offset_top = 82.0
+offset_right = 90.0
+offset_bottom = 105.0
+text = "Lesser Abyss"
+
+[node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=895237824]
+
+[node name="BattleUI" type="Control" parent="CanvasLayer" unique_id=1745233294]
+layout_mode = 3
 anchor_right = 1.0
 anchor_bottom = 1.0
 grow_horizontal = 2
 grow_vertical = 2
+size_flags_horizontal = 3
+size_flags_vertical = 3
 script = ExtResource("3_ui")
 
-[node name="PlayerHpLabel" type="Label" parent="CanvasLayer/BattleUI"]
+[node name="PlayerStatusPanel" type="Panel" parent="CanvasLayer/BattleUI"]
+layout_mode = 0
 offset_left = 28.0
 offset_top = 24.0
-offset_right = 216.0
-offset_bottom = 48.0
-text = "Player HP: 100/100"
+offset_right = 378.0
+offset_bottom = 174.0
 
-[node name="EnemyHpLabel" type="Label" parent="CanvasLayer/BattleUI"]
-offset_left = 672.0
+[node name="PlayerTitleLabel" type="Label" parent="CanvasLayer/BattleUI/PlayerStatusPanel"]
+layout_mode = 0
+offset_left = 18.0
+offset_top = 12.0
+offset_right = 320.0
+offset_bottom = 38.0
+theme_override_font_sizes/font_size = 22
+text = "Takashi"
+
+[node name="PlayerHpLabel" type="Label" parent="CanvasLayer/BattleUI/PlayerStatusPanel" unique_id=33009242]
+layout_mode = 0
+offset_left = 18.0
+offset_top = 44.0
+offset_right = 320.0
+offset_bottom = 68.0
+text = "Takashi HP: 100/100"
+
+[node name="EnergyLabel" type="Label" parent="CanvasLayer/BattleUI/PlayerStatusPanel" unique_id=2001091825]
+layout_mode = 0
+offset_left = 18.0
+offset_top = 76.0
+offset_right = 320.0
+offset_bottom = 100.0
+text = "Takashi Energy: 0/100"
+
+[node name="EnergyBar" type="ProgressBar" parent="CanvasLayer/BattleUI/PlayerStatusPanel" unique_id=718535470]
+layout_mode = 0
+offset_left = 18.0
+offset_top = 104.0
+offset_right = 318.0
+offset_bottom = 124.0
+show_percentage = false
+
+[node name="SkillPointsLabel" type="Label" parent="CanvasLayer/BattleUI/PlayerStatusPanel" unique_id=1925744664]
+layout_mode = 0
+offset_left = 18.0
+offset_top = 128.0
+offset_right = 320.0
+offset_bottom = 150.0
+text = "Skill Points: 3/5"
+
+[node name="EnemyStatusPanel" type="Panel" parent="CanvasLayer/BattleUI"]
+layout_mode = 0
+offset_left = 902.0
 offset_top = 24.0
-offset_right = 844.0
-offset_bottom = 48.0
-text = "Enemy HP: 80/80"
+offset_right = 1252.0
+offset_bottom = 112.0
 
-[node name="TurnLabel" type="Label" parent="CanvasLayer/BattleUI"]
+[node name="EnemyTitleLabel" type="Label" parent="CanvasLayer/BattleUI/EnemyStatusPanel"]
+layout_mode = 0
+offset_left = 18.0
+offset_top = 12.0
+offset_right = 320.0
+offset_bottom = 38.0
+theme_override_font_sizes/font_size = 22
+text = "Lesser Abyss"
+horizontal_alignment = 2
+
+[node name="EnemyHpLabel" type="Label" parent="CanvasLayer/BattleUI/EnemyStatusPanel" unique_id=975063342]
+layout_mode = 0
+offset_left = 18.0
+offset_top = 48.0
+offset_right = 320.0
+offset_bottom = 72.0
+text = "Lesser Abyss HP: 120/120"
+horizontal_alignment = 2
+
+[node name="TimingBar" type="ProgressBar" parent="CanvasLayer/BattleUI" unique_id=1839870862]
+visible = false
+layout_mode = 0
+offset_left = 48.0
+offset_top = 462.0
+offset_right = 430.0
+offset_bottom = 490.0
+show_percentage = false
+script = ExtResource("4_tb")
+
+[node name="LogPanel" type="Panel" parent="CanvasLayer/BattleUI"]
+layout_mode = 0
 offset_left = 28.0
-offset_top = 430.0
-offset_right = 284.0
-offset_bottom = 455.0
+offset_top = 500.0
+offset_right = 790.0
+offset_bottom = 684.0
+
+[node name="TurnLabel" type="Label" parent="CanvasLayer/BattleUI/LogPanel" unique_id=5352842]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 16.0
+offset_right = 320.0
+offset_bottom = 42.0
+theme_override_font_sizes/font_size = 22
 text = "Player Turn"
 
-[node name="BattleLogLabel" type="Label" parent="CanvasLayer/BattleUI"]
-offset_left = 28.0
-offset_top = 462.0
-offset_right = 900.0
-offset_bottom = 510.0
+[node name="BattleLogLabel" type="Label" parent="CanvasLayer/BattleUI/LogPanel" unique_id=329072349]
+layout_mode = 0
+offset_left = 20.0
+offset_top = 54.0
+offset_right = 730.0
+offset_bottom = 152.0
+theme_override_font_sizes/font_size = 18
 text = "Battle started. Choose an action."
 autowrap_mode = 3
 
-[node name="ActionButtons" type="HBoxContainer" parent="CanvasLayer/BattleUI"]
-offset_left = 28.0
-offset_top = 522.0
-offset_right = 412.0
-offset_bottom = 562.0
-theme_override_constants/separation = 10
+[node name="ActionPanel" type="Panel" parent="CanvasLayer/BattleUI"]
+layout_mode = 0
+offset_left = 820.0
+offset_top = 446.0
+offset_right = 1252.0
+offset_bottom = 684.0
 
-[node name="AttackButton" type="Button" parent="CanvasLayer/BattleUI/ActionButtons"]
-custom_minimum_size = Vector2(110, 38)
-text = "Attack"
+[node name="ActionTitleLabel" type="Label" parent="CanvasLayer/BattleUI/ActionPanel"]
+layout_mode = 0
+offset_left = 18.0
+offset_top = 12.0
+offset_right = 400.0
+offset_bottom = 36.0
+theme_override_font_sizes/font_size = 20
+text = "Action Command"
 
-[node name="GuardButton" type="Button" parent="CanvasLayer/BattleUI/ActionButtons"]
-custom_minimum_size = Vector2(110, 38)
-text = "Guard"
+[node name="ActionButtons" type="VBoxContainer" parent="CanvasLayer/BattleUI/ActionPanel" unique_id=896587501]
+layout_mode = 0
+offset_left = 18.0
+offset_top = 48.0
+offset_right = 414.0
+offset_bottom = 218.0
+theme_override_constants/separation = 8
 
-[node name="RestartButton" type="Button" parent="CanvasLayer/BattleUI/ActionButtons"]
-custom_minimum_size = Vector2(110, 38)
-text = "Restart"
+[node name="AttackButton" type="Button" parent="CanvasLayer/BattleUI/ActionPanel/ActionButtons" unique_id=1989041952]
+custom_minimum_size = Vector2(396, 48)
+layout_mode = 2
+text = "Void Strike\nBasic | +1 SP | +Energy"
+alignment = 0
 
-[node name="TimingBar" type="ProgressBar" parent="CanvasLayer/BattleUI"]
-visible = false
-offset_left = 28.0
-offset_top = 386.0
-offset_right = 412.0
-offset_bottom = 414.0
-value = 0.0
-show_percentage = false
-script = ExtResource("4_tb")
+[node name="SkillButton" type="Button" parent="CanvasLayer/BattleUI/ActionPanel/ActionButtons" unique_id=670048631]
+custom_minimum_size = Vector2(396, 48)
+layout_mode = 2
+text = "Triangle Rift\nSkill | Cost 1 SP"
+alignment = 0
+
+[node name="UltimateButton" type="Button" parent="CanvasLayer/BattleUI/ActionPanel/ActionButtons" unique_id=295655566]
+custom_minimum_size = Vector2(396, 48)
+layout_mode = 2
+text = "Octagram Fragment\nEnergy 0/100"
+alignment = 0
+
+[node name="RestartButton" type="Button" parent="CanvasLayer/BattleUI/ActionPanel/ActionButtons" unique_id=759267459]
+custom_minimum_size = Vector2(396, 38)
+layout_mode = 2
+text = "Restart Story"

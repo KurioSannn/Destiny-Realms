@@ -9,16 +9,26 @@ var current_hp: int = 1
 var home_position: Vector2 = Vector2.ZERO
 
 @onready var placeholder_visual: CanvasItem = get_node_or_null("PlaceholderVisual") as CanvasItem
+@onready var name_label: Label = get_node_or_null("NameLabel") as Label
 
 
 func _ready() -> void:
 	home_position = position
 
 
+func set_home_position(new_home_position: Vector2) -> void:
+	home_position = new_home_position
+	position = home_position
+	reset_feedback()
+
+
 func setup(new_name: String, new_max_hp: int, new_attack_damage: int) -> void:
 	combatant_name = new_name
 	max_hp = maxi(new_max_hp, 1)
 	base_attack_damage = maxi(new_attack_damage, 0)
+	if name_label != null:
+		name_label.text = combatant_name
+		name_label.visible = true
 	reset_hp()
 
 
@@ -62,6 +72,33 @@ func play_attack_movement(target: Node2D) -> void:
 	await tween.finished
 
 
+func play_skill_movement(target: Node2D) -> void:
+	var start_position: Vector2 = position
+	var direction: Vector2 = (target.global_position - global_position).normalized()
+	var lunge_position: Vector2 = start_position + direction * 72.0
+
+	var tween: Tween = create_tween()
+	tween.set_trans(Tween.TRANS_QUAD)
+	tween.set_ease(Tween.EASE_OUT)
+	tween.tween_property(self, "scale", Vector2(1.12, 1.12), 0.08)
+	tween.parallel().tween_property(self, "position", lunge_position, 0.16)
+	tween.tween_property(self, "position", start_position, 0.18)
+	tween.parallel().tween_property(self, "scale", Vector2.ONE, 0.18)
+	await tween.finished
+
+
+func play_ultimate_feedback() -> void:
+	var flash_target: CanvasItem = placeholder_visual if placeholder_visual != null else self
+
+	var tween: Tween = create_tween()
+	tween.set_trans(Tween.TRANS_QUAD)
+	tween.tween_property(flash_target, "modulate", Color(1.0, 0.95, 0.45, 1.0), 0.08)
+	tween.parallel().tween_property(self, "scale", Vector2(1.22, 1.22), 0.08)
+	tween.tween_property(flash_target, "modulate", Color.WHITE, 0.12)
+	tween.parallel().tween_property(self, "scale", Vector2.ONE, 0.12)
+	await tween.finished
+
+
 func play_hit_feedback() -> void:
 	var flash_target: CanvasItem = placeholder_visual if placeholder_visual != null else self
 
@@ -71,16 +108,4 @@ func play_hit_feedback() -> void:
 	tween.parallel().tween_property(self, "scale", Vector2(1.08, 0.94), 0.06)
 	tween.tween_property(flash_target, "modulate", Color.WHITE, 0.12)
 	tween.parallel().tween_property(self, "scale", Vector2.ONE, 0.12)
-	await tween.finished
-
-
-func play_guard_feedback() -> void:
-	var flash_target: CanvasItem = placeholder_visual if placeholder_visual != null else self
-
-	var tween: Tween = create_tween()
-	tween.set_trans(Tween.TRANS_QUAD)
-	tween.tween_property(flash_target, "modulate", Color(0.55, 0.8, 1.0, 1.0), 0.08)
-	tween.parallel().tween_property(self, "scale", Vector2(1.12, 1.12), 0.08)
-	tween.tween_property(flash_target, "modulate", Color.WHITE, 0.16)
-	tween.parallel().tween_property(self, "scale", Vector2.ONE, 0.16)
 	await tween.finished

@@ -1,0 +1,163 @@
+[gd_scene format=3 uid="uid://bbjfyqpf0x7lg"]
+
+[ext_resource type="Script" path="res://scripts/prologue/prologue_scene.gd" id="1_ps"]
+[ext_resource type="Script" path="res://scripts/dialogue/dialogue_manager.gd" id="2_dm"]
+
+[node name="PrologueScene" type="Node2D"]
+script = ExtResource("1_ps")
+
+[node name="Background" type="Node2D" parent="."]
+
+[node name="Sky" type="Polygon2D" parent="Background"]
+color = Color(0.101961, 0.141176, 0.168627, 1)
+polygon = PackedVector2Array(0, 0, 1280, 0, 1280, 720, 0, 720)
+
+[node name="ForestLine" type="Polygon2D" parent="Background"]
+color = Color(0.0627451, 0.176471, 0.12549, 1)
+polygon = PackedVector2Array(0, 230, 128, 158, 282, 274, 448, 144, 666, 259, 870, 151, 1075, 252, 1280, 173, 1280, 720, 0, 720)
+
+[node name="Ground" type="Polygon2D" parent="Background"]
+color = Color(0.129412, 0.121569, 0.0901961, 1)
+polygon = PackedVector2Array(0, 490, 1280, 468, 1280, 720, 0, 720)
+
+[node name="CharacterLayer" type="Node2D" parent="."]
+z_index = 5
+
+[node name="TakashiVisual" type="Node2D" parent="CharacterLayer"]
+position = Vector2(358, 482)
+
+[node name="TakashiShadow" type="Polygon2D" parent="CharacterLayer/TakashiVisual"]
+position = Vector2(0, 96)
+color = Color(0.0352941, 0.0470588, 0.0588235, 0.4)
+polygon = PackedVector2Array(-48, 8, -32, -2, 34, -2, 50, 8, 35, 17, -35, 17)
+
+[node name="TakashiBody" type="Polygon2D" parent="CharacterLayer/TakashiVisual"]
+color = Color(0.184314, 0.372549, 0.533333, 1)
+polygon = PackedVector2Array(-24, 6, 22, 6, 39, 82, -40, 82)
+
+[node name="TakashiHead" type="Polygon2D" parent="CharacterLayer/TakashiVisual"]
+color = Color(0.941176, 0.764706, 0.541176, 1)
+polygon = PackedVector2Array(-18, -42, 8, -52, 28, -35, 24, -10, 6, 4, -16, -4, -26, -22)
+
+[node name="TakashiHair" type="Polygon2D" parent="CharacterLayer/TakashiVisual"]
+color = Color(0.121569, 0.184314, 0.290196, 1)
+polygon = PackedVector2Array(-27, -24, -16, -53, 16, -59, 36, -34, 20, -18, 1, -29)
+
+[node name="TakashiTriangle" type="Polygon2D" parent="CharacterLayer/TakashiVisual"]
+color = Color(0.603922, 0.898039, 1, 0.85)
+polygon = PackedVector2Array(-8, 18, 10, 18, 1, 36)
+
+[node name="TakashiLabel" type="Label" parent="CharacterLayer/TakashiVisual"]
+offset_left = -34.0
+offset_top = 106.0
+offset_right = 44.0
+offset_bottom = 130.0
+text = "Takashi"
+
+[node name="MitsukiVisual" type="Node2D" parent="CharacterLayer"]
+position = Vector2(666, 475)
+
+[node name="MitsukiShadow" type="Polygon2D" parent="CharacterLayer/MitsukiVisual"]
+position = Vector2(0, 94)
+color = Color(0.0352941, 0.0470588, 0.0588235, 0.35)
+polygon = PackedVector2Array(-42, 8, -28, -2, 30, -2, 44, 8, 30, 16, -30, 16)
+
+[node name="MitsukiBody" type="Polygon2D" parent="CharacterLayer/MitsukiVisual"]
+color = Color(0.317647, 0.27451, 0.568627, 1)
+polygon = PackedVector2Array(-22, 4, 24, 4, 38, 80, -38, 80)
+
+[node name="MitsukiHead" type="Polygon2D" parent="CharacterLayer/MitsukiVisual"]
+color = Color(0.933333, 0.760784, 0.603922, 1)
+polygon = PackedVector2Array(-17, -40, 12, -48, 30, -28, 22, -6, 2, 4, -18, -7, -28, -24)
+
+[node name="MitsukiHair" type="Polygon2D" parent="CharacterLayer/MitsukiVisual"]
+color = Color(0.164706, 0.129412, 0.266667, 1)
+polygon = PackedVector2Array(-30, -23, -16, -54, 20, -54, 38, -26, 19, 14, -20, 10)
+
+[node name="MitsukiLabel" type="Label" parent="CharacterLayer/MitsukiVisual"]
+offset_left = -34.0
+offset_top = 104.0
+offset_right = 48.0
+offset_bottom = 128.0
+text = "Mitsuki"
+
+[node name="MakotoVisual" type="Node2D" parent="CharacterLayer"]
+position = Vector2(870, 475)
+
+[node name="MakotoShadow" type="Polygon2D" parent="CharacterLayer/MakotoVisual"]
+position = Vector2(0, 94)
+color = Color(0.0352941, 0.0470588, 0.0588235, 0.35)
+polygon = PackedVector2Array(-42, 8, -28, -2, 30, -2, 44, 8, 30, 16, -30, 16)
+
+[node name="MakotoBody" type="Polygon2D" parent="CharacterLayer/MakotoVisual"]
+color = Color(0.658824, 0.572549, 0.286275, 1)
+polygon = PackedVector2Array(-22, 4, 24, 4, 40, 82, -39, 82)
+
+[node name="MakotoHead" type="Polygon2D" parent="CharacterLayer/MakotoVisual"]
+color = Color(0.913725, 0.717647, 0.505882, 1)
+polygon = PackedVector2Array(-18, -40, 10, -50, 30, -30, 24, -7, 4, 5, -18, -6, -28, -24)
+
+[node name="MakotoHair" type="Polygon2D" parent="CharacterLayer/MakotoVisual"]
+color = Color(0.180392, 0.164706, 0.105882, 1)
+polygon = PackedVector2Array(-29, -22, -16, -52, 18, -54, 38, -30, 22, -16, 0, -28)
+
+[node name="MakotoMark" type="Polygon2D" parent="CharacterLayer/MakotoVisual"]
+color = Color(1, 0.901961, 0.392157, 0.85)
+polygon = PackedVector2Array(-6, 20, 8, 20, 8, 34, -6, 34)
+
+[node name="MakotoLabel" type="Label" parent="CharacterLayer/MakotoVisual"]
+offset_left = -34.0
+offset_top = 104.0
+offset_right = 48.0
+offset_bottom = 128.0
+text = "Makoto"
+
+[node name="CanvasLayer" type="CanvasLayer" parent="."]
+
+[node name="DialogueUI" type="Panel" parent="CanvasLayer"]
+visible = false
+layout_mode = 3
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 48.0
+offset_top = 438.0
+offset_right = -48.0
+offset_bottom = -28.0
+script = ExtResource("2_dm")
+
+[node name="SpeakerNameLabel" type="Label" parent="CanvasLayer/DialogueUI"]
+layout_mode = 0
+offset_left = 22.0
+offset_top = 16.0
+offset_right = 260.0
+offset_bottom = 44.0
+theme_override_font_sizes/font_size = 24
+text = "Speaker"
+
+[node name="DialogueTextLabel" type="Label" parent="CanvasLayer/DialogueUI"]
+layout_mode = 0
+offset_left = 22.0
+offset_top = 58.0
+offset_right = 1058.0
+offset_bottom = 118.0
+theme_override_font_sizes/font_size = 18
+text = "Dialogue text"
+autowrap_mode = 3
+
+[node name="NextButton" type="Button" parent="CanvasLayer/DialogueUI"]
+custom_minimum_size = Vector2(128, 40)
+layout_mode = 0
+offset_left = 1032.0
+offset_top = 124.0
+offset_right = 1160.0
+offset_bottom = 164.0
+text = "Next"
+
+[node name="ChoicesContainer" type="VBoxContainer" parent="CanvasLayer/DialogueUI"]
+visible = false
+layout_mode = 0
+offset_left = 22.0
+offset_top = 124.0
+offset_right = 670.0
+offset_bottom = 176.0
+theme_override_constants/separation = 8
