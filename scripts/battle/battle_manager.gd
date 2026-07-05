@@ -30,6 +30,10 @@ const PLAYER_VIEWPORT_POSITION: Vector2 = Vector2(0.25, 0.68)
 const ENEMY_VIEWPORT_POSITION: Vector2 = Vector2(0.72, 0.68)
 const PROLOGUE_SCENE_PATH: String = "res://scenes/prologue/prologue_scene.tscn"
 const ENDING_SCENE_PATH: String = "res://scenes/ending/ending_scene.tscn"
+const ULTIMATE_FRAME_COUNT: int = 88
+const ULTIMATE_FRAME_RATE: float = 15.0
+const ULTIMATE_FRAME_PATH_FORMAT: String = "res://public/ultimate_frames/takashi_ultimate_%03d.jpg"
+const ULTIMATE_AUDIO_PATH: String = "res://public/TakashiUltimateAudio.ogg"
 
 @onready var player: Combatant = $"../Player"
 @onready var enemy: Combatant = $"../Enemy"
@@ -43,10 +47,13 @@ const ENDING_SCENE_PATH: String = "res://scenes/ending/ending_scene.tscn"
 @onready var ground: Polygon2D = get_node_or_null("../Background/Ground") as Polygon2D
 @onready var battle_intro_overlay: ColorRect = get_node_or_null("../CanvasLayer/BattleIntroOverlay") as ColorRect
 @onready var battle_intro_label: Label = get_node_or_null("../CanvasLayer/BattleIntroOverlay/IntroLabel") as Label
+@onready var ultimate_frame_player: TextureRect = get_node_or_null("../CanvasLayer/UltimateFramePlayer") as TextureRect
+@onready var ultimate_audio_player: AudioStreamPlayer = get_node_or_null("../CanvasLayer/UltimateAudioPlayer") as AudioStreamPlayer
 
 var state: int = BattleState.PLAYER_TURN
 var ultimate_energy: int = 0
 var skill_points: int = START_SKILL_POINTS
+var ultimate_frames: Array[Texture2D] = []
 
 
 func _ready() -> void:
@@ -60,6 +67,11 @@ func _ready() -> void:
 	ui.confirm_pressed.connect(_on_confirm_pressed)
 	if battle_camera != null:
 		battle_camera.enabled = true
+	if ultimate_frame_player != null:
+		ultimate_frame_player.visible = false
+	if ultimate_audio_player != null:
+		ultimate_audio_player.stream = load(ULTIMATE_AUDIO_PATH) as AudioStream
+	_load_ultimate_frames()
 
 	await get_tree().process_frame
 	_apply_runtime_layout()
@@ -270,9 +282,13 @@ func _on_ultimate_pressed() -> void:
 	state = BattleState.ACTION_RESOLUTION
 	_update_action_buttons(false)
 	ui.set_turn_text("Octagram Fragment")
-	ui.set_battle_log("Octagram Fragment flashes for %d damage." % ULTIMATE_DAMAGE)
+	ui.set_battle_log("Octagram Fragment awakens.")
 	ultimate_energy = 0
 	_refresh_energy_ui()
+	await _play_ultimate_sequence()
+	if state != BattleState.ACTION_RESOLUTION:
+		return
+
 	await player.play_ultimate_feedback()
 	if state != BattleState.ACTION_RESOLUTION:
 		return
@@ -287,6 +303,38 @@ func _on_ultimate_pressed() -> void:
 	_shake_camera()
 	_refresh_hp_labels()
 	_finish_player_action("Octagram Fragment deals %d damage and consumes all energy." % ULTIMATE_DAMAGE)
+
+
+func _load_ultimate_frames() -> void:
+	ultimate_frames.clear()
+	for frame_index in range(1, ULTIMATE_FRAME_COUNT + 1):
+		var frame_path: String = ULTIMATE_FRAME_PATH_FORMAT % frame_index
+		var frame_texture: Texture2D = load(frame_path) as Texture2D
+		if frame_texture != null:
+			ultimate_frames.append(frame_texture)
+
+
+func _play_ultimate_sequence() -> void:
+	if ultimate_frame_player == null or ultimate_frames.is_empty():
+		return
+
+	ultimate_frame_player.visible = true
+	ultimate_frame_player.modulate = Color(1.0, 1.0, 1.0, 1.0)
+	if ultimate_audio_player != null and ultimate_audio_player.stream != null:
+		ultimate_audio_player.stop()
+		ultimate_audio_player.play()
+
+	var frame_duration: float = 1.0 / ULTIMATE_FRAME_RATE
+	for frame_texture in ultimate_frames:
+		if state != BattleState.ACTION_RESOLUTION:
+			break
+		ultimate_frame_player.texture = frame_texture
+		await get_tree().create_timer(frame_duration).timeout
+
+	if ultimate_audio_player != null:
+		ultimate_audio_player.stop()
+	ultimate_frame_player.texture = null
+	ultimate_frame_player.visible = false
 
 
 func _on_restart_pressed() -> void:

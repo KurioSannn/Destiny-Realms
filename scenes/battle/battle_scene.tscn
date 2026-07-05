@@ -9,7 +9,6 @@
 [ext_resource type="Texture2D" path="res://public/UltimateSkillTakashi.png" id="7_ultimate_icon"]
 [ext_resource type="Texture2D" path="res://public/BG1Forest.png" id="8_forest_bg"]
 [ext_resource type="Texture2D" path="res://public/Takashi portrait 1.png" id="9_takashi_profile"]
-
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_hud_panel"]
 bg_color = Color(0.02, 0.027, 0.04, 0.84)
 border_width_left = 1
@@ -476,3 +475,17 @@ theme_override_colors/font_color = Color(0.92, 0.78, 0.38, 1)
 theme_override_font_sizes/font_size = 38
 text = "BATTLE START"
 horizontal_alignment = 1
+
+[node name="UltimateFramePlayer" type="TextureRect" parent="CanvasLayer"]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="UltimateAudioPlayer" type="AudioStreamPlayer" parent="CanvasLayer"]

@@ -142,7 +142,7 @@ Player actions:
 - Skill Points start at `3/5`.
 - `Void Strike`: deals `12` damage immediately, generates `25` Takashi Energy, and restores `1` Skill Point up to `5/5`.
 - `Triangle Rift`: costs `1` Skill Point, deals `25` damage, and generates `15` Takashi Energy.
-- `Octagram Fragment`: requires `100` Takashi Energy, deals `45` damage, and consumes all energy.
+- `Octagram Fragment`: requires `100` Takashi Energy, plays Takashi's ultimate frame sequence with audio, deals `45` damage, and consumes all energy.
 
 Skill Points and Takashi Energy are separate resources. Skill Points control whether Takashi can use `Triangle Rift`; Takashi Energy controls when `Octagram Fragment` becomes available.
 
@@ -158,6 +158,7 @@ The current battle UI is organized for prototype readability:
 - Bottom right: compact icon-only action command panel with circular buttons.
 - Battle background uses `res://public/BG1Forest.png` for the current forest combat placeholder.
 - Battle entry shows a short `BATTLE START` fade overlay before normal play.
+- Ultimate uses `res://public/ultimate_frames/` as a full-screen frame sequence plus `res://public/TakashiUltimateAudio.ogg` before damage resolves.
 
 Action buttons use skill icons from `res://public/` without visible description text:
 
@@ -190,6 +191,8 @@ The battle scene uses these assets:
 
 - `res://public/BG1Forest.png`
 - `res://public/Takashi portrait 1.png`
+- `res://public/ultimate_frames/takashi_ultimate_001.jpg` through `takashi_ultimate_088.jpg`
+- `res://public/TakashiUltimateAudio.ogg`
 - `res://public/BasicSkillTakashi.png`
 - `res://public/AttackSkillTakashi.png`
 - `res://public/UltimateSkillTakashi.png`
@@ -243,7 +246,7 @@ The battle scene applies a small runtime layout pass when it starts. Takashi is 
 10. Confirm `Triangle Rift` is disabled only when Skill Points are below `1` or it is not the player turn.
 11. Confirm `Octagram Fragment` is disabled below `100/100` energy.
 12. Build energy to `100/100`, then confirm `Octagram Fragment` becomes usable and displays `[READY]`.
-13. Click `Octagram Fragment` and confirm it deals `45` damage and resets energy to `0/100`.
+13. Click `Octagram Fragment` and confirm the ultimate frame sequence plays with audio before it deals `45` damage and resets energy to `0/100`.
 14. Defeat the Lesser Abyss and confirm the scene transitions to `EndingScene`.
 15. Confirm lose state still stays in `BattleScene`.
 16. Press `R` during battle or after loss and confirm it returns to `PrologueScene`.
