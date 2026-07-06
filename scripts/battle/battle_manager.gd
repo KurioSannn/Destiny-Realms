@@ -26,14 +26,25 @@ const TURN_DELAY_SECONDS: float = 0.6
 const FLOATING_TEXT_RISE: float = 42.0
 const CAMERA_SHAKE_OFFSET: float = 6.0
 const BASE_VIEWPORT_SIZE: Vector2 = Vector2(1280.0, 720.0)
-const PLAYER_VIEWPORT_POSITION: Vector2 = Vector2(0.25, 0.68)
-const ENEMY_VIEWPORT_POSITION: Vector2 = Vector2(0.72, 0.68)
+const PLAYER_VIEWPORT_POSITION: Vector2 = Vector2(0.34, 0.70)
+const ENEMY_VIEWPORT_POSITION: Vector2 = Vector2(0.68, 0.70)
 const PROLOGUE_SCENE_PATH: String = "res://scenes/prologue/prologue_scene.tscn"
 const ENDING_SCENE_PATH: String = "res://scenes/ending/ending_scene.tscn"
 const ULTIMATE_FRAME_COUNT: int = 88
 const ULTIMATE_FRAME_RATE: float = 15.0
 const ULTIMATE_FRAME_PATH_FORMAT: String = "res://public/ultimate_frames/takashi_ultimate_%03d.jpg"
 const ULTIMATE_AUDIO_PATH: String = "res://public/TakashiUltimateAudio.ogg"
+const TAKASHI_IDLE_TEXTURE: Texture2D = preload("res://public/IdleTaka.png")
+const TAKASHI_BASIC_TEXTURE: Texture2D = preload("res://public/BasicAttackTaka.png")
+const TAKASHI_SKILL_TEXTURE: Texture2D = preload("res://public/SkillTaka.png")
+const TAKASHI_ULTIMATE_TEXTURE: Texture2D = preload("res://public/UltiTaka.png")
+const SFX_SAMPLE_RATE: float = 22050.0
+const BASIC_SFX_START_HZ: float = 950.0
+const BASIC_SFX_END_HZ: float = 260.0
+const SKILL_SFX_START_HZ: float = 210.0
+const SKILL_SFX_END_HZ: float = 920.0
+const IMPACT_SFX_START_HZ: float = 120.0
+const IMPACT_SFX_END_HZ: float = 46.0
 
 @onready var player: Combatant = $"../Player"
 @onready var enemy: Combatant = $"../Enemy"
@@ -45,18 +56,30 @@ const ULTIMATE_AUDIO_PATH: String = "res://public/TakashiUltimateAudio.ogg"
 @onready var sky: Polygon2D = get_node_or_null("../Background/Sky") as Polygon2D
 @onready var forest_line: Polygon2D = get_node_or_null("../Background/ForestLine") as Polygon2D
 @onready var ground: Polygon2D = get_node_or_null("../Background/Ground") as Polygon2D
+@onready var battle_bgm: AudioStreamPlayer = get_node_or_null("../BattleBgm") as AudioStreamPlayer
 @onready var battle_intro_overlay: ColorRect = get_node_or_null("../CanvasLayer/BattleIntroOverlay") as ColorRect
 @onready var battle_intro_label: Label = get_node_or_null("../CanvasLayer/BattleIntroOverlay/IntroLabel") as Label
 @onready var ultimate_frame_player: TextureRect = get_node_or_null("../CanvasLayer/UltimateFramePlayer") as TextureRect
 @onready var ultimate_audio_player: AudioStreamPlayer = get_node_or_null("../CanvasLayer/UltimateAudioPlayer") as AudioStreamPlayer
+@onready var player_action_sprite: Sprite2D = get_node_or_null("../Player/ActionSprite") as Sprite2D
+@onready var canvas_layer: CanvasLayer = get_node_or_null("../CanvasLayer") as CanvasLayer
+@onready var bottom_vignette: Polygon2D = get_node_or_null("../StageGroundEffects/BottomVignette") as Polygon2D
+@onready var player_ground_shadow: Polygon2D = get_node_or_null("../StageGroundEffects/PlayerGroundShadow") as Polygon2D
+@onready var enemy_ground_shadow: Polygon2D = get_node_or_null("../StageGroundEffects/EnemyGroundShadow") as Polygon2D
 
 var state: int = BattleState.PLAYER_TURN
 var ultimate_energy: int = 0
 var skill_points: int = START_SKILL_POINTS
 var ultimate_frames: Array[Texture2D] = []
+var effect_layer: Node2D
+var screen_flash: ColorRect
+var basic_sfx_player: AudioStreamPlayer
+var skill_sfx_player: AudioStreamPlayer
+var impact_sfx_player: AudioStreamPlayer
 
 
 func _ready() -> void:
+	_setup_battle_bgm()
 	player.setup("Takashi", PLAYER_MAX_HP, BASIC_ATTACK_DAMAGE)
 	enemy.setup("Lesser Abyss", ENEMY_MAX_HP, ENEMY_BASE_DAMAGE)
 
@@ -71,7 +94,9 @@ func _ready() -> void:
 		ultimate_frame_player.visible = false
 	if ultimate_audio_player != null:
 		ultimate_audio_player.stream = load(ULTIMATE_AUDIO_PATH) as AudioStream
+	_set_player_action_texture(TAKASHI_IDLE_TEXTURE)
 	_load_ultimate_frames()
+	_setup_battle_effects()
 
 	await get_tree().process_frame
 	_apply_runtime_layout()
@@ -80,6 +105,7 @@ func _ready() -> void:
 
 
 func restart_battle() -> void:
+	_set_player_action_texture(TAKASHI_IDLE_TEXTURE)
 	_reset_battle_values()
 	_begin_player_turn("A Lesser Abyss appears. Choose Takashi's first action.")
 
@@ -145,8 +171,27 @@ func _apply_runtime_layout() -> void:
 
 	player.z_index = 5
 	enemy.z_index = 5
-	player.set_home_position(Vector2(viewport_size.x * PLAYER_VIEWPORT_POSITION.x, viewport_size.y * PLAYER_VIEWPORT_POSITION.y))
-	enemy.set_home_position(Vector2(viewport_size.x * ENEMY_VIEWPORT_POSITION.x, viewport_size.y * ENEMY_VIEWPORT_POSITION.y))
+	var player_home_position: Vector2 = Vector2(viewport_size.x * PLAYER_VIEWPORT_POSITION.x, viewport_size.y * PLAYER_VIEWPORT_POSITION.y)
+	var enemy_home_position: Vector2 = Vector2(viewport_size.x * ENEMY_VIEWPORT_POSITION.x, viewport_size.y * ENEMY_VIEWPORT_POSITION.y)
+	player.set_home_position(player_home_position)
+	enemy.set_home_position(enemy_home_position)
+	_apply_stage_grounding(viewport_size, player_home_position, enemy_home_position)
+
+
+func _apply_stage_grounding(viewport_size: Vector2, player_home_position: Vector2, enemy_home_position: Vector2) -> void:
+	if bottom_vignette != null:
+		bottom_vignette.polygon = PackedVector2Array([
+			Vector2(0.0, viewport_size.y * 0.74),
+			Vector2(viewport_size.x, viewport_size.y * 0.70),
+			viewport_size,
+			Vector2(0.0, viewport_size.y)
+		])
+
+	if player_ground_shadow != null:
+		player_ground_shadow.position = player_home_position + Vector2(0.0, 58.0)
+
+	if enemy_ground_shadow != null:
+		enemy_ground_shadow.position = enemy_home_position + Vector2(0.0, 48.0)
 
 
 func _play_battle_intro_effect() -> void:
@@ -191,6 +236,7 @@ func _begin_enemy_turn(log_text: String = "Enemy is preparing to attack.") -> vo
 		return
 
 	state = BattleState.ENEMY_TURN
+	_set_player_action_texture(TAKASHI_IDLE_TEXTURE)
 	ui.set_turn_text("Enemy Turn")
 	ui.set_battle_log(log_text)
 	ui.set_timing_mode(false)
@@ -209,6 +255,8 @@ func _enemy_attack() -> void:
 	if state != BattleState.ENEMY_TURN:
 		return
 
+	_play_impact_sfx()
+	_spawn_enemy_claw_effect(player)
 	player.take_damage(damage)
 	_show_floating_damage(player, damage)
 	await player.play_hit_feedback()
@@ -227,6 +275,8 @@ func _on_attack_pressed() -> void:
 		return
 
 	state = BattleState.ACTION_RESOLUTION
+	_set_player_action_texture(TAKASHI_BASIC_TEXTURE)
+	_play_basic_sfx()
 	_update_action_buttons(false)
 	ui.set_turn_text("Void Strike")
 	ui.set_battle_log("Void Strike cuts forward.")
@@ -234,6 +284,8 @@ func _on_attack_pressed() -> void:
 	if state != BattleState.ACTION_RESOLUTION:
 		return
 
+	_spawn_basic_slash_effect(enemy)
+	_spawn_hit_spark(enemy, Color(0.95, 0.86, 0.45, 1.0))
 	enemy.take_damage(BASIC_ATTACK_DAMAGE)
 	_show_floating_damage(enemy, BASIC_ATTACK_DAMAGE)
 	await enemy.play_hit_feedback()
@@ -253,10 +305,13 @@ func _on_skill_pressed() -> void:
 		return
 
 	state = BattleState.ACTION_RESOLUTION
+	_set_player_action_texture(TAKASHI_SKILL_TEXTURE)
+	_play_skill_sfx()
 	_update_action_buttons(false)
 	ui.set_turn_text("Triangle Rift")
 	ui.set_battle_log("Triangle Rift charging...")
 	_spend_skill_points(SKILL_POINT_COST_SKILL)
+	_spawn_skill_charge_effect(player)
 	await ui.play_skill_cast_feedback()
 	if state != BattleState.ACTION_RESOLUTION:
 		return
@@ -266,6 +321,8 @@ func _on_skill_pressed() -> void:
 	if state != BattleState.ACTION_RESOLUTION:
 		return
 
+	_spawn_triangle_rift_effect(enemy, false)
+	_spawn_hit_spark(enemy, Color(0.45, 0.85, 1.0, 1.0))
 	enemy.take_damage(SKILL_DAMAGE)
 	_show_floating_damage(enemy, SKILL_DAMAGE)
 	await enemy.play_hit_feedback()
@@ -280,6 +337,7 @@ func _on_ultimate_pressed() -> void:
 		return
 
 	state = BattleState.ACTION_RESOLUTION
+	_set_player_action_texture(TAKASHI_ULTIMATE_TEXTURE)
 	_update_action_buttons(false)
 	ui.set_turn_text("Octagram Fragment")
 	ui.set_battle_log("Octagram Fragment awakens.")
@@ -297,6 +355,8 @@ func _on_ultimate_pressed() -> void:
 	if state != BattleState.ACTION_RESOLUTION:
 		return
 
+	_play_impact_sfx()
+	_spawn_ultimate_impact_effect(enemy)
 	enemy.take_damage(ULTIMATE_DAMAGE)
 	_show_floating_damage(enemy, ULTIMATE_DAMAGE)
 	await enemy.play_hit_feedback()
@@ -335,6 +395,239 @@ func _play_ultimate_sequence() -> void:
 		ultimate_audio_player.stop()
 	ultimate_frame_player.texture = null
 	ultimate_frame_player.visible = false
+
+
+func _setup_battle_effects() -> void:
+	effect_layer = Node2D.new()
+	effect_layer.name = "RuntimeBattleEffects"
+	effect_layer.z_index = 12
+	battle_scene.add_child(effect_layer)
+
+	if canvas_layer != null:
+		screen_flash = ColorRect.new()
+		screen_flash.name = "RuntimeImpactFlash"
+		screen_flash.visible = false
+		screen_flash.mouse_filter = Control.MOUSE_FILTER_IGNORE
+		screen_flash.set_anchors_preset(Control.PRESET_FULL_RECT)
+		screen_flash.color = Color(1.0, 1.0, 1.0, 0.0)
+		canvas_layer.add_child(screen_flash)
+
+	basic_sfx_player = _create_generated_sfx_player("RuntimeBasicAttackSfx")
+	skill_sfx_player = _create_generated_sfx_player("RuntimeSkillSfx")
+	impact_sfx_player = _create_generated_sfx_player("RuntimeImpactSfx")
+
+
+func _setup_battle_bgm() -> void:
+	if battle_bgm == null:
+		return
+
+	if not battle_bgm.finished.is_connected(_restart_battle_bgm):
+		battle_bgm.finished.connect(_restart_battle_bgm)
+	if not battle_bgm.playing:
+		battle_bgm.play()
+
+
+func _restart_battle_bgm() -> void:
+	if battle_bgm != null:
+		battle_bgm.play()
+
+
+func _create_generated_sfx_player(player_name: String) -> AudioStreamPlayer:
+	var player_node: AudioStreamPlayer = AudioStreamPlayer.new()
+	player_node.name = player_name
+	var stream: AudioStreamGenerator = AudioStreamGenerator.new()
+	stream.mix_rate = SFX_SAMPLE_RATE
+	stream.buffer_length = 0.28
+	player_node.stream = stream
+	battle_scene.add_child(player_node)
+	return player_node
+
+
+func _play_basic_sfx() -> void:
+	_play_generated_sfx(basic_sfx_player, BASIC_SFX_START_HZ, BASIC_SFX_END_HZ, 0.12, 0.18, 0.22)
+
+
+func _play_skill_sfx() -> void:
+	_play_generated_sfx(skill_sfx_player, SKILL_SFX_START_HZ, SKILL_SFX_END_HZ, 0.22, 0.08, 0.18)
+
+
+func _play_impact_sfx() -> void:
+	_play_generated_sfx(impact_sfx_player, IMPACT_SFX_START_HZ, IMPACT_SFX_END_HZ, 0.24, 0.55, 0.28)
+
+
+func _play_generated_sfx(player_node: AudioStreamPlayer, start_hz: float, end_hz: float, duration: float, noise_mix: float, volume: float) -> void:
+	if player_node == null:
+		return
+
+	player_node.stop()
+	player_node.play()
+	var playback: AudioStreamGeneratorPlayback = player_node.get_stream_playback() as AudioStreamGeneratorPlayback
+	if playback == null:
+		return
+
+	playback.clear_buffer()
+	var sample_count: int = int(SFX_SAMPLE_RATE * duration)
+	var phase: float = 0.0
+	for sample_index in range(sample_count):
+		var progress: float = float(sample_index) / float(maxi(sample_count - 1, 1))
+		var current_hz: float = lerpf(start_hz, end_hz, progress)
+		var envelope: float = pow(1.0 - progress, 2.0)
+		phase += TAU * current_hz / SFX_SAMPLE_RATE
+		var tone: float = sin(phase)
+		var noise: float = randf_range(-1.0, 1.0)
+		var sample: float = ((tone * (1.0 - noise_mix)) + (noise * noise_mix)) * envelope * volume
+		playback.push_frame(Vector2(sample, sample))
+
+
+func _spawn_basic_slash_effect(target: Node2D) -> void:
+	var impact_position: Vector2 = target.global_position + Vector2(-10.0, -118.0)
+	_spawn_slash_polygon(impact_position, -0.45, Color(0.95, 0.86, 0.45, 0.82), 1.0)
+	_spawn_slash_polygon(impact_position + Vector2(18.0, 26.0), -0.45, Color(0.95, 0.98, 1.0, 0.72), 0.62)
+
+
+func _spawn_enemy_claw_effect(target: Node2D) -> void:
+	var impact_position: Vector2 = target.global_position + Vector2(10.0, -112.0)
+	_spawn_slash_polygon(impact_position, 0.5, Color(0.9, 0.2, 0.34, 0.72), 0.82)
+	_spawn_slash_polygon(impact_position + Vector2(-18.0, 24.0), 0.5, Color(0.48, 0.16, 0.64, 0.6), 0.58)
+
+
+func _spawn_slash_polygon(start_position: Vector2, rotation_radians: float, color: Color, scale_multiplier: float) -> void:
+	if effect_layer == null:
+		return
+
+	var slash: Polygon2D = Polygon2D.new()
+	slash.position = start_position
+	slash.rotation = rotation_radians
+	slash.scale = Vector2(0.42, 0.42) * scale_multiplier
+	slash.color = color
+	slash.polygon = PackedVector2Array([
+		Vector2(-92.0, -8.0),
+		Vector2(76.0, -20.0),
+		Vector2(102.0, 0.0),
+		Vector2(-62.0, 22.0)
+	])
+	effect_layer.add_child(slash)
+
+	var tween: Tween = create_tween()
+	tween.set_trans(Tween.TRANS_QUAD)
+	tween.set_ease(Tween.EASE_OUT)
+	tween.tween_property(slash, "scale", Vector2(1.18, 1.18) * scale_multiplier, 0.1)
+	tween.parallel().tween_property(slash, "position", start_position + Vector2(42.0, -8.0), 0.1)
+	tween.tween_property(slash, "modulate:a", 0.0, 0.12)
+	tween.tween_callback(slash.queue_free)
+
+
+func _spawn_skill_charge_effect(origin: Node2D) -> void:
+	if effect_layer == null:
+		return
+
+	var charge_position: Vector2 = origin.global_position + Vector2(6.0, -132.0)
+	for index in range(2):
+		var triangle: Line2D = _make_triangle_line(Color(0.37, 0.85, 1.0, 0.62 - (float(index) * 0.18)), 4.0)
+		triangle.position = charge_position
+		triangle.rotation = float(index) * 0.55
+		triangle.scale = Vector2(0.35, 0.35)
+		effect_layer.add_child(triangle)
+
+		var tween: Tween = create_tween()
+		tween.set_trans(Tween.TRANS_QUAD)
+		tween.set_ease(Tween.EASE_OUT)
+		tween.tween_property(triangle, "scale", Vector2(0.95 + (float(index) * 0.2), 0.95 + (float(index) * 0.2)), 0.24)
+		tween.parallel().tween_property(triangle, "rotation", triangle.rotation + 1.1, 0.24)
+		tween.parallel().tween_property(triangle, "modulate:a", 0.0, 0.24)
+		tween.tween_callback(triangle.queue_free)
+
+
+func _spawn_triangle_rift_effect(target: Node2D, large: bool) -> void:
+	if effect_layer == null:
+		return
+
+	var rift_position: Vector2 = target.global_position + Vector2(0.0, -118.0)
+	var ring_count: int = 3 if large else 2
+	for index in range(ring_count):
+		var triangle: Line2D = _make_triangle_line(Color(0.42, 0.9, 1.0, 0.82 - (float(index) * 0.16)), 5.0)
+		triangle.position = rift_position
+		triangle.rotation = -0.65 + (float(index) * 0.42)
+		triangle.scale = Vector2(0.42, 0.42)
+		effect_layer.add_child(triangle)
+
+		var end_scale: float = 1.3 + (float(index) * 0.28)
+		if large:
+			end_scale += 0.45
+		var tween: Tween = create_tween()
+		tween.set_trans(Tween.TRANS_QUAD)
+		tween.set_ease(Tween.EASE_OUT)
+		tween.tween_property(triangle, "scale", Vector2(end_scale, end_scale), 0.22)
+		tween.parallel().tween_property(triangle, "rotation", triangle.rotation + 1.25, 0.22)
+		tween.parallel().tween_property(triangle, "modulate:a", 0.0, 0.22)
+		tween.tween_callback(triangle.queue_free)
+
+
+func _spawn_hit_spark(target: Node2D, color: Color) -> void:
+	if effect_layer == null:
+		return
+
+	var spark_position: Vector2 = target.global_position + Vector2(0.0, -110.0)
+	for index in range(6):
+		var ray: Polygon2D = Polygon2D.new()
+		ray.position = spark_position
+		ray.rotation = (TAU / 6.0) * float(index)
+		ray.color = color
+		ray.scale = Vector2(0.2, 0.2)
+		ray.polygon = PackedVector2Array([
+			Vector2(0.0, -3.0),
+			Vector2(56.0, -1.0),
+			Vector2(56.0, 1.0),
+			Vector2(0.0, 3.0)
+		])
+		effect_layer.add_child(ray)
+
+		var tween: Tween = create_tween()
+		tween.set_trans(Tween.TRANS_QUAD)
+		tween.set_ease(Tween.EASE_OUT)
+		tween.tween_property(ray, "scale", Vector2(1.0, 1.0), 0.11)
+		tween.parallel().tween_property(ray, "modulate:a", 0.0, 0.16)
+		tween.tween_callback(ray.queue_free)
+
+
+func _spawn_ultimate_impact_effect(target: Node2D) -> void:
+	_play_screen_flash(Color(0.95, 0.95, 1.0, 0.38), 0.18)
+	_spawn_triangle_rift_effect(target, true)
+	_spawn_hit_spark(target, Color(1.0, 0.86, 0.34, 1.0))
+
+
+func _play_screen_flash(color: Color, duration: float) -> void:
+	if screen_flash == null:
+		return
+
+	screen_flash.visible = true
+	screen_flash.color = color
+	screen_flash.modulate = Color.WHITE
+	var tween: Tween = create_tween()
+	tween.tween_property(screen_flash, "modulate:a", 0.0, duration)
+	tween.tween_callback(Callable(self, "_hide_screen_flash"))
+
+
+func _hide_screen_flash() -> void:
+	if screen_flash != null:
+		screen_flash.visible = false
+		screen_flash.modulate = Color.WHITE
+
+
+func _make_triangle_line(color: Color, width: float) -> Line2D:
+	var triangle: Line2D = Line2D.new()
+	triangle.width = width
+	triangle.default_color = color
+	triangle.joint_mode = Line2D.LINE_JOINT_SHARP
+	triangle.begin_cap_mode = Line2D.LINE_CAP_BOX
+	triangle.end_cap_mode = Line2D.LINE_CAP_BOX
+	triangle.points = PackedVector2Array([
+		Vector2(0.0, -58.0),
+		Vector2(58.0, 46.0),
+		Vector2(-58.0, 46.0),
+		Vector2(0.0, -58.0)
+	])
+	return triangle
 
 
 func _on_restart_pressed() -> void:
@@ -398,6 +691,7 @@ func _spend_skill_points(amount: int) -> void:
 func _finish_player_action(log_text: String) -> void:
 	_refresh_energy_ui()
 	_refresh_skill_points_ui()
+	_set_player_action_texture(TAKASHI_IDLE_TEXTURE)
 	if enemy.is_defeated():
 		_win("Enemy defeated. You win!")
 		return
@@ -444,3 +738,8 @@ func _shake_camera() -> void:
 func _reset_camera() -> void:
 	if battle_camera != null:
 		battle_camera.offset = Vector2.ZERO
+
+
+func _set_player_action_texture(texture: Texture2D) -> void:
+	if player_action_sprite != null and texture != null:
+		player_action_sprite.texture = texture

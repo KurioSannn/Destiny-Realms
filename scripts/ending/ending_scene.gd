@@ -6,11 +6,16 @@ const BASE_VIEWPORT_SIZE: Vector2 = Vector2(1280.0, 720.0)
 const TAKASHI_TALK_TEXTURE: Texture2D = preload("res://public/Takashi portrait 2 (talk).png")
 const MITSUKI_TALK_TEXTURE: Texture2D = preload("res://public/Mitsuki portrait 2 (talk).png")
 const MAKOTO_TALK_TEXTURE: Texture2D = preload("res://public/Makoto portrait 2 (Talk).png")
+const EPILOG_FRAME_COUNT: int = 186
+const EPILOG_FRAME_RATE: float = 15.0
+const EPILOG_FRAME_PATH_FORMAT: String = "res://public/epilog_frames/epilog_%03d.jpg"
+const EPILOG_AUDIO_PATH: String = "res://public/EpilogAudio.ogg"
 
 @onready var forest_background: Sprite2D = get_node_or_null("Background/ForestBackground") as Sprite2D
 @onready var sky: Polygon2D = get_node_or_null("Background/Sky") as Polygon2D
 @onready var forest_line: Polygon2D = get_node_or_null("Background/ForestLine") as Polygon2D
 @onready var ground: Polygon2D = get_node_or_null("Background/Ground") as Polygon2D
+@onready var dark_forest_bgm: AudioStreamPlayer = get_node_or_null("DarkForestBgm") as AudioStreamPlayer
 @onready var takashi_visual: Node2D = get_node_or_null("CharacterLayer/TakashiVisual") as Node2D
 @onready var mitsuki_visual: Node2D = get_node_or_null("CharacterLayer/MitsukiVisual") as Node2D
 @onready var makoto_visual: Node2D = get_node_or_null("CharacterLayer/MakotoVisual") as Node2D
@@ -22,6 +27,8 @@ const MAKOTO_TALK_TEXTURE: Texture2D = preload("res://public/Makoto portrait 2 (
 @onready var dialogue_panel: Panel = get_node_or_null("CanvasLayer/DialoguePanel") as Panel
 @onready var final_panel: Panel = get_node_or_null("CanvasLayer/FinalPanel") as Panel
 @onready var back_button: Button = get_node_or_null("CanvasLayer/FinalPanel/BackButton") as Button
+@onready var epilog_frame_player: TextureRect = get_node_or_null("CanvasLayer/EpilogFramePlayer") as TextureRect
+@onready var epilog_audio_player: AudioStreamPlayer = get_node_or_null("CanvasLayer/EpilogAudioPlayer") as AudioStreamPlayer
 @onready var world_portraits: Dictionary = {
 	"Takashi": get_node_or_null("CharacterLayer/WorldTakashiPortrait") as Sprite2D,
 	"Mitsuki": get_node_or_null("CharacterLayer/WorldMitsukiPortrait") as Sprite2D,
@@ -34,6 +41,8 @@ const MAKOTO_TALK_TEXTURE: Texture2D = preload("res://public/Makoto portrait 2 (
 ]
 
 var _current_index: int = 0
+var _is_playing_epilog: bool = false
+var _epilog_frames: Array[Texture2D] = []
 var _dialogue_entries: Array[Dictionary] = [
 	{
 		"speaker": "Mitsuki",
@@ -71,13 +80,19 @@ var _dialogue_entries: Array[Dictionary] = [
 
 
 func _ready() -> void:
+	_setup_dark_forest_bgm()
 	if next_button != null:
 		next_button.pressed.connect(_advance)
 	if back_button != null:
 		back_button.pressed.connect(_back_to_prologue)
 	if final_panel != null:
 		final_panel.visible = false
+	if epilog_frame_player != null:
+		epilog_frame_player.visible = false
+	if epilog_audio_player != null:
+		epilog_audio_player.stream = load(EPILOG_AUDIO_PATH) as AudioStream
 	_hide_world_name_labels()
+	_load_epilog_frames()
 
 	await get_tree().process_frame
 	_apply_runtime_layout()
@@ -85,6 +100,8 @@ func _ready() -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if _is_playing_epilog:
+		return
 	if final_panel != null and final_panel.visible:
 		return
 
@@ -161,8 +178,11 @@ func _advance() -> void:
 
 
 func _show_final_panel() -> void:
+	if _is_playing_epilog:
+		return
+	_is_playing_epilog = true
 	if final_panel != null:
-		final_panel.visible = true
+		final_panel.visible = false
 	if dialogue_panel != null:
 		dialogue_panel.visible = false
 	if next_button != null:
@@ -172,10 +192,16 @@ func _show_final_panel() -> void:
 		speaker_name_label.text = ""
 	if dialogue_text_label != null:
 		dialogue_text_label.text = ""
+	if dark_forest_bgm != null:
+		dark_forest_bgm.stop()
 	for character_name in world_portraits.keys():
 		var portrait: Sprite2D = world_portraits[character_name] as Sprite2D
 		if portrait != null:
 			portrait.modulate = Color(0.72, 0.76, 0.84, 0.82)
+	await _play_epilog_sequence()
+	_is_playing_epilog = false
+	if final_panel != null:
+		final_panel.visible = true
 
 
 func _back_to_prologue() -> void:
@@ -245,3 +271,48 @@ func _hide_world_name_labels() -> void:
 	for label in world_name_labels:
 		if label != null:
 			label.visible = false
+
+
+func _load_epilog_frames() -> void:
+	_epilog_frames.clear()
+	for frame_index in range(1, EPILOG_FRAME_COUNT + 1):
+		var frame_path: String = EPILOG_FRAME_PATH_FORMAT % frame_index
+		var frame_texture: Texture2D = load(frame_path) as Texture2D
+		if frame_texture != null:
+			_epilog_frames.append(frame_texture)
+
+
+func _play_epilog_sequence() -> void:
+	if epilog_frame_player == null or _epilog_frames.is_empty():
+		return
+
+	epilog_frame_player.visible = true
+	epilog_frame_player.modulate = Color(1.0, 1.0, 1.0, 1.0)
+	if epilog_audio_player != null and epilog_audio_player.stream != null:
+		epilog_audio_player.stop()
+		epilog_audio_player.play()
+
+	var frame_duration: float = 1.0 / EPILOG_FRAME_RATE
+	for frame_texture in _epilog_frames:
+		epilog_frame_player.texture = frame_texture
+		await get_tree().create_timer(frame_duration).timeout
+
+	if epilog_audio_player != null:
+		epilog_audio_player.stop()
+	epilog_frame_player.texture = null
+	epilog_frame_player.visible = false
+
+
+func _setup_dark_forest_bgm() -> void:
+	if dark_forest_bgm == null:
+		return
+
+	if not dark_forest_bgm.finished.is_connected(_restart_dark_forest_bgm):
+		dark_forest_bgm.finished.connect(_restart_dark_forest_bgm)
+	if not dark_forest_bgm.playing:
+		dark_forest_bgm.play()
+
+
+func _restart_dark_forest_bgm() -> void:
+	if dark_forest_bgm != null:
+		dark_forest_bgm.play()

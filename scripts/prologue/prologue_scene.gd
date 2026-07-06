@@ -9,6 +9,7 @@ const BASE_VIEWPORT_SIZE: Vector2 = Vector2(1280.0, 720.0)
 @onready var sky: Polygon2D = get_node_or_null("Background/Sky") as Polygon2D
 @onready var forest_line: Polygon2D = get_node_or_null("Background/ForestLine") as Polygon2D
 @onready var ground: Polygon2D = get_node_or_null("Background/Ground") as Polygon2D
+@onready var dark_forest_bgm: AudioStreamPlayer = get_node_or_null("DarkForestBgm") as AudioStreamPlayer
 @onready var takashi_visual: Node2D = get_node_or_null("CharacterLayer/TakashiVisual") as Node2D
 @onready var mitsuki_visual: Node2D = get_node_or_null("CharacterLayer/MitsukiVisual") as Node2D
 @onready var makoto_visual: Node2D = get_node_or_null("CharacterLayer/MakotoVisual") as Node2D
@@ -25,6 +26,7 @@ const BASE_VIEWPORT_SIZE: Vector2 = Vector2(1280.0, 720.0)
 
 
 func _ready() -> void:
+	_setup_dark_forest_bgm()
 	if dialogue_manager != null:
 		dialogue_manager.dialogue_finished.connect(_on_dialogue_finished)
 		dialogue_manager.speaker_changed.connect(_on_dialogue_speaker_changed)
@@ -122,3 +124,18 @@ func _hide_world_name_labels() -> void:
 	for label in world_name_labels:
 		if label != null:
 			label.visible = false
+
+
+func _setup_dark_forest_bgm() -> void:
+	if dark_forest_bgm == null:
+		return
+
+	if not dark_forest_bgm.finished.is_connected(_restart_dark_forest_bgm):
+		dark_forest_bgm.finished.connect(_restart_dark_forest_bgm)
+	if not dark_forest_bgm.playing:
+		dark_forest_bgm.play()
+
+
+func _restart_dark_forest_bgm() -> void:
+	if dark_forest_bgm != null:
+		dark_forest_bgm.play()

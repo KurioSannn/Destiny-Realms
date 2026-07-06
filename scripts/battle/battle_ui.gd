@@ -213,14 +213,14 @@ func _make_button_style(background_color: Color, ready: bool) -> StyleBoxFlat:
 	style.border_width_top = 1
 	style.border_width_right = 1
 	style.border_width_bottom = 1
-	style.corner_radius_top_left = 34
-	style.corner_radius_top_right = 34
-	style.corner_radius_bottom_right = 34
-	style.corner_radius_bottom_left = 34
-	style.content_margin_left = 7.0
-	style.content_margin_right = 7.0
-	style.content_margin_top = 7.0
-	style.content_margin_bottom = 7.0
+	style.corner_radius_top_left = 42
+	style.corner_radius_top_right = 42
+	style.corner_radius_bottom_right = 42
+	style.corner_radius_bottom_left = 42
+	style.content_margin_left = 9.0
+	style.content_margin_right = 9.0
+	style.content_margin_top = 9.0
+	style.content_margin_bottom = 9.0
 	return style
 
 

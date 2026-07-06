@@ -78,6 +78,7 @@ After the dialogue ends, `PrologueScene` changes to `BattleScene`. The battle sc
 The prologue now uses visual assets from `res://public/`:
 
 - Forest background: `res://public/BG1Forest.png`
+- Dark forest BGM: `res://public/Under_the_Iron_Bough.mp3`
 - Takashi screen portrait: `res://public/Takashi portrait 1.png`
 - Mitsuki screen portrait: `res://public/Mitsuki portrait 1.png`
 - Makoto screen portrait: `res://public/Makoto portrait 1.png`
@@ -105,6 +106,7 @@ No custom font files are currently present in `public/`, so the prototype uses G
 The ending has a `Back to Prologue` button that returns to `res://scenes/prologue/prologue_scene.tscn`.
 
 The ending UI now matches the prologue style: forest background, large screen portraits, active-speaker highlight, talking portrait inside the dialogue frame, bottom dialogue panel, and styled final panel.
+The ending also uses `res://public/Under_the_Iron_Bough.mp3` during the dark forest dialogue, then stops it before the epilogue video sequence so the epilogue audio can play clearly.
 
 ## Controls
 
@@ -156,10 +158,15 @@ The current battle UI is organized for prototype readability:
 
 - Top left: compact Takashi status panel with `res://public/Takashi portrait 1.png`, green HP bar, Takashi Energy bar, Skill Points text, and segmented SP pips.
 - Top right: compact Lesser Abyss status panel with red HP bar.
-- Bottom left: turn/state label and battle log panel.
-- Bottom right: compact icon-only action command panel with circular buttons.
+- Bottom left: smaller turn/state label and battle log panel for 2-3 short lines.
+- Lower right: compact icon-only action command panel with larger circular buttons.
 - Battle background uses `res://public/BG1Forest.png` for the current forest combat placeholder.
+- Battle BGM uses `res://public/Iron_and_Ivy.mp3`.
 - Battle entry shows a short `BATTLE START` fade overlay before normal play.
+- Takashi battle visual uses `res://public/IdleTaka.png` as idle, then swaps to `res://public/BasicAttackTaka.png`, `res://public/SkillTaka.png`, or `res://public/UltiTaka.png` during actions.
+- Takashi and Lesser Abyss are positioned closer to center with subtle ellipse ground shadows and a low bottom vignette so they feel grounded in the arena.
+- Battle actions spawn lightweight runtime VFX: basic slash streaks, enemy claw streaks, hit sparks, triangle charge/rift effects, and ultimate impact flash.
+- Battle SFX are generated at runtime with Godot `AudioStreamGenerator`, so basic attack, skill cast, enemy hit, and ultimate impact have audio feedback without extra sound files.
 - Ultimate uses `res://public/ultimate_frames/` as a full-screen frame sequence plus `res://public/TakashiUltimateAudio.ogg` before damage resolves.
 
 Action buttons use skill icons from `res://public/` without visible description text:
@@ -177,11 +184,11 @@ Battle skill icon mapping:
 
 ## Temporary Placeholder Visuals
 
-The current character visuals are temporary original placeholders built directly in Godot scenes with `Polygon2D` nodes.
+The current character visuals are a mix of temporary battle assets and original placeholders built directly in Godot scenes with `Polygon2D` nodes.
 
 They are simple shape silhouettes for prototype readability:
 
-- Takashi/player placeholder on the left.
+- Takashi/player chibi sprite on the left.
 - Lesser Abyss/enemy placeholder on the right.
 - Takashi, Mitsuki, and Makoto screen portraits and dialogue portraits in the prologue.
 - Mitsuki and Makoto temporary scene placeholders in the prologue and ending scenes.
@@ -192,14 +199,22 @@ These are not final Destiny Realms art, not AI-generated external images, and no
 The battle scene uses these assets:
 
 - `res://public/BG1Forest.png`
+- `res://public/Under_the_Iron_Bough.mp3`
+- `res://public/Iron_and_Ivy.mp3`
 - `res://public/Takashi portrait 1.png`
+- `res://public/IdleTaka.png`
+- `res://public/BasicAttackTaka.png`
+- `res://public/SkillTaka.png`
+- `res://public/UltiTaka.png`
 - `res://public/ultimate_frames/takashi_ultimate_001.jpg` through `takashi_ultimate_088.jpg`
 - `res://public/TakashiUltimateAudio.ogg`
+- `res://public/epilog_frames/epilog_001.jpg` through `epilog_186.jpg`
+- `res://public/EpilogAudio.ogg`
 - `res://public/BasicSkillTakashi.png`
 - `res://public/AttackSkillTakashi.png`
 - `res://public/UltimateSkillTakashi.png`
 
-The battle scene applies a small runtime layout pass when it starts. Takashi is placed around 25% of the viewport width and 68% of the viewport height, while the Lesser Abyss is placed around 72% width and 68% height. This keeps both placeholders visible when the project is run, even if the editor window size differs from the base resolution.
+The battle scene applies a small runtime layout pass when it starts. Takashi is placed around 34% of the viewport width and 70% of the viewport height, while the Lesser Abyss is placed around 68% width and 70% height. Their visible sprites are offset upward from those anchor points so the characters stay above the bottom HUD while shadows stay on the stage.
 
 ## Folder Structure
 
@@ -225,43 +240,49 @@ The battle scene applies a small runtime layout pass when it starts. Takashi is 
 
 1. Run the project.
 2. Confirm the intro dialogue appears before battle actions can be used.
-3. Confirm speaker names appear for Mitsuki, Makoto, and Takashi.
-4. Click `Next` through the first dialogue lines.
-5. Confirm `Space` or `Enter` advances dialogue when no choices are visible.
-6. Confirm two Takashi choices appear.
-7. Pick each choice in separate runs and confirm Mitsuki/Makoto gives a different response.
-8. Confirm the dialogue mentions Takashi's amnesia, the name Takashi, the Lesser Abyss, and the triangle power hint.
-9. Confirm the scene transitions to `BattleScene` after the final line.
-10. Confirm no duplicate intro dialogue appears inside `BattleScene`.
+3. Confirm `Under_the_Iron_Bough.mp3` plays during the dark forest prologue.
+4. Confirm speaker names appear for Mitsuki, Makoto, and Takashi.
+5. Click `Next` through the first dialogue lines.
+6. Confirm `Space` or `Enter` advances dialogue when no choices are visible.
+7. Confirm two Takashi choices appear.
+8. Pick each choice in separate runs and confirm Mitsuki/Makoto gives a different response.
+9. Confirm the dialogue mentions Takashi's amnesia, the name Takashi, the Lesser Abyss, and the triangle power hint.
+10. Confirm the scene transitions to `BattleScene` after the final line.
+11. Confirm no duplicate intro dialogue appears inside `BattleScene`.
 
 ## How To Test Battle
 
 1. After the prologue transition, confirm the turn label starts at `Player Turn`.
-2. Confirm Takashi HP, Energy, and Skill Points are readable in the top-left panel.
-3. Confirm Lesser Abyss HP is readable in the top-right panel.
-4. Confirm HP bars and Energy bar are visible.
-5. Confirm Skill Point pips match the Skill Points text.
-6. Confirm the three action buttons show their skill icons.
-7. Click `Void Strike`.
-8. Confirm Lesser Abyss HP decreases, Takashi Energy increases by `25`, and Skill Points increase by `1` up to `5/5`.
-9. Click `Triangle Rift` and confirm it spends `1` Skill Point, deals `25` damage, and generates `15` energy.
-10. Confirm `Triangle Rift` is disabled only when Skill Points are below `1` or it is not the player turn.
-11. Confirm `Octagram Fragment` is disabled below `100/100` energy.
-12. Build energy to `100/100`, then confirm `Octagram Fragment` becomes usable and displays `[READY]`.
-13. Click `Octagram Fragment` and confirm the ultimate frame sequence plays with audio before it deals `45` damage and resets energy to `0/100`.
-14. Defeat the Lesser Abyss and confirm the scene transitions to `EndingScene`.
-15. Confirm lose state still stays in `BattleScene`.
-16. Press `R` during battle or after loss and confirm it returns to `PrologueScene`.
-17. Confirm Godot Output and Debugger show no runtime errors.
+2. Confirm `Iron_and_Ivy.mp3` plays during the Lesser Abyss battle.
+3. Confirm Takashi HP, Energy, and Skill Points are readable in the top-left panel.
+4. Confirm Lesser Abyss HP is readable in the top-right panel.
+5. Confirm HP bars and Energy bar are visible.
+6. Confirm Skill Point pips match the Skill Points text.
+7. Confirm the three action buttons show their skill icons.
+8. Click `Void Strike`.
+9. Confirm Lesser Abyss HP decreases, Takashi Energy increases by `25`, and Skill Points increase by `1` up to `5/5`.
+10. Click `Triangle Rift` and confirm it spends `1` Skill Point, deals `25` damage, and generates `15` energy.
+11. Confirm `Triangle Rift` is disabled only when Skill Points are below `1` or it is not the player turn.
+12. Confirm `Octagram Fragment` is disabled below `100/100` energy.
+13. Build energy to `100/100`, then confirm `Octagram Fragment` becomes usable and displays `[READY]`.
+14. Click `Octagram Fragment` and confirm the ultimate frame sequence plays with audio before it deals `45` damage and resets energy to `0/100`.
+15. Confirm basic attack, skill, enemy attack, and ultimate impact show short VFX/SFX feedback.
+16. Defeat the Lesser Abyss and confirm the scene transitions to `EndingScene`.
+17. Confirm lose state still stays in `BattleScene`.
+18. Press `R` during battle or after loss and confirm it returns to `PrologueScene`.
+19. Confirm Godot Output and Debugger show no runtime errors.
 
 ## How To Test Ending
 
 1. Defeat the Lesser Abyss.
 2. Confirm `EndingScene` appears.
 3. Confirm Takashi, Mitsuki, and Makoto ending dialogue appears with the same portrait/dialogue layout as the prologue.
-4. Click `Next` or press Space/Enter to advance.
-5. Confirm `Destiny Realms: Awakening in Werdonia` and `To be continued...` appear.
-6. Click `Back to Prologue` and confirm the prologue starts again.
+4. Confirm `Under_the_Iron_Bough.mp3` plays during the dark forest ending dialogue.
+5. Click `Next` or press Space/Enter to advance.
+6. Confirm the dark forest BGM stops when the epilogue frame sequence starts.
+7. Confirm the epilogue frame sequence plays with audio after the last dialogue line.
+8. Confirm `Destiny Realms: Awakening in Werdonia` and `To be continued...` appear after the epilogue sequence.
+9. Click `Back to Prologue` and confirm the prologue starts again.
 
 ## Known Limitations
 
@@ -285,7 +306,8 @@ The battle scene applies a small runtime layout pass when it starts. Takashi is 
 - Expand the ending scene later if the comic chapter needs a longer closing beat.
 - Replace temporary dialogue portraits with final Destiny Realms portrait art when ready.
 - Add authored hit, skill, and ultimate animations.
-- Add SFX/BGM.
+- Replace runtime-generated battle SFX with authored `.ogg` or `.wav` files when final sound assets are ready.
+- Add BGM.
 - Continue refining UI styling while keeping it original.
 - Expand dialogue data only after the current vertical slice remains stable.
 - Tune HP, damage, Skill Points, and energy values after playtesting.

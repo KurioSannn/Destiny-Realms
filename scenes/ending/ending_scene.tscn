@@ -5,6 +5,7 @@
 [ext_resource type="Texture2D" path="res://public/Takashi portrait 1.png" id="3_takashi_world"]
 [ext_resource type="Texture2D" path="res://public/Mitsuki portrait 1.png" id="4_mitsuki_world"]
 [ext_resource type="Texture2D" path="res://public/Makoto portrait 1.png" id="5_makoto_world"]
+[ext_resource type="AudioStream" path="res://public/Under_the_Iron_Bough.mp3" id="6_dark_forest_bgm"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_dialogue_panel"]
 bg_color = Color(0.022, 0.03, 0.045, 0.9)
@@ -69,6 +70,11 @@ polygon = PackedVector2Array(0, 230, 154, 144, 358, 259, 589, 144, 819, 245, 105
 visible = false
 color = Color(0.117647, 0.109804, 0.0862745, 1)
 polygon = PackedVector2Array(0, 490, 1280, 468, 1280, 720, 0, 720)
+
+[node name="DarkForestBgm" type="AudioStreamPlayer" parent="."]
+stream = ExtResource("6_dark_forest_bgm")
+volume_db = -11.0
+autoplay = true
 
 [node name="CharacterLayer" type="Node2D" parent="."]
 z_index = 5
@@ -293,3 +299,17 @@ offset_bottom = 256.0
 theme_override_colors/font_color = Color(0.9, 0.88, 0.82, 1)
 theme_override_font_sizes/font_size = 18
 text = "Back to Prologue"
+
+[node name="EpilogFramePlayer" type="TextureRect" parent="CanvasLayer"]
+visible = false
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+expand_mode = 1
+stretch_mode = 5
+
+[node name="EpilogAudioPlayer" type="AudioStreamPlayer" parent="CanvasLayer"]
