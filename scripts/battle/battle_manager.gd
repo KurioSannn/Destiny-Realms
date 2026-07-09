@@ -1095,6 +1095,115 @@ func _spawn_hit_spark(target: Node2D, color: Color) -> void:
 	tween.tween_callback(spark.queue_free)
 
 
+func _play_basic_cetar_impact(target: Node2D) -> void:
+	_play_sring_sfx()
+	_spawn_hit_spark(target, Color(1.0, 0.95, 0.62, 1.0))
+	_spawn_cetar_text(target, "SRIING", Color(0.78, 0.96, 1.0, 1.0))
+	_play_screen_flash(Color(0.92, 0.97, 1.0, 0.22), 0.08)
+	_shake_target_once(target, BASIC_CETAR_TARGET_SHAKE * 0.65, BASIC_CETAR_INTERVAL * 0.75)
+	_shake_camera_with_strength(BASIC_CETAR_CAMERA_SHAKE * 0.65)
+	await get_tree().create_timer(0.045).timeout
+
+	for hit_index in range(BASIC_CETAR_HIT_COUNT):
+		if state != BattleState.ACTION_RESOLUTION:
+			return
+
+		_play_cetar_sfx(hit_index)
+		_spawn_hit_spark(target, Color(1.0, 0.84, 0.32, 1.0))
+		_spawn_cetar_slash_cross(target, hit_index)
+		_spawn_cetar_triangle_shards(target, hit_index)
+		_spawn_cetar_text(target, "CETAR", Color(1.0, 0.86, 0.38, 1.0))
+		_shake_target_once(target, BASIC_CETAR_TARGET_SHAKE + float(hit_index) * 1.5, BASIC_CETAR_INTERVAL * 0.75)
+		_shake_camera_with_strength(BASIC_CETAR_CAMERA_SHAKE + float(hit_index) * 0.8)
+		_play_screen_flash(Color(1.0, 0.92, 0.62, 0.18), 0.06)
+		await get_tree().create_timer(BASIC_CETAR_INTERVAL).timeout
+
+
+func _spawn_cetar_slash_cross(target: Node2D, burst_index: int) -> void:
+	if effect_layer == null:
+		return
+
+	var center_position: Vector2 = target.global_position + Vector2(0.0, -112.0)
+	var angles: Array[float] = [-0.72, 0.68, -0.08]
+	var colors: Array[Color] = [
+		Color(1.0, 0.96, 0.68, 0.9),
+		Color(0.68, 0.96, 1.0, 0.72),
+		Color(1.0, 1.0, 1.0, 0.78)
+	]
+
+	for slash_index in range(angles.size()):
+		var slash: Sprite2D = Sprite2D.new()
+		slash.texture = EFFECT_SLASH_TEXTURE
+		slash.flip_h = slash_index % 2 == 0
+		slash.position = center_position + Vector2(randf_range(-8.0, 8.0), randf_range(-8.0, 8.0))
+		slash.rotation = angles[slash_index] + float(burst_index) * 0.14
+		slash.modulate = colors[slash_index]
+		var start_scale: float = 0.09 + float(burst_index) * 0.012 + float(slash_index) * 0.01
+		slash.scale = Vector2(start_scale, start_scale)
+		effect_layer.add_child(slash)
+
+		var end_scale: float = start_scale + 0.13
+		var tween: Tween = create_tween()
+		tween.set_trans(Tween.TRANS_QUAD)
+		tween.set_ease(Tween.EASE_OUT)
+		tween.tween_property(slash, "scale", Vector2(end_scale, end_scale), 0.11)
+		tween.parallel().tween_property(slash, "modulate:a", 0.0, 0.13)
+		tween.parallel().tween_property(slash, "position", slash.position + Vector2(randf_range(-14.0, 14.0), randf_range(-10.0, 10.0)), 0.13)
+		tween.tween_callback(slash.queue_free)
+
+
+func _spawn_cetar_triangle_shards(target: Node2D, burst_index: int) -> void:
+	if effect_layer == null:
+		return
+
+	var shard_origin: Vector2 = target.global_position + Vector2(0.0, -112.0)
+	var shard_count: int = 7 + burst_index
+	for shard_index in range(shard_count):
+		var particle: Sprite2D = Sprite2D.new()
+		particle.texture = EFFECT_PARTICLE_TEXTURE
+		particle.position = shard_origin + Vector2(randf_range(-10.0, 10.0), randf_range(-8.0, 8.0))
+		particle.rotation = randf_range(-PI, PI)
+		particle.modulate = Color(0.78, 0.96, 1.0, 0.78)
+		var start_scale: float = randf_range(0.035, 0.055)
+		particle.scale = Vector2(start_scale, start_scale)
+		effect_layer.add_child(particle)
+
+		var direction: Vector2 = Vector2.RIGHT.rotated(randf_range(-PI, PI))
+		var distance: float = randf_range(28.0, 62.0) + float(burst_index) * 6.0
+		var end_position: Vector2 = particle.position + direction * distance
+		var tween: Tween = create_tween()
+		tween.set_trans(Tween.TRANS_QUAD)
+		tween.set_ease(Tween.EASE_OUT)
+		tween.tween_property(particle, "position", end_position, 0.18)
+		tween.parallel().tween_property(particle, "rotation", particle.rotation + randf_range(-2.4, 2.4), 0.18)
+		tween.parallel().tween_property(particle, "scale", Vector2(start_scale * 1.65, start_scale * 1.65), 0.12)
+		tween.parallel().tween_property(particle, "modulate:a", 0.0, 0.2)
+		tween.tween_callback(particle.queue_free)
+
+
+func _spawn_cetar_text(target: Node2D, text_value: String, color: Color) -> void:
+	var label: Label = Label.new()
+	label.text = text_value
+	label.z_index = 22
+	label.add_theme_font_size_override("font_size", 16)
+	label.add_theme_color_override("font_color", color)
+	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.78))
+	label.add_theme_constant_override("shadow_offset_x", 2)
+	label.add_theme_constant_override("shadow_offset_y", 2)
+	battle_scene.add_child(label)
+
+	var start_position: Vector2 = target.position + Vector2(randf_range(-34.0, 18.0), randf_range(-142.0, -112.0))
+	label.position = start_position
+	label.rotation = randf_range(-0.12, 0.12)
+
+	var tween: Tween = create_tween()
+	tween.set_trans(Tween.TRANS_QUAD)
+	tween.set_ease(Tween.EASE_OUT)
+	tween.tween_property(label, "position", start_position + Vector2(randf_range(-8.0, 8.0), -BASIC_CETAR_TEXT_RISE), 0.28)
+	tween.parallel().tween_property(label, "modulate:a", 0.0, 0.28)
+	tween.tween_callback(label.queue_free)
+
+
 func _spawn_ultimate_impact_effect(target: Node2D) -> void:
 	_play_screen_flash(Color(0.95, 0.95, 1.0, 0.38), 0.18)
 	_spawn_triangle_rift_effect(target, true)
