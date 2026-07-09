@@ -498,6 +498,10 @@ func _setup_battle_effects() -> void:
 	basic_sfx_player = _create_generated_sfx_player("RuntimeBasicAttackSfx")
 	skill_sfx_player = _create_generated_sfx_player("RuntimeSkillSfx")
 	impact_sfx_player = _create_generated_sfx_player("RuntimeImpactSfx")
+	cetar_sfx_player = _create_generated_sfx_player("RuntimeCetarSfx")
+	sring_sfx_player = _create_generated_sfx_player("RuntimeSringSfx")
+	skill_release_sfx_player = _create_generated_sfx_player("RuntimeSkillReleaseSfx")
+	rift_crack_sfx_player = _create_generated_sfx_player("RuntimeRiftCrackSfx")
 
 
 func _setup_battle_bgm() -> void:
