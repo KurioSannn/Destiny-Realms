@@ -524,25 +524,276 @@ func _create_generated_sfx_player(player_name: String) -> AudioStreamPlayer:
 	player_node.name = player_name
 	var stream: AudioStreamGenerator = AudioStreamGenerator.new()
 	stream.mix_rate = SFX_SAMPLE_RATE
-	stream.buffer_length = 0.28
+	stream.buffer_length = 0.45
 	player_node.stream = stream
 	battle_scene.add_child(player_node)
 	return player_node
 
 
 func _play_basic_sfx() -> void:
-	_play_generated_sfx(basic_sfx_player, BASIC_SFX_START_HZ, BASIC_SFX_END_HZ, 0.12, 0.18, 0.22)
+	_play_cosmic_basic_sfx()
 
 
 func _play_skill_sfx() -> void:
-	_play_generated_sfx(skill_sfx_player, SKILL_SFX_START_HZ, SKILL_SFX_END_HZ, 0.22, 0.08, 0.18)
+	if skill_sfx_player == null:
+		return
+
+	skill_sfx_player.stop()
+	skill_sfx_player.play()
+	var playback: AudioStreamGeneratorPlayback = skill_sfx_player.get_stream_playback() as AudioStreamGeneratorPlayback
+	if playback == null:
+		return
+
+	playback.clear_buffer()
+	var duration: float = 0.36
+	var sample_count: int = int(SFX_SAMPLE_RATE * duration)
+	var low_phase: float = 0.0
+	var rift_phase: float = 0.0
+	var shimmer_phase: float = 0.0
+	for sample_index in range(sample_count):
+		var progress: float = float(sample_index) / float(maxi(sample_count - 1, 1))
+		var build: float = pow(progress, 0.55)
+		var fade: float = minf(progress / 0.04, 1.0) * pow(1.0 - progress * 0.2, 1.2)
+		var pulse: float = 0.78 + 0.22 * sin(progress * TAU * 9.0)
+
+		low_phase += TAU * lerpf(58.0, 86.0, build) / SFX_SAMPLE_RATE
+		rift_phase += TAU * lerpf(180.0, 520.0, build) / SFX_SAMPLE_RATE
+		shimmer_phase += TAU * lerpf(980.0, 2600.0, build) / SFX_SAMPLE_RATE
+
+		var low_rumble: float = sin(low_phase) * 0.42
+		var rift_tone: float = (sin(rift_phase) + sin(rift_phase * 1.51) * 0.45) * 0.34
+		var cold_shimmer: float = sin(shimmer_phase) * 0.12 * build
+		var air: float = randf_range(-1.0, 1.0) * 0.08 * build
+		var sample: float = (low_rumble + rift_tone + cold_shimmer + air) * fade * pulse * 0.34
+		playback.push_frame(Vector2(sample * 0.95, sample * 1.05))
+
+
+func _play_skill_release_sfx() -> void:
+	if skill_release_sfx_player == null:
+		return
+
+	skill_release_sfx_player.stop()
+	skill_release_sfx_player.play()
+	var playback: AudioStreamGeneratorPlayback = skill_release_sfx_player.get_stream_playback() as AudioStreamGeneratorPlayback
+	if playback == null:
+		return
+
+	playback.clear_buffer()
+	var duration: float = 0.28
+	var sample_count: int = int(SFX_SAMPLE_RATE * duration)
+	var sweep_phase: float = 0.0
+	var blade_phase: float = 0.0
+	var sub_phase: float = 0.0
+	for sample_index in range(sample_count):
+		var progress: float = float(sample_index) / float(maxi(sample_count - 1, 1))
+		var sweep_progress: float = pow(progress, 0.38)
+		var attack: float = minf(progress / 0.018, 1.0)
+		var tail: float = pow(1.0 - progress, 1.85)
+		var envelope: float = attack * tail
+		var transient: float = pow(maxf(1.0 - progress * 9.5, 0.0), 2.0)
+
+		sweep_phase += TAU * lerpf(420.0, 4200.0, sweep_progress) / SFX_SAMPLE_RATE
+		blade_phase += TAU * lerpf(1500.0, 5200.0, sweep_progress) / SFX_SAMPLE_RATE
+		sub_phase += TAU * lerpf(92.0, 48.0, progress) / SFX_SAMPLE_RATE
+
+		var rift_sweep: float = (sin(sweep_phase) + sin(sweep_phase * 1.33) * 0.35) * envelope * 0.42
+		var high_blade: float = sin(blade_phase) * envelope * 0.22
+		var sub_drop: float = sin(sub_phase) * pow(1.0 - progress, 2.4) * 0.28
+		var burst_air: float = randf_range(-1.0, 1.0) * (0.32 * transient + 0.08 * envelope)
+		var sample: float = (rift_sweep + high_blade + sub_drop + burst_air) * 0.44
+		var pan: float = lerpf(-0.16, 0.18, progress)
+		playback.push_frame(Vector2(sample * (1.0 - pan), sample * (1.0 + pan)))
+
+
+func _play_rift_crack_sfx() -> void:
+	if rift_crack_sfx_player == null:
+		return
+
+	rift_crack_sfx_player.stop()
+	rift_crack_sfx_player.play()
+	var playback: AudioStreamGeneratorPlayback = rift_crack_sfx_player.get_stream_playback() as AudioStreamGeneratorPlayback
+	if playback == null:
+		return
+
+	playback.clear_buffer()
+	var duration: float = 0.24
+	var sample_count: int = int(SFX_SAMPLE_RATE * duration)
+	var crack_phase_a: float = 0.0
+	var crack_phase_b: float = 0.0
+	var crack_phase_c: float = 0.0
+	var sub_phase: float = 0.0
+	for sample_index in range(sample_count):
+		var progress: float = float(sample_index) / float(maxi(sample_count - 1, 1))
+		var attack: float = minf(progress / 0.006, 1.0)
+		var tail: float = pow(1.0 - progress, 2.45)
+		var envelope: float = attack * tail
+		var first_crack: float = pow(maxf(1.0 - progress * 15.0, 0.0), 2.0)
+		var second_crack: float = pow(maxf(1.0 - absf(progress - 0.32) * 12.0, 0.0), 2.0) * 0.72
+		var crack_gate: float = maxf(first_crack, second_crack)
+
+		crack_phase_a += TAU * lerpf(3400.0, 920.0, progress) / SFX_SAMPLE_RATE
+		crack_phase_b += TAU * lerpf(4700.0, 1300.0, progress) / SFX_SAMPLE_RATE
+		crack_phase_c += TAU * lerpf(1600.0, 520.0, progress) / SFX_SAMPLE_RATE
+		sub_phase += TAU * lerpf(68.0, 34.0, progress) / SFX_SAMPLE_RATE
+
+		var rift_crack: float = (
+			sin(crack_phase_a) * 0.28 +
+			sin(crack_phase_b) * 0.21 +
+			sin(crack_phase_c) * 0.26
+		) * crack_gate
+		var tear_noise: float = randf_range(-1.0, 1.0) * (0.55 * crack_gate + 0.12 * envelope)
+		var sub_hit: float = sin(sub_phase) * envelope * 0.45
+		var sample: float = (rift_crack + tear_noise + sub_hit) * 0.46
+		var pan: float = randf_range(-0.08, 0.08)
+		playback.push_frame(Vector2(sample * (1.0 - pan), sample * (1.0 + pan)))
 
 
 func _play_impact_sfx() -> void:
 	_play_generated_sfx(impact_sfx_player, IMPACT_SFX_START_HZ, IMPACT_SFX_END_HZ, 0.24, 0.55, 0.28)
 
 
-func _play_generated_sfx(player_node: AudioStreamPlayer, start_hz: float, end_hz: float, duration: float, noise_mix: float, volume: float) -> void:
+func _play_sring_sfx() -> void:
+	if sring_sfx_player == null:
+		return
+
+	sring_sfx_player.stop()
+	sring_sfx_player.play()
+	var playback: AudioStreamGeneratorPlayback = sring_sfx_player.get_stream_playback() as AudioStreamGeneratorPlayback
+	if playback == null:
+		return
+
+	playback.clear_buffer()
+	var duration: float = 0.18
+	var sample_count: int = int(SFX_SAMPLE_RATE * duration)
+	var phase: float = 0.0
+	var edge_phase: float = 0.0
+	var glass_phase: float = 0.0
+	for sample_index in range(sample_count):
+		var progress: float = float(sample_index) / float(maxi(sample_count - 1, 1))
+		var sweep_progress: float = pow(progress, 0.35)
+		var current_hz: float = lerpf(6800.0, 920.0, sweep_progress)
+		var attack: float = minf(progress / 0.012, 1.0)
+		var tail: float = pow(1.0 - progress, 2.35)
+		var envelope: float = attack * tail
+		var transient: float = pow(maxf(1.0 - progress * 18.0, 0.0), 2.0)
+
+		phase += TAU * current_hz / SFX_SAMPLE_RATE
+		edge_phase += TAU * (current_hz * 1.47) / SFX_SAMPLE_RATE
+		glass_phase += TAU * lerpf(5200.0, 2100.0, progress) / SFX_SAMPLE_RATE
+
+		var blade: float = (sin(phase) * 0.65 + sin(edge_phase) * 0.28) * envelope
+		var glass_ring: float = sin(glass_phase) * envelope * 0.22
+		var air: float = randf_range(-1.0, 1.0) * (0.18 * envelope + 0.34 * transient)
+		var sample: float = (blade + glass_ring + air) * 0.28
+		var pan: float = lerpf(-0.18, 0.22, progress)
+		playback.push_frame(Vector2(sample * (1.0 - pan), sample * (1.0 + pan)))
+
+
+func _play_cetar_sfx(hit_index: int) -> void:
+	if cetar_sfx_player == null:
+		return
+
+	cetar_sfx_player.stop()
+	cetar_sfx_player.play()
+	var playback: AudioStreamGeneratorPlayback = cetar_sfx_player.get_stream_playback() as AudioStreamGeneratorPlayback
+	if playback == null:
+		return
+
+	playback.clear_buffer()
+	var duration: float = 0.16
+	var sample_count: int = int(SFX_SAMPLE_RATE * duration)
+	var pitch_offset: float = float(hit_index) * 180.0
+	var glass_phase_a: float = 0.0
+	var glass_phase_b: float = 0.0
+	var glass_phase_c: float = 0.0
+	var sub_phase: float = 0.0
+	for sample_index in range(sample_count):
+		var progress: float = float(sample_index) / float(maxi(sample_count - 1, 1))
+		var attack: float = minf(progress / 0.006, 1.0)
+		var tail: float = pow(1.0 - progress, 2.8)
+		var envelope: float = attack * tail
+		var crack_gate: float = pow(maxf(1.0 - progress * 11.0, 0.0), 2.0)
+		var shard_gate_a: float = pow(maxf(1.0 - absf(progress - 0.22) * 12.0, 0.0), 2.0)
+		var shard_gate_b: float = pow(maxf(1.0 - absf(progress - 0.43) * 10.0, 0.0), 2.0) * 0.75
+		var shard_gate: float = maxf(crack_gate, maxf(shard_gate_a, shard_gate_b))
+
+		glass_phase_a += TAU * (5400.0 + pitch_offset) / SFX_SAMPLE_RATE
+		glass_phase_b += TAU * (7200.0 + pitch_offset * 0.7) / SFX_SAMPLE_RATE
+		glass_phase_c += TAU * (3900.0 + pitch_offset * 0.45) / SFX_SAMPLE_RATE
+		sub_phase += TAU * lerpf(118.0, 54.0, progress) / SFX_SAMPLE_RATE
+
+		var glass_ring: float = (
+			sin(glass_phase_a) * 0.34 +
+			sin(glass_phase_b) * 0.26 +
+			sin(glass_phase_c) * 0.22
+		) * shard_gate
+		var crack_noise: float = randf_range(-1.0, 1.0) * shard_gate * 0.88
+		var low_hit: float = sin(sub_phase) * envelope * 0.34
+		var sample: float = (glass_ring + crack_noise + low_hit) * 0.36
+		var pan: float = -0.08 + float(hit_index) * 0.08
+		playback.push_frame(Vector2(sample * (1.0 - pan), sample * (1.0 + pan)))
+
+
+func _play_cosmic_basic_sfx() -> void:
+	if basic_sfx_player == null:
+		return
+
+	basic_sfx_player.stop()
+	basic_sfx_player.play()
+	var playback: AudioStreamGeneratorPlayback = basic_sfx_player.get_stream_playback() as AudioStreamGeneratorPlayback
+	if playback == null:
+		return
+
+	playback.clear_buffer()
+	var sample_count: int = int(SFX_SAMPLE_RATE * BASIC_SFX_DURATION)
+	var phase: float = 0.0
+	var edge_phase: float = 0.0
+	var shimmer_phase: float = 0.0
+	var crystal_phase_a: float = 0.0
+	var crystal_phase_b: float = 0.0
+	var crystal_phase_c: float = 0.0
+	var sub_phase: float = 0.0
+	for sample_index in range(sample_count):
+		var progress: float = float(sample_index) / float(maxi(sample_count - 1, 1))
+		var drop_progress: float = pow(progress, 0.42)
+		var current_hz: float = lerpf(BASIC_SFX_START_HZ, BASIC_SFX_END_HZ, drop_progress)
+		var attack: float = minf(progress / 0.01, 1.0)
+		var tail: float = pow(1.0 - progress, 2.15)
+		var envelope: float = attack * tail
+		var transient: float = pow(maxf(1.0 - (progress * 16.0), 0.0), 2.0)
+
+		phase += TAU * current_hz / SFX_SAMPLE_RATE
+		edge_phase += TAU * (current_hz * 1.72) / SFX_SAMPLE_RATE
+		shimmer_phase += TAU * lerpf(2400.0, 780.0, progress) / SFX_SAMPLE_RATE
+		crystal_phase_a += TAU * lerpf(5200.0, 2700.0, progress) / SFX_SAMPLE_RATE
+		crystal_phase_b += TAU * lerpf(6400.0, 3400.0, progress) / SFX_SAMPLE_RATE
+		crystal_phase_c += TAU * lerpf(3800.0, 2100.0, progress) / SFX_SAMPLE_RATE
+		sub_phase += TAU * lerpf(82.0, 38.0, progress) / SFX_SAMPLE_RATE
+
+		var core: float = (sin(phase) * 0.58 + sin(edge_phase) * 0.42) * envelope
+		var slash_snap: float = randf_range(-1.0, 1.0) * BASIC_SFX_NOISE_MIX * transient * 1.55
+		var slash_air: float = randf_range(-1.0, 1.0) * BASIC_SFX_NOISE_MIX * envelope * 0.34
+		var shimmer: float = sin(shimmer_phase) * BASIC_SFX_SHIMMER_MIX * pow(maxf(1.0 - absf(progress - 0.28) * 5.0, 0.0), 2.0)
+		var crystal_hit: float = pow(maxf(1.0 - absf(progress - 0.42) * 26.0, 0.0), 2.0)
+		var crystal_splinter: float = pow(maxf(1.0 - absf(progress - 0.52) * 20.0, 0.0), 2.0) * 0.78
+		var crystal_tail: float = pow(maxf(1.0 - absf(progress - 0.66) * 14.0, 0.0), 2.0) * 0.45
+		var crystal_gate: float = maxf(crystal_hit, maxf(crystal_splinter, crystal_tail))
+		var crystal_ring: float = (
+			sin(crystal_phase_a) * 0.35 +
+			sin(crystal_phase_b) * 0.28 +
+			sin(crystal_phase_c) * 0.22
+		) * crystal_gate
+		var crystal_noise: float = randf_range(-1.0, 1.0) * crystal_gate * 0.9
+		var crystal: float = (crystal_ring + crystal_noise) * BASIC_SFX_CRYSTAL_MIX
+		var sub_envelope: float = pow(maxf(1.0 - (progress * 2.4), 0.0), 1.7)
+		var sub: float = sin(sub_phase) * sub_envelope * BASIC_SFX_SUB_MIX
+
+		var sample: float = (core + slash_snap + slash_air + shimmer + crystal + sub) * BASIC_SFX_VOLUME
+		var pan: float = lerpf(-0.12, 0.16, progress)
+		playback.push_frame(Vector2(sample * (1.0 - pan), sample * (1.0 + pan)))
+
+
+func _play_generated_sfx(player_node: AudioStreamPlayer, start_hz: float, end_hz: float, duration: float, noise_mix: float, volume: float, shimmer_mix: float = 0.0) -> void:
 	if player_node == null:
 		return
 
