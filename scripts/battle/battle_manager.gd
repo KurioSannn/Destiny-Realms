@@ -408,12 +408,10 @@ func _on_skill_pressed() -> void:
 	if state != BattleState.ACTION_RESOLUTION:
 		return
 
-	_spawn_triangle_rift_effect(enemy, false)
-	_spawn_hit_spark(enemy, Color(0.45, 0.85, 1.0, 1.0))
-	enemy.take_damage(SKILL_DAMAGE)
-	_show_floating_damage(enemy, SKILL_DAMAGE)
-	await enemy.play_hit_feedback()
-	_shake_camera()
+	await _resolve_triangle_rift_damage()
+	if state != BattleState.ACTION_RESOLUTION:
+		return
+
 	_add_ultimate_energy(SKILL_ENERGY)
 	_finish_player_action("Triangle Rift deals %d damage." % SKILL_DAMAGE)
 
