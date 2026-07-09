@@ -34,7 +34,9 @@ const BUTTON_READY_BORDER_COLOR: Color = Color(0.98, 0.78, 0.28, 1.0)
 @onready var ultimate_caption: Label = $ActionPanel/ActionCaptions/UltimateCaption
 @onready var menu_button: Button = $MenuButton
 @onready var menu_popup: Panel = $MenuPopup
+@onready var menu_dim: ColorRect = $MenuDim
 @onready var start_button: Button = $MenuPopup/StartButton
+@onready var quit_button: Button = $MenuPopup/QuitButton
 @onready var turn_banner_label: Label = $TurnBannerLabel
 @onready var turn_chip_player: Panel = $TurnOrderStrip/TurnChipPlayer
 @onready var turn_chip_enemy: Panel = $TurnOrderStrip/TurnChipEnemy
@@ -60,6 +62,7 @@ func _ready() -> void:
 	ultimate_button.pressed.connect(_on_ultimate_button_pressed)
 	menu_button.pressed.connect(_on_menu_button_pressed)
 	start_button.pressed.connect(_on_start_button_pressed)
+	quit_button.pressed.connect(_on_quit_button_pressed)
 	_setup_turn_order_slots()
 	_apply_action_button_style(attack_button, false, false)
 	_apply_action_button_style(skill_button, false, false)
@@ -201,12 +204,23 @@ func _on_ultimate_button_pressed() -> void:
 
 
 func _on_menu_button_pressed() -> void:
-	menu_popup.visible = not menu_popup.visible
+	_set_menu_open(not menu_popup.visible)
 
 
 func _on_start_button_pressed() -> void:
-	menu_popup.visible = false
+	_set_menu_open(false)
 	restart_pressed.emit()
+
+
+func _on_quit_button_pressed() -> void:
+	get_tree().paused = false
+	get_tree().quit()
+
+
+func _set_menu_open(is_open: bool) -> void:
+	menu_popup.visible = is_open
+	menu_dim.visible = is_open
+	get_tree().paused = is_open
 
 
 func _apply_action_button_style(button: Button, enabled: bool, ready: bool) -> void:
