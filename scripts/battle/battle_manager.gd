@@ -326,6 +326,7 @@ func _enemy_attack() -> void:
 
 	_play_impact_sfx()
 	_spawn_enemy_claw_effect(player)
+	_spawn_hit_spark(player, Color(1.0, 0.4, 0.42, 1.0))
 	player.take_damage(damage)
 	_refresh_player_status_ui()
 	_show_floating_damage(player, damage)
