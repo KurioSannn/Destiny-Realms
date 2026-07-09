@@ -913,6 +913,168 @@ func _spawn_triangle_rift_effect(target: Node2D, large: bool) -> void:
 		tween.tween_callback(particle.queue_free)
 
 
+func _resolve_triangle_rift_damage() -> void:
+	if state != BattleState.ACTION_RESOLUTION:
+		return
+
+	_play_skill_release_sfx()
+	_spawn_triangle_rift_projectile(player, enemy)
+
+	await get_tree().create_timer(SKILL_RIFT_PROJECTILE_DURATION).timeout
+	if state != BattleState.ACTION_RESOLUTION:
+		return
+
+	enemy.take_damage(SKILL_DAMAGE)
+	_show_floating_damage(enemy, SKILL_DAMAGE)
+
+	await _play_triangle_rift_impact(enemy)
+	if state != BattleState.ACTION_RESOLUTION:
+		return
+
+	await enemy.play_hit_feedback()
+
+
+func _spawn_triangle_rift_projectile(origin: Node2D, target: Node2D) -> void:
+	if effect_layer == null or origin == null or target == null:
+		return
+
+	var start_position: Vector2 = origin.global_position + Vector2(28.0, -128.0)
+	var end_position: Vector2 = target.global_position + Vector2(-8.0, -118.0)
+
+	var projectile: Sprite2D = Sprite2D.new()
+	projectile.texture = EFFECT_PARTICLE_TEXTURE
+	projectile.position = start_position
+	projectile.rotation = (end_position - start_position).angle()
+	projectile.modulate = Color(0.45, 0.95, 1.0, 0.95)
+	projectile.scale = Vector2(0.08, 0.08)
+	projectile.z_index = 18
+	effect_layer.add_child(projectile)
+
+	var tween: Tween = create_tween()
+	tween.set_trans(Tween.TRANS_QUAD)
+	tween.set_ease(Tween.EASE_OUT)
+	tween.tween_property(projectile, "position", end_position, SKILL_RIFT_PROJECTILE_DURATION)
+	tween.parallel().tween_property(projectile, "scale", Vector2(0.18, 0.18), SKILL_RIFT_PROJECTILE_DURATION)
+	tween.parallel().tween_property(projectile, "rotation", projectile.rotation + 0.8, SKILL_RIFT_PROJECTILE_DURATION)
+	tween.parallel().tween_property(projectile, "modulate:a", 0.0, SKILL_RIFT_PROJECTILE_DURATION + 0.04)
+	tween.tween_callback(projectile.queue_free)
+
+
+func _play_triangle_rift_impact(target: Node2D) -> void:
+	if effect_layer == null or target == null:
+		return
+
+	_play_rift_crack_sfx()
+	_play_screen_flash(Color(0.55, 0.92, 1.0, 0.22), 0.09)
+	_spawn_triangle_rift_effect(target, false)
+	_spawn_hit_spark(target, Color(0.45, 0.92, 1.0, 1.0))
+	_spawn_triangle_rift_break(target, 0)
+	_shake_camera_with_strength(SKILL_RIFT_CAMERA_SHAKE)
+
+	await _shake_target_once(target, SKILL_RIFT_TARGET_SHAKE, 0.055)
+
+	for pulse_index in range(SKILL_RIFT_IMPACT_PULSE_COUNT):
+		if state != BattleState.ACTION_RESOLUTION:
+			return
+
+		_play_rift_crack_sfx()
+		_spawn_triangle_rift_break(target, pulse_index + 1)
+		_spawn_rift_crack_slashes(target, pulse_index)
+		_spawn_rift_after_particles(target, pulse_index)
+		_shake_camera_with_strength(SKILL_RIFT_CAMERA_SHAKE + float(pulse_index) * 1.5)
+
+		await _shake_target_once(target, SKILL_RIFT_TARGET_SHAKE + float(pulse_index) * 2.0, 0.045)
+		await get_tree().create_timer(SKILL_RIFT_IMPACT_INTERVAL).timeout
+
+
+func _spawn_triangle_rift_break(target: Node2D, pulse_index: int) -> void:
+	if effect_layer == null or target == null:
+		return
+
+	var impact_position: Vector2 = target.global_position + Vector2(0.0, -118.0)
+
+	var burst: Sprite2D = Sprite2D.new()
+	burst.texture = EFFECT_PARTICLE_TEXTURE
+	burst.position = impact_position
+	burst.rotation = randf_range(-0.45, 0.45)
+	burst.modulate = Color(0.42, 0.95, 1.0, 0.92)
+	burst.scale = Vector2(0.08, 0.08)
+	burst.z_index = 19
+	effect_layer.add_child(burst)
+
+	var end_scale: float = 0.26 + float(pulse_index) * 0.05
+	var tween: Tween = create_tween()
+	tween.set_trans(Tween.TRANS_BACK)
+	tween.set_ease(Tween.EASE_OUT)
+	tween.tween_property(burst, "scale", Vector2(end_scale, end_scale), 0.10)
+	tween.parallel().tween_property(burst, "rotation", burst.rotation + randf_range(-1.4, 1.4), 0.16)
+	tween.parallel().tween_property(burst, "modulate:a", 0.0, 0.18)
+	tween.tween_callback(burst.queue_free)
+
+
+func _spawn_rift_crack_slashes(target: Node2D, pulse_index: int) -> void:
+	if effect_layer == null or target == null:
+		return
+
+	var impact_position: Vector2 = target.global_position + Vector2(0.0, -118.0)
+	var slash_count: int = 3
+
+	for index in range(slash_count):
+		var slash: Sprite2D = Sprite2D.new()
+		slash.texture = EFFECT_SLASH_TEXTURE
+		slash.position = impact_position + Vector2(randf_range(-18.0, 18.0), randf_range(-16.0, 12.0))
+		slash.rotation = deg_to_rad(randf_range(-58.0, 58.0))
+		slash.modulate = Color(0.68, 0.96, 1.0, 0.78)
+		slash.scale = Vector2(0.04, 0.04)
+		slash.z_index = 20
+		effect_layer.add_child(slash)
+
+		var end_scale: float = 0.12 + float(pulse_index) * 0.025
+		var tween: Tween = create_tween()
+		tween.set_trans(Tween.TRANS_QUAD)
+		tween.set_ease(Tween.EASE_OUT)
+		tween.tween_property(slash, "scale", Vector2(end_scale, end_scale), 0.08)
+		tween.parallel().tween_property(slash, "modulate:a", 0.0, 0.14)
+		tween.parallel().tween_property(slash, "rotation", slash.rotation + deg_to_rad(randf_range(-16.0, 16.0)), 0.14)
+		tween.tween_callback(slash.queue_free)
+
+
+func _spawn_rift_after_particles(target: Node2D, pulse_index: int) -> void:
+	if effect_layer == null or target == null:
+		return
+
+	var impact_position: Vector2 = target.global_position + Vector2(0.0, -118.0)
+	var particle_count: int = 9 + pulse_index * 2
+
+	for index in range(particle_count):
+		var particle: Sprite2D = Sprite2D.new()
+		particle.texture = EFFECT_PARTICLE_TEXTURE
+		particle.position = impact_position + Vector2(randf_range(-10.0, 10.0), randf_range(-10.0, 10.0))
+		particle.rotation = randf_range(-PI, PI)
+		particle.modulate = Color(
+			randf_range(0.35, 0.7),
+			randf_range(0.86, 1.0),
+			1.0,
+			randf_range(0.58, 0.9)
+		)
+		var start_scale: float = randf_range(0.03, 0.065)
+		particle.scale = Vector2(start_scale, start_scale)
+		particle.z_index = 21
+		effect_layer.add_child(particle)
+
+		var angle: float = randf_range(-PI, PI)
+		var distance: float = randf_range(24.0, 66.0) + float(pulse_index) * 8.0
+		var end_position: Vector2 = impact_position + Vector2(cos(angle), sin(angle)) * distance
+
+		var tween: Tween = create_tween()
+		tween.set_trans(Tween.TRANS_QUAD)
+		tween.set_ease(Tween.EASE_OUT)
+		tween.tween_property(particle, "position", end_position, 0.24)
+		tween.parallel().tween_property(particle, "rotation", particle.rotation + randf_range(-2.0, 2.0), 0.24)
+		tween.parallel().tween_property(particle, "modulate:a", 0.0, 0.24)
+		tween.tween_callback(particle.queue_free)
+
+
 func _spawn_hit_spark(target: Node2D, color: Color) -> void:
 	if effect_layer == null:
 		return
