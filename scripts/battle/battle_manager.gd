@@ -1324,13 +1324,39 @@ func _show_floating_damage(target: Combatant, damage: int) -> void:
 
 
 func _shake_camera() -> void:
+	_shake_camera_with_strength(CAMERA_SHAKE_OFFSET)
+
+
+func _shake_camera_with_strength(strength: float) -> void:
 	if battle_camera == null:
 		return
 
 	var tween: Tween = create_tween()
-	tween.tween_property(battle_camera, "offset", Vector2(CAMERA_SHAKE_OFFSET, 0.0), 0.03)
-	tween.tween_property(battle_camera, "offset", Vector2(-CAMERA_SHAKE_OFFSET, 0.0), 0.05)
-	tween.tween_property(battle_camera, "offset", Vector2.ZERO, 0.04)
+	tween.tween_property(battle_camera, "offset", Vector2(strength, randf_range(-1.5, 1.5)), 0.025)
+	tween.tween_property(battle_camera, "offset", Vector2(-strength, randf_range(-1.5, 1.5)), 0.035)
+	tween.tween_property(battle_camera, "offset", Vector2.ZERO, 0.035)
+
+
+func _shake_target_once(target: Node2D, strength: float, duration: float) -> Signal:
+	if target == null:
+		return get_tree().process_frame
+
+	var original_position: Vector2 = target.position
+	var half_duration: float = duration * 0.5
+	var tween: Tween = create_tween()
+	tween.set_trans(Tween.TRANS_QUAD)
+	tween.set_ease(Tween.EASE_OUT)
+	tween.tween_property(
+		target,
+		"position",
+		original_position + Vector2(
+			randf_range(-strength, strength),
+			randf_range(-strength * 0.35, strength * 0.35)
+		),
+		half_duration
+	)
+	tween.tween_property(target, "position", original_position, half_duration)
+	return tween.finished
 
 
 func _reset_camera() -> void:
