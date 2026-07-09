@@ -101,12 +101,13 @@ No custom font files are currently present in `public/`, so the prototype uses G
 
 ## Ending Scene
 
-`EndingScene` plays after Takashi defeats the Lesser Abyss. Mitsuki and Makoto react to Takashi's triangle-like distortion without revealing his full identity. The scene points the group toward Werdonia and ends with `Destiny Realms: Awakening in Werdonia` and `To be continued...`.
+`EndingScene` plays after Takashi defeats the Lesser Abyss. Mitsuki and Makoto react to Takashi's triangle-like distortion without revealing his full identity. The scene points the group toward Werdonia and ends with the project logo, `Awakening in Werdonia`, and `To be continued...`.
 
 The ending has a `Back to Prologue` button that returns to `res://scenes/prologue/prologue_scene.tscn`.
 
 The ending UI now matches the prologue style: forest background, large screen portraits, active-speaker highlight, talking portrait inside the dialogue frame, bottom dialogue panel, and styled final panel.
 The ending also uses `res://public/Under_the_Iron_Bough.mp3` during the dark forest dialogue, then stops it before the epilogue video sequence so the epilogue audio can play clearly.
+After the epilogue frame sequence, the final screen switches to `res://public/Werdonia.png`, displays the project logo from `res://public/LOGO (1).png`, and plays `res://public/Gates_of_Werdonia.mp3`.
 
 ## Controls
 
@@ -124,7 +125,8 @@ Ending:
 
 Battle:
 
-- Click `Void Strike` for an immediate basic attack.
+- Click `Void Strike` or press `Space`/`Enter` to ready the basic attack timing window.
+- Press `Space`/`Enter` again, or click `Void Strike` again, to confirm timing.
 - Click `Triangle Rift` when you have at least `1` Skill Point.
 - Click `Octagram Fragment` when Takashi Energy reaches `100/100`.
 - Press `R` in BattleScene to return to the prologue.
@@ -143,23 +145,26 @@ Input actions in `project.godot`:
 
 Player actions:
 
-- Skill Points start at `3/5`.
-- `Void Strike`: deals `12` damage immediately, generates `25` Takashi Energy, and restores `1` Skill Point up to `5/5`.
+- Skill Points start at `5/5`.
+- `Void Strike`: opens a short timing window, deals `12` damage, generates `25` Takashi Energy, and restores `1` Skill Point up to `5/5`.
+- Clean `Void Strike` timing adds `8` bonus damage and `5` bonus Takashi Energy.
 - `Triangle Rift`: costs `1` Skill Point, deals `25` damage, and generates `15` Takashi Energy.
 - `Octagram Fragment`: requires `100` Takashi Energy, plays Takashi's ultimate frame sequence with audio, deals `45` damage, and consumes all energy.
 
 Skill Points and Takashi Energy are separate resources. Skill Points control whether Takashi can use `Triangle Rift`; Takashi Energy controls when `Octagram Fragment` becomes available.
 
-Restart with `R` changes back to `PrologueScene`. Finishing the prologue again loads a fresh `BattleScene` with reset HP, Skill Points, energy, battle log, button states, positions, and camera offset.
+Restart with `R` changes back to `PrologueScene`. Finishing the prologue again loads a fresh `BattleScene` with reset HP, Skill Points, energy, action button states, positions, and camera offset.
 
 ## Battle UI Layout
 
-The current battle UI is organized for prototype readability:
+The current battle UI is organized around a minimal dark-fantasy combat HUD:
 
-- Top left: compact Takashi status panel with `res://public/Takashi portrait 1.png`, green HP bar, Takashi Energy bar, Skill Points text, and segmented SP pips.
-- Top right: compact Lesser Abyss status panel with red HP bar.
-- Bottom left: smaller turn/state label and battle log panel for 2-3 short lines.
-- Lower right: compact icon-only action command panel with larger circular buttons.
+- Far left: a slim vertical turn-order timeline with circular Takashi and Lesser Abyss chips plus subtle empty future slots.
+- Above combatants: compact floating HP bars and HP values only, with a small Takashi affinity badge.
+- Top right: a slim `Lesser Abyss` encounter strip, `x1` count, and a separate circular hamburger menu button with no text label.
+- Bottom left: a compact Takashi status cluster with portrait, name, HP bar, and HP value.
+- Lower middle-right: shared Skill Point display showing `SP 5/5` with five glowing grain-like pips.
+- Lower right: three standalone circular action buttons for Attack, Skill, and Ultimate, with no large enclosing command box and no visible restart button.
 - Battle background uses `res://public/BG1Forest.png` for the current forest combat placeholder.
 - Battle BGM uses `res://public/Iron_and_Ivy.mp3`.
 - Battle entry shows a short `BATTLE START` fade overlay before normal play.
@@ -252,25 +257,27 @@ The battle scene applies a small runtime layout pass when it starts. Takashi is 
 
 ## How To Test Battle
 
-1. After the prologue transition, confirm the turn label starts at `Player Turn`.
+1. After the prologue transition, confirm Takashi is highlighted as the current actor in the left turn-order rail.
 2. Confirm `Iron_and_Ivy.mp3` plays during the Lesser Abyss battle.
-3. Confirm Takashi HP, Energy, and Skill Points are readable in the top-left panel.
-4. Confirm Lesser Abyss HP is readable in the top-right panel.
-5. Confirm HP bars and Energy bar are visible.
-6. Confirm Skill Point pips match the Skill Points text.
+3. Confirm Takashi HP is readable in the compact bottom-left status cluster.
+4. Confirm Lesser Abyss appears in the top-right encounter strip with `x1` and a separate menu icon.
+5. Confirm floating HP bars appear above Takashi and Lesser Abyss without extra diamond clutter.
+6. Confirm shared Skill Point pips near the action buttons match the `SP 5/5` text.
 7. Confirm the three action buttons show their skill icons.
-8. Click `Void Strike`.
-9. Confirm Lesser Abyss HP decreases, Takashi Energy increases by `25`, and Skill Points increase by `1` up to `5/5`.
-10. Click `Triangle Rift` and confirm it spends `1` Skill Point, deals `25` damage, and generates `15` energy.
-11. Confirm `Triangle Rift` is disabled only when Skill Points are below `1` or it is not the player turn.
-12. Confirm `Octagram Fragment` is disabled below `100/100` energy.
-13. Build energy to `100/100`, then confirm `Octagram Fragment` becomes usable and displays `[READY]`.
-14. Click `Octagram Fragment` and confirm the ultimate frame sequence plays with audio before it deals `45` damage and resets energy to `0/100`.
-15. Confirm basic attack, skill, enemy attack, and ultimate impact show short VFX/SFX feedback.
-16. Defeat the Lesser Abyss and confirm the scene transitions to `EndingScene`.
-17. Confirm lose state still stays in `BattleScene`.
-18. Press `R` during battle or after loss and confirm it returns to `PrologueScene`.
-19. Confirm Godot Output and Debugger show no runtime errors.
+8. Click `Void Strike` or press `Space`/`Enter`.
+9. Confirm the timing bar appears, then press `Space`/`Enter` again or click `Void Strike` to resolve the attack.
+10. Confirm Lesser Abyss HP decreases, Takashi Energy increases, and Skill Points increase by `1` up to `5/5`.
+11. Confirm clean timing deals bonus damage and grants bonus Takashi Energy.
+12. Click `Triangle Rift` and confirm it spends `1` Skill Point, deals `25` damage, and generates `15` energy.
+13. Confirm `Triangle Rift` is disabled only when Skill Points are below `1` or it is not the player turn.
+14. Confirm `Octagram Fragment` is disabled below `100/100` energy.
+15. Build energy to `100/100`, then confirm `Octagram Fragment` becomes usable and shows its highlighted ready border.
+16. Click `Octagram Fragment` and confirm the ultimate frame sequence plays with audio before it deals `45` damage and resets energy to `0/100`.
+17. Confirm basic attack, skill, enemy attack, and ultimate impact show short VFX/SFX feedback.
+18. Defeat the Lesser Abyss and confirm the scene transitions to `EndingScene`.
+19. Confirm lose state still stays in `BattleScene`.
+20. Press `R` during battle or after loss and confirm it returns to `PrologueScene`.
+21. Confirm Godot Output and Debugger show no runtime errors.
 
 ## How To Test Ending
 
@@ -281,7 +288,7 @@ The battle scene applies a small runtime layout pass when it starts. Takashi is 
 5. Click `Next` or press Space/Enter to advance.
 6. Confirm the dark forest BGM stops when the epilogue frame sequence starts.
 7. Confirm the epilogue frame sequence plays with audio after the last dialogue line.
-8. Confirm `Destiny Realms: Awakening in Werdonia` and `To be continued...` appear after the epilogue sequence.
+8. Confirm the final screen switches to the Werdonia background, shows the project logo, plays `Gates_of_Werdonia.mp3`, and displays `Awakening in Werdonia` plus `To be continued...`.
 9. Click `Back to Prologue` and confirm the prologue starts again.
 
 ## Known Limitations
@@ -294,7 +301,7 @@ The battle scene applies a small runtime layout pass when it starts. Takashi is 
 - Octagram Fragment is only a small power hint for the prototype.
 - Enemy behavior is deterministic and has no AI variation.
 - Floating damage text uses default Godot label rendering.
-- The old timing bar helper is kept but not used by the current basic attack flow.
+- The timing bar is used by `Void Strike` to reward clean basic attack timing.
 - The current battle model uses Skill Points for skill usage and energy for Ultimate access.
 - EndingScene is a short cliffhanger, not a full chapter ending system.
 - UI styling is cleaned up for readability, but it is still prototype UI rather than final Destiny Realms interface art.

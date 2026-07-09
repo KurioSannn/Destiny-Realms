@@ -6,19 +6,24 @@ const BASE_VIEWPORT_SIZE: Vector2 = Vector2(1280.0, 720.0)
 const TAKASHI_TALK_TEXTURE: Texture2D = preload("res://public/Takashi portrait 2 (talk).png")
 const MITSUKI_TALK_TEXTURE: Texture2D = preload("res://public/Mitsuki portrait 2 (talk).png")
 const MAKOTO_TALK_TEXTURE: Texture2D = preload("res://public/Makoto portrait 2 (Talk).png")
+const WERDONIA_TEXTURE: Texture2D = preload("res://public/Werdonia.png")
+const LOGO_TEXTURE: Texture2D = preload("res://public/LOGO (1).png")
 const EPILOG_FRAME_COUNT: int = 186
 const EPILOG_FRAME_RATE: float = 15.0
 const EPILOG_FRAME_PATH_FORMAT: String = "res://public/epilog_frames/epilog_%03d.jpg"
 const EPILOG_AUDIO_PATH: String = "res://public/EpilogAudio.ogg"
+const FINAL_BGM_PATH: String = "res://public/Gates_of_Werdonia.mp3"
 
 @onready var forest_background: Sprite2D = get_node_or_null("Background/ForestBackground") as Sprite2D
 @onready var sky: Polygon2D = get_node_or_null("Background/Sky") as Polygon2D
 @onready var forest_line: Polygon2D = get_node_or_null("Background/ForestLine") as Polygon2D
 @onready var ground: Polygon2D = get_node_or_null("Background/Ground") as Polygon2D
 @onready var dark_forest_bgm: AudioStreamPlayer = get_node_or_null("DarkForestBgm") as AudioStreamPlayer
+@onready var character_layer: Node2D = get_node_or_null("CharacterLayer") as Node2D
 @onready var takashi_visual: Node2D = get_node_or_null("CharacterLayer/TakashiVisual") as Node2D
 @onready var mitsuki_visual: Node2D = get_node_or_null("CharacterLayer/MitsukiVisual") as Node2D
 @onready var makoto_visual: Node2D = get_node_or_null("CharacterLayer/MakotoVisual") as Node2D
+@onready var bottom_overlay: ColorRect = get_node_or_null("CanvasLayer/BottomOverlay") as ColorRect
 @onready var speaker_name_label: Label = get_node_or_null("CanvasLayer/DialoguePanel/SpeakerNameLabel") as Label
 @onready var dialogue_text_label: Label = get_node_or_null("CanvasLayer/DialoguePanel/DialogueTextLabel") as Label
 @onready var portrait_frame: Control = get_node_or_null("CanvasLayer/DialoguePanel/PortraitFrame") as Control
@@ -26,6 +31,8 @@ const EPILOG_AUDIO_PATH: String = "res://public/EpilogAudio.ogg"
 @onready var next_button: Button = get_node_or_null("CanvasLayer/DialoguePanel/NextButton") as Button
 @onready var dialogue_panel: Panel = get_node_or_null("CanvasLayer/DialoguePanel") as Panel
 @onready var final_panel: Panel = get_node_or_null("CanvasLayer/FinalPanel") as Panel
+@onready var final_logo_texture: TextureRect = get_node_or_null("CanvasLayer/FinalPanel/LogoTexture") as TextureRect
+@onready var final_scrim: ColorRect = get_node_or_null("CanvasLayer/FinalScrim") as ColorRect
 @onready var back_button: Button = get_node_or_null("CanvasLayer/FinalPanel/BackButton") as Button
 @onready var epilog_frame_player: TextureRect = get_node_or_null("CanvasLayer/EpilogFramePlayer") as TextureRect
 @onready var epilog_audio_player: AudioStreamPlayer = get_node_or_null("CanvasLayer/EpilogAudioPlayer") as AudioStreamPlayer
@@ -87,6 +94,10 @@ func _ready() -> void:
 		back_button.pressed.connect(_back_to_prologue)
 	if final_panel != null:
 		final_panel.visible = false
+	if final_scrim != null:
+		final_scrim.visible = false
+	if final_logo_texture != null:
+		final_logo_texture.texture = LOGO_TEXTURE
 	if epilog_frame_player != null:
 		epilog_frame_player.visible = false
 	if epilog_audio_player != null:
@@ -199,9 +210,49 @@ func _show_final_panel() -> void:
 		if portrait != null:
 			portrait.modulate = Color(0.72, 0.76, 0.84, 0.82)
 	await _play_epilog_sequence()
+	_show_werdonia_final_backdrop()
 	_is_playing_epilog = false
 	if final_panel != null:
 		final_panel.visible = true
+
+
+func _show_werdonia_final_backdrop() -> void:
+	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
+	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
+		viewport_size = BASE_VIEWPORT_SIZE
+
+	if forest_background != null:
+		forest_background.texture = WERDONIA_TEXTURE
+		if forest_background.texture != null:
+			var texture_size: Vector2 = forest_background.texture.get_size()
+			var cover_scale: float = maxf(viewport_size.x / texture_size.x, viewport_size.y / texture_size.y)
+			forest_background.position = Vector2.ZERO
+			forest_background.scale = Vector2(cover_scale, cover_scale)
+
+	if sky != null:
+		sky.visible = false
+	if forest_line != null:
+		forest_line.visible = false
+	if ground != null:
+		ground.visible = false
+	if character_layer != null:
+		character_layer.visible = false
+	if bottom_overlay != null:
+		bottom_overlay.visible = false
+	if final_scrim != null:
+		final_scrim.visible = true
+	_play_final_bgm()
+
+
+func _play_final_bgm() -> void:
+	if dark_forest_bgm == null:
+		return
+
+	dark_forest_bgm.stop()
+	dark_forest_bgm.stream = load(FINAL_BGM_PATH) as AudioStream
+	dark_forest_bgm.volume_db = -10.0
+	if dark_forest_bgm.stream != null:
+		dark_forest_bgm.play()
 
 
 func _back_to_prologue() -> void:

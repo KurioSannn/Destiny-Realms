@@ -1,16 +1,36 @@
 [gd_scene format=3 uid="uid://bbjfyqpf0x7lg"]
 
-[ext_resource type="Script" path="res://scripts/prologue/prologue_scene.gd" id="1_ps"]
-[ext_resource type="Script" path="res://scripts/dialogue/dialogue_manager.gd" id="2_dm"]
-[ext_resource type="Texture2D" path="res://public/BG1Forest.png" id="3_bg"]
-[ext_resource type="Texture2D" path="res://public/Takashi portrait 1.png" id="4_takashi_world"]
-[ext_resource type="Texture2D" path="res://public/Mitsuki portrait 1.png" id="5_mitsuki_world"]
-[ext_resource type="Texture2D" path="res://public/Makoto portrait 1.png" id="6_makoto_world"]
-[ext_resource type="AudioStream" path="res://public/Under_the_Iron_Bough.mp3" id="7_dark_forest_bgm"]
+[ext_resource type="Script" uid="uid://6krrkn1rapl6" path="res://scripts/prologue/prologue_scene.gd" id="1_ps"]
+[ext_resource type="Script" uid="uid://2g2wynmldgr5" path="res://scripts/dialogue/dialogue_manager.gd" id="2_dm"]
+[ext_resource type="Texture2D" uid="uid://bh3f8bbj38j8m" path="res://public/BG1Forest.png" id="3_bg"]
+[ext_resource type="Shader" uid="uid://bd8ebx0g7p06b" path="res://scenes/battle/PNGtransparan.gdshader" id="4_cy4ft"]
+[ext_resource type="Texture2D" uid="uid://di3siyc263n4i" path="res://public/Takashi portrait 1.png" id="4_takashi_world"]
+[ext_resource type="Texture2D" uid="uid://dbqk4a6g4emg8" path="res://public/Mitsuki portrait 1.png" id="5_mitsuki_world"]
+[ext_resource type="Texture2D" uid="uid://0cog55841ycg" path="res://public/Makoto portrait 1.png" id="6_makoto_world"]
+[ext_resource type="AudioStream" uid="uid://c7kpy3hvmda7w" path="res://public/Under_the_Iron_Bough.mp3" id="7_dark_forest_bgm"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_puhd7"]
+shader = ExtResource("4_cy4ft")
+shader_parameter/fade_start = 0.65
+shader_parameter/fade_end = 0.95
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_te27b"]
+shader = ExtResource("4_cy4ft")
+shader_parameter/fade_start = 0.65
+shader_parameter/fade_end = 0.95
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_mpswg"]
+shader = ExtResource("4_cy4ft")
+shader_parameter/fade_start = 0.65
+shader_parameter/fade_end = 0.95
 
 [sub_resource type="StyleBoxEmpty" id="StyleBoxEmpty_dialogue_root"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_dialogue_panel"]
+content_margin_left = 18.0
+content_margin_top = 16.0
+content_margin_right = 18.0
+content_margin_bottom = 16.0
 bg_color = Color(0.022, 0.03, 0.045, 0.9)
 border_width_left = 2
 border_width_top = 2
@@ -21,10 +41,6 @@ corner_radius_top_left = 8
 corner_radius_top_right = 8
 corner_radius_bottom_right = 8
 corner_radius_bottom_left = 8
-content_margin_left = 18.0
-content_margin_top = 16.0
-content_margin_right = 18.0
-content_margin_bottom = 16.0
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_portrait_frame"]
 bg_color = Color(0.01, 0.015, 0.025, 0.72)
@@ -38,200 +54,200 @@ corner_radius_top_right = 6
 corner_radius_bottom_right = 6
 corner_radius_bottom_left = 6
 
-[node name="PrologueScene" type="Node2D"]
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_7i1my"]
+shader = ExtResource("4_cy4ft")
+shader_parameter/fade_start = 0.65
+shader_parameter/fade_end = 0.95
+
+[node name="PrologueScene" type="Node2D" unique_id=1971221316]
 script = ExtResource("1_ps")
 
-[node name="Background" type="Node2D" parent="."]
+[node name="Background" type="Node2D" parent="." unique_id=726587073]
 
-[node name="ForestBackground" type="Sprite2D" parent="Background"]
+[node name="ForestBackground" type="Sprite2D" parent="Background" unique_id=497735993]
 texture = ExtResource("3_bg")
 centered = false
 
-[node name="Sky" type="Polygon2D" parent="Background"]
+[node name="Sky" type="Polygon2D" parent="Background" unique_id=1628521922]
 visible = false
 color = Color(0.101961, 0.141176, 0.168627, 1)
 polygon = PackedVector2Array(0, 0, 1280, 0, 1280, 720, 0, 720)
 
-[node name="ForestLine" type="Polygon2D" parent="Background"]
+[node name="ForestLine" type="Polygon2D" parent="Background" unique_id=1870833545]
 visible = false
 color = Color(0.0627451, 0.176471, 0.12549, 1)
 polygon = PackedVector2Array(0, 230, 128, 158, 282, 274, 448, 144, 666, 259, 870, 151, 1075, 252, 1280, 173, 1280, 720, 0, 720)
 
-[node name="Ground" type="Polygon2D" parent="Background"]
+[node name="Ground" type="Polygon2D" parent="Background" unique_id=423413588]
 visible = false
 color = Color(0.129412, 0.121569, 0.0901961, 1)
 polygon = PackedVector2Array(0, 490, 1280, 468, 1280, 720, 0, 720)
 
-[node name="DarkForestBgm" type="AudioStreamPlayer" parent="."]
+[node name="DarkForestBgm" type="AudioStreamPlayer" parent="." unique_id=2119355851]
 stream = ExtResource("7_dark_forest_bgm")
 volume_db = -11.0
 autoplay = true
 
-[node name="CharacterLayer" type="Node2D" parent="."]
+[node name="CharacterLayer" type="Node2D" parent="." unique_id=879168713]
 z_index = 5
 
-[node name="WorldTakashiPortrait" type="Sprite2D" parent="CharacterLayer"]
+[node name="WorldTakashiPortrait" type="Sprite2D" parent="CharacterLayer" unique_id=1566525083]
+material = SubResource("ShaderMaterial_puhd7")
 position = Vector2(250, 372)
 scale = Vector2(0.24, 0.24)
 texture = ExtResource("4_takashi_world")
 
-[node name="WorldMitsukiPortrait" type="Sprite2D" parent="CharacterLayer"]
+[node name="WorldMitsukiPortrait" type="Sprite2D" parent="CharacterLayer" unique_id=745924201]
+material = SubResource("ShaderMaterial_te27b")
 position = Vector2(1030, 365)
 scale = Vector2(0.24, 0.24)
 texture = ExtResource("5_mitsuki_world")
 
-[node name="WorldMakotoPortrait" type="Sprite2D" parent="CharacterLayer"]
+[node name="WorldMakotoPortrait" type="Sprite2D" parent="CharacterLayer" unique_id=2110537530]
+material = SubResource("ShaderMaterial_mpswg")
 position = Vector2(830, 370)
 scale = Vector2(0.24, 0.24)
 texture = ExtResource("6_makoto_world")
 
-[node name="TakashiVisual" type="Node2D" parent="CharacterLayer"]
+[node name="TakashiVisual" type="Node2D" parent="CharacterLayer" unique_id=116474983]
 visible = false
 position = Vector2(358, 482)
 
-[node name="TakashiShadow" type="Polygon2D" parent="CharacterLayer/TakashiVisual"]
+[node name="TakashiShadow" type="Polygon2D" parent="CharacterLayer/TakashiVisual" unique_id=29900455]
 position = Vector2(0, 96)
 color = Color(0.0352941, 0.0470588, 0.0588235, 0.4)
 polygon = PackedVector2Array(-48, 8, -32, -2, 34, -2, 50, 8, 35, 17, -35, 17)
 
-[node name="TakashiBody" type="Polygon2D" parent="CharacterLayer/TakashiVisual"]
+[node name="TakashiBody" type="Polygon2D" parent="CharacterLayer/TakashiVisual" unique_id=312298538]
 color = Color(0.184314, 0.372549, 0.533333, 1)
 polygon = PackedVector2Array(-24, 6, 22, 6, 39, 82, -40, 82)
 
-[node name="TakashiHead" type="Polygon2D" parent="CharacterLayer/TakashiVisual"]
+[node name="TakashiHead" type="Polygon2D" parent="CharacterLayer/TakashiVisual" unique_id=1762002873]
 color = Color(0.941176, 0.764706, 0.541176, 1)
 polygon = PackedVector2Array(-18, -42, 8, -52, 28, -35, 24, -10, 6, 4, -16, -4, -26, -22)
 
-[node name="TakashiHair" type="Polygon2D" parent="CharacterLayer/TakashiVisual"]
+[node name="TakashiHair" type="Polygon2D" parent="CharacterLayer/TakashiVisual" unique_id=1702719546]
 color = Color(0.121569, 0.184314, 0.290196, 1)
 polygon = PackedVector2Array(-27, -24, -16, -53, 16, -59, 36, -34, 20, -18, 1, -29)
 
-[node name="TakashiTriangle" type="Polygon2D" parent="CharacterLayer/TakashiVisual"]
+[node name="TakashiTriangle" type="Polygon2D" parent="CharacterLayer/TakashiVisual" unique_id=1482896594]
 color = Color(0.603922, 0.898039, 1, 0.85)
 polygon = PackedVector2Array(-8, 18, 10, 18, 1, 36)
 
-[node name="TakashiLabel" type="Label" parent="CharacterLayer/TakashiVisual"]
+[node name="TakashiLabel" type="Label" parent="CharacterLayer/TakashiVisual" unique_id=1542854896]
 offset_left = -34.0
 offset_top = 106.0
 offset_right = 44.0
 offset_bottom = 130.0
 text = "Takashi"
 
-[node name="MitsukiVisual" type="Node2D" parent="CharacterLayer"]
+[node name="MitsukiVisual" type="Node2D" parent="CharacterLayer" unique_id=476152637]
 visible = false
 position = Vector2(666, 475)
 
-[node name="MitsukiShadow" type="Polygon2D" parent="CharacterLayer/MitsukiVisual"]
+[node name="MitsukiShadow" type="Polygon2D" parent="CharacterLayer/MitsukiVisual" unique_id=1766358421]
 position = Vector2(0, 94)
 color = Color(0.0352941, 0.0470588, 0.0588235, 0.35)
 polygon = PackedVector2Array(-42, 8, -28, -2, 30, -2, 44, 8, 30, 16, -30, 16)
 
-[node name="MitsukiBody" type="Polygon2D" parent="CharacterLayer/MitsukiVisual"]
+[node name="MitsukiBody" type="Polygon2D" parent="CharacterLayer/MitsukiVisual" unique_id=1957025109]
 color = Color(0.317647, 0.27451, 0.568627, 1)
 polygon = PackedVector2Array(-22, 4, 24, 4, 38, 80, -38, 80)
 
-[node name="MitsukiHead" type="Polygon2D" parent="CharacterLayer/MitsukiVisual"]
+[node name="MitsukiHead" type="Polygon2D" parent="CharacterLayer/MitsukiVisual" unique_id=1867593019]
 color = Color(0.933333, 0.760784, 0.603922, 1)
 polygon = PackedVector2Array(-17, -40, 12, -48, 30, -28, 22, -6, 2, 4, -18, -7, -28, -24)
 
-[node name="MitsukiHair" type="Polygon2D" parent="CharacterLayer/MitsukiVisual"]
+[node name="MitsukiHair" type="Polygon2D" parent="CharacterLayer/MitsukiVisual" unique_id=1692872237]
 color = Color(0.164706, 0.129412, 0.266667, 1)
 polygon = PackedVector2Array(-30, -23, -16, -54, 20, -54, 38, -26, 19, 14, -20, 10)
 
-[node name="MitsukiLabel" type="Label" parent="CharacterLayer/MitsukiVisual"]
+[node name="MitsukiLabel" type="Label" parent="CharacterLayer/MitsukiVisual" unique_id=2030934056]
 offset_left = -34.0
 offset_top = 104.0
 offset_right = 48.0
 offset_bottom = 128.0
 text = "Mitsuki"
 
-[node name="MakotoVisual" type="Node2D" parent="CharacterLayer"]
+[node name="MakotoVisual" type="Node2D" parent="CharacterLayer" unique_id=1209456704]
 visible = false
 position = Vector2(870, 475)
 
-[node name="MakotoShadow" type="Polygon2D" parent="CharacterLayer/MakotoVisual"]
+[node name="MakotoShadow" type="Polygon2D" parent="CharacterLayer/MakotoVisual" unique_id=831690211]
 position = Vector2(0, 94)
 color = Color(0.0352941, 0.0470588, 0.0588235, 0.35)
 polygon = PackedVector2Array(-42, 8, -28, -2, 30, -2, 44, 8, 30, 16, -30, 16)
 
-[node name="MakotoBody" type="Polygon2D" parent="CharacterLayer/MakotoVisual"]
+[node name="MakotoBody" type="Polygon2D" parent="CharacterLayer/MakotoVisual" unique_id=2041973153]
 color = Color(0.658824, 0.572549, 0.286275, 1)
 polygon = PackedVector2Array(-22, 4, 24, 4, 40, 82, -39, 82)
 
-[node name="MakotoHead" type="Polygon2D" parent="CharacterLayer/MakotoVisual"]
+[node name="MakotoHead" type="Polygon2D" parent="CharacterLayer/MakotoVisual" unique_id=729930650]
 color = Color(0.913725, 0.717647, 0.505882, 1)
 polygon = PackedVector2Array(-18, -40, 10, -50, 30, -30, 24, -7, 4, 5, -18, -6, -28, -24)
 
-[node name="MakotoHair" type="Polygon2D" parent="CharacterLayer/MakotoVisual"]
+[node name="MakotoHair" type="Polygon2D" parent="CharacterLayer/MakotoVisual" unique_id=398235161]
 color = Color(0.180392, 0.164706, 0.105882, 1)
 polygon = PackedVector2Array(-29, -22, -16, -52, 18, -54, 38, -30, 22, -16, 0, -28)
 
-[node name="MakotoMark" type="Polygon2D" parent="CharacterLayer/MakotoVisual"]
+[node name="MakotoMark" type="Polygon2D" parent="CharacterLayer/MakotoVisual" unique_id=1104404013]
 color = Color(1, 0.901961, 0.392157, 0.85)
 polygon = PackedVector2Array(-6, 20, 8, 20, 8, 34, -6, 34)
 
-[node name="MakotoLabel" type="Label" parent="CharacterLayer/MakotoVisual"]
+[node name="MakotoLabel" type="Label" parent="CharacterLayer/MakotoVisual" unique_id=1253616168]
 offset_left = -34.0
 offset_top = 104.0
 offset_right = 48.0
 offset_bottom = 128.0
 text = "Makoto"
 
-[node name="CanvasLayer" type="CanvasLayer" parent="."]
+[node name="CanvasLayer" type="CanvasLayer" parent="." unique_id=1245609345]
 
-[node name="DialogueUI" type="Panel" parent="CanvasLayer"]
-visible = false
-layout_mode = 3
+[node name="DialogueUI" type="Panel" parent="CanvasLayer" unique_id=44592001]
+anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 0.0
-offset_top = 0.0
-offset_right = 0.0
-offset_bottom = 0.0
 theme_override_styles/panel = SubResource("StyleBoxEmpty_dialogue_root")
 script = ExtResource("2_dm")
 
-[node name="BottomOverlay" type="ColorRect" parent="CanvasLayer/DialogueUI"]
+[node name="BottomOverlay" type="ColorRect" parent="CanvasLayer/DialogueUI" unique_id=1632406467]
 layout_mode = 0
-offset_left = 0.0
 offset_top = 492.0
 offset_right = 1280.0
 offset_bottom = 720.0
 color = Color(0, 0, 0, 0.08)
 
-[node name="DialoguePanel" type="Panel" parent="CanvasLayer/DialogueUI"]
+[node name="DialoguePanel" type="Panel" parent="CanvasLayer/DialogueUI" unique_id=1279347219]
 layout_mode = 0
 offset_left = 60.0
 offset_top = 494.0
 offset_right = 1220.0
-offset_bottom = 688.0
+offset_bottom = 704.0
 theme_override_styles/panel = SubResource("StyleBoxFlat_dialogue_panel")
 
-[node name="PortraitFrame" type="Panel" parent="CanvasLayer/DialogueUI/DialoguePanel"]
+[node name="PortraitFrame" type="Panel" parent="CanvasLayer/DialogueUI/DialoguePanel" unique_id=2001743248]
 clip_contents = true
 layout_mode = 0
-offset_left = 20.0
-offset_top = 16.0
-offset_right = 188.0
-offset_bottom = 178.0
+offset_left = 21.0
+offset_top = 21.0
+offset_right = 189.0
+offset_bottom = 183.0
 theme_override_styles/panel = SubResource("StyleBoxFlat_portrait_frame")
 
-[node name="PortraitTextureRect" type="TextureRect" parent="CanvasLayer/DialogueUI/DialoguePanel/PortraitFrame"]
-visible = false
+[node name="PortraitTextureRect" type="TextureRect" parent="CanvasLayer/DialogueUI/DialoguePanel/PortraitFrame" unique_id=1743220992]
+material = SubResource("ShaderMaterial_7i1my")
 layout_mode = 0
-offset_left = 0.0
-offset_top = 0.0
 offset_right = 168.0
 offset_bottom = 168.0
 expand_mode = 1
 stretch_mode = 5
 
-[node name="SpeakerNameLabel" type="Label" parent="CanvasLayer/DialogueUI/DialoguePanel"]
+[node name="SpeakerNameLabel" type="Label" parent="CanvasLayer/DialogueUI/DialoguePanel" unique_id=971950654]
 layout_mode = 0
 offset_left = 216.0
-offset_top = 22.0
+offset_top = 16.0
 offset_right = 920.0
-offset_bottom = 54.0
+offset_bottom = 55.0
 theme_override_colors/font_color = Color(0.86, 0.75, 0.48, 1)
 theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.55)
 theme_override_constants/shadow_offset_x = 1
@@ -239,22 +255,22 @@ theme_override_constants/shadow_offset_y = 1
 theme_override_font_sizes/font_size = 28
 text = "Speaker"
 
-[node name="DialogueTextLabel" type="Label" parent="CanvasLayer/DialogueUI/DialoguePanel"]
+[node name="DialogueTextLabel" type="Label" parent="CanvasLayer/DialogueUI/DialoguePanel" unique_id=486752712]
 layout_mode = 0
 offset_left = 216.0
-offset_top = 66.0
+offset_top = 60.0
 offset_right = 980.0
-offset_bottom = 132.0
+offset_bottom = 126.0
 theme_override_colors/font_color = Color(0.9, 0.88, 0.82, 1)
 theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.42)
+theme_override_constants/line_spacing = 4
 theme_override_constants/shadow_offset_x = 1
 theme_override_constants/shadow_offset_y = 1
-theme_override_constants/line_spacing = 4
 theme_override_font_sizes/font_size = 22
 text = "Dialogue text"
 autowrap_mode = 3
 
-[node name="NextButton" type="Button" parent="CanvasLayer/DialogueUI/DialoguePanel"]
+[node name="NextButton" type="Button" parent="CanvasLayer/DialogueUI/DialoguePanel" unique_id=1624653958]
 custom_minimum_size = Vector2(128, 40)
 layout_mode = 0
 offset_left = 996.0
@@ -265,11 +281,10 @@ theme_override_colors/font_color = Color(0.9, 0.88, 0.82, 1)
 theme_override_font_sizes/font_size = 19
 text = "Next >"
 
-[node name="ChoicesContainer" type="VBoxContainer" parent="CanvasLayer/DialogueUI/DialoguePanel"]
-visible = false
+[node name="ChoicesContainer" type="VBoxContainer" parent="CanvasLayer/DialogueUI/DialoguePanel" unique_id=842492916]
 layout_mode = 0
-offset_left = 216.0
-offset_top = 104.0
-offset_right = 930.0
-offset_bottom = 184.0
+offset_left = 706.0
+offset_top = -105.0
+offset_right = 1157.0
+offset_bottom = -25.0
 theme_override_constants/separation = 8

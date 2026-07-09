@@ -11,6 +11,8 @@ var home_position: Vector2 = Vector2.ZERO
 @onready var placeholder_visual: CanvasItem = get_node_or_null("PlaceholderVisual") as CanvasItem
 @onready var action_sprite: CanvasItem = get_node_or_null("ActionSprite") as CanvasItem
 @onready var name_label: Label = get_node_or_null("NameLabel") as Label
+@onready var hp_bar: ProgressBar = get_node_or_null("HpBar") as ProgressBar
+@onready var hp_value_label: Label = get_node_or_null("HpValueLabel") as Label
 
 
 func _ready() -> void:
@@ -36,12 +38,22 @@ func setup(new_name: String, new_max_hp: int, new_attack_damage: int) -> void:
 func reset_hp() -> void:
 	current_hp = max_hp
 	reset_feedback()
+	_refresh_hp_bar()
 
 
 func take_damage(amount: int) -> int:
 	var damage: int = maxi(amount, 0)
 	current_hp = maxi(current_hp - damage, 0)
+	_refresh_hp_bar()
 	return damage
+
+
+func _refresh_hp_bar() -> void:
+	if hp_bar != null:
+		hp_bar.max_value = max_hp
+		hp_bar.value = current_hp
+	if hp_value_label != null:
+		hp_value_label.text = "%d/%d" % [current_hp, max_hp]
 
 
 func is_defeated() -> bool:

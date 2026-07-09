@@ -12,13 +12,15 @@ enum BattleState {
 const PLAYER_MAX_HP: int = 100
 const ENEMY_MAX_HP: int = 120
 const BASIC_ATTACK_DAMAGE: int = 12
+const BASIC_ATTACK_TIMING_BONUS_DAMAGE: int = 8
 const BASIC_ATTACK_ENERGY: int = 25
+const BASIC_ATTACK_TIMING_BONUS_ENERGY: int = 5
 const SKILL_DAMAGE: int = 25
 const SKILL_ENERGY: int = 15
 const SKILL_POINT_GAIN_BASIC: int = 1
 const SKILL_POINT_COST_SKILL: int = 1
-const START_SKILL_POINTS: int = 3
 const MAX_SKILL_POINTS: int = 5
+const START_SKILL_POINTS: int = MAX_SKILL_POINTS
 const ULTIMATE_DAMAGE: int = 45
 const MAX_ULTIMATE_ENERGY: int = 100
 const ENEMY_BASE_DAMAGE: int = 14
@@ -35,9 +37,34 @@ const ULTIMATE_FRAME_RATE: float = 15.0
 const ULTIMATE_FRAME_PATH_FORMAT: String = "res://public/ultimate_frames/takashi_ultimate_%03d.jpg"
 const ULTIMATE_AUDIO_PATH: String = "res://public/TakashiUltimateAudio.ogg"
 const TAKASHI_IDLE_TEXTURE: Texture2D = preload("res://public/IdleTaka.png")
+const TAKASHI_IDLE_FRAME_RATE: float = 5.0
+const TAKASHI_IDLE_FRAME_PATHS: Array[String] = [
+	"res://public/idle_Takashi/1.png",
+	"res://public/idle_Takashi/2.png",
+	"res://public/idle_Takashi/3.png",
+	"res://public/idle_Takashi/4.png"
+]
 const TAKASHI_BASIC_TEXTURE: Texture2D = preload("res://public/BasicAttackTaka.png")
+const TAKASHI_BASIC_FRAME_RATE: float = 5.0
+const TAKASHI_BASIC_FRAME_PATHS: Array[String] = [
+	"res://public/idleattack/a1.png",
+	"res://public/idleattack/a2.png",
+	"res://public/idleattack/a3.png",
+	"res://public/idleattack/a4.png"
+]
 const TAKASHI_SKILL_TEXTURE: Texture2D = preload("res://public/SkillTaka.png")
+const TAKASHI_SKILL_FRAME_RATE: float = 4.0
+const TAKASHI_SKILL_FRAME_PATHS: Array[String] = [
+	"res://public/idleskill/skill1.png",
+	"res://public/idleskill/skill2.png",
+	"res://public/idleskill/skill3.png",
+	"res://public/idleskill/skill4.png",
+	"res://public/idleskill/skill5.png"
+]
 const TAKASHI_ULTIMATE_TEXTURE: Texture2D = preload("res://public/UltiTaka.png")
+const EFFECT_SLASH_TEXTURE: Texture2D = preload("res://public/effects/slash.png")
+const EFFECT_SPLASH_TEXTURE: Texture2D = preload("res://public/effects/Splash.png")
+const EFFECT_PARTICLE_TEXTURE: Texture2D = preload("res://public/effects/Particle Efect.png")
 const SFX_SAMPLE_RATE: float = 22050.0
 const BASIC_SFX_START_HZ: float = 950.0
 const BASIC_SFX_END_HZ: float = 260.0
@@ -76,6 +103,18 @@ var screen_flash: ColorRect
 var basic_sfx_player: AudioStreamPlayer
 var skill_sfx_player: AudioStreamPlayer
 var impact_sfx_player: AudioStreamPlayer
+var takashi_idle_frames: Array[Texture2D] = []
+var idle_animation_playing: bool = false
+var idle_frame_index: int = 0
+var idle_frame_elapsed: float = 0.0
+var takashi_basic_frames: Array[Texture2D] = []
+var basic_animation_playing: bool = false
+var basic_frame_index: int = 0
+var basic_frame_elapsed: float = 0.0
+var takashi_skill_frames: Array[Texture2D] = []
+var skill_animation_playing: bool = false
+var skill_frame_index: int = 0
+var skill_frame_elapsed: float = 0.0
 
 
 func _ready() -> void:
@@ -94,18 +133,27 @@ func _ready() -> void:
 		ultimate_frame_player.visible = false
 	if ultimate_audio_player != null:
 		ultimate_audio_player.stream = load(ULTIMATE_AUDIO_PATH) as AudioStream
-	_set_player_action_texture(TAKASHI_IDLE_TEXTURE)
+	_setup_takashi_idle_frames()
+	_setup_takashi_basic_frames()
+	_setup_takashi_skill_frames()
+	_start_player_idle_animation()
 	_load_ultimate_frames()
-	_setup_battle_effects()
 
 	await get_tree().process_frame
+	_setup_battle_effects()
 	_apply_runtime_layout()
 	restart_battle()
 	_play_battle_intro_effect()
 
 
+func _process(delta: float) -> void:
+	_advance_player_idle_animation(delta)
+	_advance_player_basic_animation(delta)
+	_advance_player_skill_animation(delta)
+
+
 func restart_battle() -> void:
-	_set_player_action_texture(TAKASHI_IDLE_TEXTURE)
+	_start_player_idle_animation()
 	_reset_battle_values()
 	_begin_player_turn("A Lesser Abyss appears. Choose Takashi's first action.")
 
@@ -119,7 +167,7 @@ func _reset_battle_values() -> void:
 	timing_bar.cancel_window()
 	ui.set_timing_mode(false)
 	ui.set_restart_visible(false)
-	_refresh_hp_labels()
+	_refresh_player_status_ui()
 	_refresh_energy_ui()
 	_refresh_skill_points_ui()
 
@@ -228,6 +276,7 @@ func _begin_player_turn(log_text: String = "Your turn. Choose an action.") -> vo
 	ui.set_battle_log(log_text)
 	ui.set_timing_mode(false)
 	ui.set_restart_visible(true)
+	ui.set_turn_order_highlight(true)
 	_update_action_buttons(true)
 
 
@@ -236,10 +285,11 @@ func _begin_enemy_turn(log_text: String = "Enemy is preparing to attack.") -> vo
 		return
 
 	state = BattleState.ENEMY_TURN
-	_set_player_action_texture(TAKASHI_IDLE_TEXTURE)
+	_start_player_idle_animation()
 	ui.set_turn_text("Enemy Turn")
 	ui.set_battle_log(log_text)
 	ui.set_timing_mode(false)
+	ui.set_turn_order_highlight(false)
 	_update_action_buttons(false)
 
 	await get_tree().create_timer(TURN_DELAY_SECONDS).timeout
@@ -258,10 +308,10 @@ func _enemy_attack() -> void:
 	_play_impact_sfx()
 	_spawn_enemy_claw_effect(player)
 	player.take_damage(damage)
+	_refresh_player_status_ui()
 	_show_floating_damage(player, damage)
 	await player.play_hit_feedback()
 	_shake_camera()
-	_refresh_hp_labels()
 
 	if player.is_defeated():
 		_lose("You were defeated.")
@@ -276,28 +326,38 @@ func _on_attack_pressed() -> void:
 
 	state = BattleState.ACTION_RESOLUTION
 	_set_player_action_texture(TAKASHI_BASIC_TEXTURE)
-	_play_basic_sfx()
 	_update_action_buttons(false)
 	ui.set_turn_text("Void Strike")
-	ui.set_battle_log("Void Strike cuts forward.")
+	ui.set_battle_log("Void Strike!")
+	await _resolve_basic_attack()
+
+
+func _resolve_basic_attack() -> void:
+	if state != BattleState.ACTION_RESOLUTION:
+		return
+
+	var damage: int = BASIC_ATTACK_DAMAGE
+	var energy_gain: int = BASIC_ATTACK_ENERGY
+
+	_play_basic_sfx()
 	await player.play_attack_movement(enemy)
 	if state != BattleState.ACTION_RESOLUTION:
 		return
 
 	_spawn_basic_slash_effect(enemy)
 	_spawn_hit_spark(enemy, Color(0.95, 0.86, 0.45, 1.0))
-	enemy.take_damage(BASIC_ATTACK_DAMAGE)
-	_show_floating_damage(enemy, BASIC_ATTACK_DAMAGE)
+	enemy.take_damage(damage)
+	_show_floating_damage(enemy, damage)
 	await enemy.play_hit_feedback()
 	_shake_camera()
-	_add_ultimate_energy(BASIC_ATTACK_ENERGY)
+	_add_ultimate_energy(energy_gain)
 	_add_skill_points(SKILL_POINT_GAIN_BASIC)
-	_refresh_hp_labels()
-	_finish_player_action("Void Strike deals %d damage, gains %d energy, and restores %d Skill Point." % [BASIC_ATTACK_DAMAGE, BASIC_ATTACK_ENERGY, SKILL_POINT_GAIN_BASIC])
+	_finish_player_action("Void Strike deals %d damage, gains %d energy, and restores %d Skill Point." % [damage, energy_gain, SKILL_POINT_GAIN_BASIC])
 
 
 func _on_confirm_pressed() -> void:
-	pass
+	if state == BattleState.PLAYER_TURN:
+		_on_attack_pressed()
 
 
 func _on_skill_pressed() -> void:
@@ -328,7 +388,6 @@ func _on_skill_pressed() -> void:
 	await enemy.play_hit_feedback()
 	_shake_camera()
 	_add_ultimate_energy(SKILL_ENERGY)
-	_refresh_hp_labels()
 	_finish_player_action("Triangle Rift deals %d damage." % SKILL_DAMAGE)
 
 
@@ -361,7 +420,6 @@ func _on_ultimate_pressed() -> void:
 	_show_floating_damage(enemy, ULTIMATE_DAMAGE)
 	await enemy.play_hit_feedback()
 	_shake_camera()
-	_refresh_hp_labels()
 	_finish_player_action("Octagram Fragment deals %d damage and consumes all energy." % ULTIMATE_DAMAGE)
 
 
@@ -481,37 +539,32 @@ func _play_generated_sfx(player_node: AudioStreamPlayer, start_hz: float, end_hz
 
 func _spawn_basic_slash_effect(target: Node2D) -> void:
 	var impact_position: Vector2 = target.global_position + Vector2(-10.0, -118.0)
-	_spawn_slash_polygon(impact_position, -0.45, Color(0.95, 0.86, 0.45, 0.82), 1.0)
-	_spawn_slash_polygon(impact_position + Vector2(18.0, 26.0), -0.45, Color(0.95, 0.98, 1.0, 0.72), 0.62)
+	_spawn_slash_sprite(impact_position, -0.45, Color(1.0, 0.97, 0.86, 0.92), 1.0)
 
 
 func _spawn_enemy_claw_effect(target: Node2D) -> void:
 	var impact_position: Vector2 = target.global_position + Vector2(10.0, -112.0)
-	_spawn_slash_polygon(impact_position, 0.5, Color(0.9, 0.2, 0.34, 0.72), 0.82)
-	_spawn_slash_polygon(impact_position + Vector2(-18.0, 24.0), 0.5, Color(0.48, 0.16, 0.64, 0.6), 0.58)
+	_spawn_slash_sprite(impact_position, 0.5, Color(1.0, 0.5, 0.58, 0.88), 0.85)
 
 
-func _spawn_slash_polygon(start_position: Vector2, rotation_radians: float, color: Color, scale_multiplier: float) -> void:
+func _spawn_slash_sprite(start_position: Vector2, rotation_radians: float, color: Color, scale_multiplier: float) -> void:
 	if effect_layer == null:
 		return
 
-	var slash: Polygon2D = Polygon2D.new()
+	var slash: Sprite2D = Sprite2D.new()
+	slash.texture = EFFECT_SLASH_TEXTURE
 	slash.position = start_position
 	slash.rotation = rotation_radians
-	slash.scale = Vector2(0.42, 0.42) * scale_multiplier
-	slash.color = color
-	slash.polygon = PackedVector2Array([
-		Vector2(-92.0, -8.0),
-		Vector2(76.0, -20.0),
-		Vector2(102.0, 0.0),
-		Vector2(-62.0, 22.0)
-	])
+	slash.modulate = color
+	var start_scale: float = 0.08 * scale_multiplier
+	slash.scale = Vector2(start_scale, start_scale)
 	effect_layer.add_child(slash)
 
+	var end_scale: float = 0.13 * scale_multiplier
 	var tween: Tween = create_tween()
 	tween.set_trans(Tween.TRANS_QUAD)
 	tween.set_ease(Tween.EASE_OUT)
-	tween.tween_property(slash, "scale", Vector2(1.18, 1.18) * scale_multiplier, 0.1)
+	tween.tween_property(slash, "scale", Vector2(end_scale, end_scale), 0.1)
 	tween.parallel().tween_property(slash, "position", start_position + Vector2(42.0, -8.0), 0.1)
 	tween.tween_property(slash, "modulate:a", 0.0, 0.12)
 	tween.tween_callback(slash.queue_free)
@@ -523,19 +576,22 @@ func _spawn_skill_charge_effect(origin: Node2D) -> void:
 
 	var charge_position: Vector2 = origin.global_position + Vector2(6.0, -132.0)
 	for index in range(2):
-		var triangle: Line2D = _make_triangle_line(Color(0.37, 0.85, 1.0, 0.62 - (float(index) * 0.18)), 4.0)
-		triangle.position = charge_position
-		triangle.rotation = float(index) * 0.55
-		triangle.scale = Vector2(0.35, 0.35)
-		effect_layer.add_child(triangle)
+		var particle: Sprite2D = Sprite2D.new()
+		particle.texture = EFFECT_PARTICLE_TEXTURE
+		particle.position = charge_position
+		particle.rotation = float(index) * 0.55
+		particle.modulate = Color(0.6, 0.9, 1.0, 0.62 - (float(index) * 0.18))
+		particle.scale = Vector2(0.08, 0.08)
+		effect_layer.add_child(particle)
 
+		var end_scale: float = 0.16 + (float(index) * 0.04)
 		var tween: Tween = create_tween()
 		tween.set_trans(Tween.TRANS_QUAD)
 		tween.set_ease(Tween.EASE_OUT)
-		tween.tween_property(triangle, "scale", Vector2(0.95 + (float(index) * 0.2), 0.95 + (float(index) * 0.2)), 0.24)
-		tween.parallel().tween_property(triangle, "rotation", triangle.rotation + 1.1, 0.24)
-		tween.parallel().tween_property(triangle, "modulate:a", 0.0, 0.24)
-		tween.tween_callback(triangle.queue_free)
+		tween.tween_property(particle, "scale", Vector2(end_scale, end_scale), 0.24)
+		tween.parallel().tween_property(particle, "rotation", particle.rotation + 1.1, 0.24)
+		tween.parallel().tween_property(particle, "modulate:a", 0.0, 0.24)
+		tween.tween_callback(particle.queue_free)
 
 
 func _spawn_triangle_rift_effect(target: Node2D, large: bool) -> void:
@@ -545,22 +601,24 @@ func _spawn_triangle_rift_effect(target: Node2D, large: bool) -> void:
 	var rift_position: Vector2 = target.global_position + Vector2(0.0, -118.0)
 	var ring_count: int = 3 if large else 2
 	for index in range(ring_count):
-		var triangle: Line2D = _make_triangle_line(Color(0.42, 0.9, 1.0, 0.82 - (float(index) * 0.16)), 5.0)
-		triangle.position = rift_position
-		triangle.rotation = -0.65 + (float(index) * 0.42)
-		triangle.scale = Vector2(0.42, 0.42)
-		effect_layer.add_child(triangle)
+		var particle: Sprite2D = Sprite2D.new()
+		particle.texture = EFFECT_PARTICLE_TEXTURE
+		particle.position = rift_position
+		particle.rotation = -0.65 + (float(index) * 0.42)
+		particle.modulate = Color(0.55, 0.95, 1.0, 0.82 - (float(index) * 0.16))
+		particle.scale = Vector2(0.09, 0.09)
+		effect_layer.add_child(particle)
 
-		var end_scale: float = 1.3 + (float(index) * 0.28)
+		var end_scale: float = 0.2 + (float(index) * 0.05)
 		if large:
-			end_scale += 0.45
+			end_scale += 0.08
 		var tween: Tween = create_tween()
 		tween.set_trans(Tween.TRANS_QUAD)
 		tween.set_ease(Tween.EASE_OUT)
-		tween.tween_property(triangle, "scale", Vector2(end_scale, end_scale), 0.22)
-		tween.parallel().tween_property(triangle, "rotation", triangle.rotation + 1.25, 0.22)
-		tween.parallel().tween_property(triangle, "modulate:a", 0.0, 0.22)
-		tween.tween_callback(triangle.queue_free)
+		tween.tween_property(particle, "scale", Vector2(end_scale, end_scale), 0.22)
+		tween.parallel().tween_property(particle, "rotation", particle.rotation + 1.25, 0.22)
+		tween.parallel().tween_property(particle, "modulate:a", 0.0, 0.22)
+		tween.tween_callback(particle.queue_free)
 
 
 func _spawn_hit_spark(target: Node2D, color: Color) -> void:
@@ -568,26 +626,19 @@ func _spawn_hit_spark(target: Node2D, color: Color) -> void:
 		return
 
 	var spark_position: Vector2 = target.global_position + Vector2(0.0, -110.0)
-	for index in range(6):
-		var ray: Polygon2D = Polygon2D.new()
-		ray.position = spark_position
-		ray.rotation = (TAU / 6.0) * float(index)
-		ray.color = color
-		ray.scale = Vector2(0.2, 0.2)
-		ray.polygon = PackedVector2Array([
-			Vector2(0.0, -3.0),
-			Vector2(56.0, -1.0),
-			Vector2(56.0, 1.0),
-			Vector2(0.0, 3.0)
-		])
-		effect_layer.add_child(ray)
+	var spark: Sprite2D = Sprite2D.new()
+	spark.texture = EFFECT_SPLASH_TEXTURE
+	spark.position = spark_position
+	spark.modulate = color
+	spark.scale = Vector2(0.05, 0.05)
+	effect_layer.add_child(spark)
 
-		var tween: Tween = create_tween()
-		tween.set_trans(Tween.TRANS_QUAD)
-		tween.set_ease(Tween.EASE_OUT)
-		tween.tween_property(ray, "scale", Vector2(1.0, 1.0), 0.11)
-		tween.parallel().tween_property(ray, "modulate:a", 0.0, 0.16)
-		tween.tween_callback(ray.queue_free)
+	var tween: Tween = create_tween()
+	tween.set_trans(Tween.TRANS_QUAD)
+	tween.set_ease(Tween.EASE_OUT)
+	tween.tween_property(spark, "scale", Vector2(0.2, 0.2), 0.11)
+	tween.parallel().tween_property(spark, "modulate:a", 0.0, 0.16)
+	tween.tween_callback(spark.queue_free)
 
 
 func _spawn_ultimate_impact_effect(target: Node2D) -> void:
@@ -612,22 +663,6 @@ func _hide_screen_flash() -> void:
 	if screen_flash != null:
 		screen_flash.visible = false
 		screen_flash.modulate = Color.WHITE
-
-
-func _make_triangle_line(color: Color, width: float) -> Line2D:
-	var triangle: Line2D = Line2D.new()
-	triangle.width = width
-	triangle.default_color = color
-	triangle.joint_mode = Line2D.LINE_JOINT_SHARP
-	triangle.begin_cap_mode = Line2D.LINE_CAP_BOX
-	triangle.end_cap_mode = Line2D.LINE_CAP_BOX
-	triangle.points = PackedVector2Array([
-		Vector2(0.0, -58.0),
-		Vector2(58.0, 46.0),
-		Vector2(-58.0, 46.0),
-		Vector2(0.0, -58.0)
-	])
-	return triangle
 
 
 func _on_restart_pressed() -> void:
@@ -657,12 +692,12 @@ func _lose(log_text: String) -> void:
 	ui.set_restart_visible(true)
 
 
-func _refresh_hp_labels() -> void:
-	ui.set_hp_values(player.current_hp, player.max_hp, enemy.current_hp, enemy.max_hp)
-
-
 func _refresh_energy_ui() -> void:
 	ui.set_energy(ultimate_energy, MAX_ULTIMATE_ENERGY)
+
+
+func _refresh_player_status_ui() -> void:
+	ui.set_player_status_hp(player.current_hp, player.max_hp)
 
 
 func _refresh_skill_points_ui() -> void:
@@ -691,7 +726,7 @@ func _spend_skill_points(amount: int) -> void:
 func _finish_player_action(log_text: String) -> void:
 	_refresh_energy_ui()
 	_refresh_skill_points_ui()
-	_set_player_action_texture(TAKASHI_IDLE_TEXTURE)
+	_start_player_idle_animation()
 	if enemy.is_defeated():
 		_win("Enemy defeated. You win!")
 		return
@@ -741,5 +776,149 @@ func _reset_camera() -> void:
 
 
 func _set_player_action_texture(texture: Texture2D) -> void:
+	if texture == TAKASHI_IDLE_TEXTURE:
+		_start_player_idle_animation()
+		return
+
+	if texture == TAKASHI_BASIC_TEXTURE:
+		_start_player_basic_animation()
+		return
+
+	if texture == TAKASHI_SKILL_TEXTURE:
+		_start_player_skill_animation()
+		return
+
+	_stop_player_idle_animation()
+	_stop_player_basic_animation()
+	_stop_player_skill_animation()
 	if player_action_sprite != null and texture != null:
 		player_action_sprite.texture = texture
+
+
+func _setup_takashi_idle_frames() -> void:
+	takashi_idle_frames = _load_texture_frames(TAKASHI_IDLE_FRAME_PATHS)
+
+
+func _setup_takashi_basic_frames() -> void:
+	takashi_basic_frames = _load_texture_frames(TAKASHI_BASIC_FRAME_PATHS)
+
+
+func _setup_takashi_skill_frames() -> void:
+	takashi_skill_frames = _load_texture_frames(TAKASHI_SKILL_FRAME_PATHS)
+
+
+func _load_texture_frames(frame_paths: Array[String]) -> Array[Texture2D]:
+	var frames: Array[Texture2D] = []
+	for frame_path in frame_paths:
+		if not FileAccess.file_exists(frame_path):
+			continue
+
+		var frame_texture: Texture2D = load(frame_path) as Texture2D
+		if frame_texture != null:
+			frames.append(frame_texture)
+	return frames
+
+
+func _start_player_idle_animation() -> void:
+	if player_action_sprite == null:
+		return
+
+	_stop_player_basic_animation()
+	_stop_player_skill_animation()
+	if takashi_idle_frames.is_empty():
+		player_action_sprite.texture = TAKASHI_IDLE_TEXTURE
+		return
+
+	idle_animation_playing = true
+	idle_frame_index = 0
+	idle_frame_elapsed = 0.0
+	player_action_sprite.texture = takashi_idle_frames[idle_frame_index]
+
+
+func _stop_player_idle_animation() -> void:
+	if not idle_animation_playing:
+		return
+
+	idle_animation_playing = false
+
+
+func _start_player_basic_animation() -> void:
+	if player_action_sprite == null:
+		return
+
+	_stop_player_idle_animation()
+	_stop_player_skill_animation()
+	if takashi_basic_frames.is_empty():
+		player_action_sprite.texture = TAKASHI_BASIC_TEXTURE
+		return
+
+	basic_animation_playing = true
+	basic_frame_index = 0
+	basic_frame_elapsed = 0.0
+	player_action_sprite.texture = takashi_basic_frames[basic_frame_index]
+
+
+func _stop_player_basic_animation() -> void:
+	if not basic_animation_playing:
+		return
+
+	basic_animation_playing = false
+
+
+func _start_player_skill_animation() -> void:
+	if player_action_sprite == null:
+		return
+
+	_stop_player_idle_animation()
+	_stop_player_basic_animation()
+	if takashi_skill_frames.is_empty():
+		player_action_sprite.texture = TAKASHI_SKILL_TEXTURE
+		return
+
+	skill_animation_playing = true
+	skill_frame_index = 0
+	skill_frame_elapsed = 0.0
+	player_action_sprite.texture = takashi_skill_frames[skill_frame_index]
+
+
+func _stop_player_skill_animation() -> void:
+	if not skill_animation_playing:
+		return
+
+	skill_animation_playing = false
+
+
+func _advance_player_idle_animation(delta: float) -> void:
+	if not idle_animation_playing or player_action_sprite == null or takashi_idle_frames.is_empty():
+		return
+
+	idle_frame_elapsed += delta
+	var frame_duration: float = 1.0 / TAKASHI_IDLE_FRAME_RATE
+	while idle_frame_elapsed >= frame_duration:
+		idle_frame_elapsed -= frame_duration
+		idle_frame_index = (idle_frame_index + 1) % takashi_idle_frames.size()
+		player_action_sprite.texture = takashi_idle_frames[idle_frame_index]
+
+
+func _advance_player_basic_animation(delta: float) -> void:
+	if not basic_animation_playing or player_action_sprite == null or takashi_basic_frames.is_empty():
+		return
+
+	basic_frame_elapsed += delta
+	var frame_duration: float = 1.0 / TAKASHI_BASIC_FRAME_RATE
+	while basic_frame_elapsed >= frame_duration:
+		basic_frame_elapsed -= frame_duration
+		basic_frame_index = (basic_frame_index + 1) % takashi_basic_frames.size()
+		player_action_sprite.texture = takashi_basic_frames[basic_frame_index]
+
+
+func _advance_player_skill_animation(delta: float) -> void:
+	if not skill_animation_playing or player_action_sprite == null or takashi_skill_frames.is_empty():
+		return
+
+	skill_frame_elapsed += delta
+	var frame_duration: float = 1.0 / TAKASHI_SKILL_FRAME_RATE
+	while skill_frame_elapsed >= frame_duration:
+		skill_frame_elapsed -= frame_duration
+		skill_frame_index = (skill_frame_index + 1) % takashi_skill_frames.size()
+		player_action_sprite.texture = takashi_skill_frames[skill_frame_index]

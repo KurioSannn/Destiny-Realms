@@ -31,6 +31,10 @@ func start_window() -> void:
 	set_process(true)
 
 
+func is_active() -> bool:
+	return _active
+
+
 func confirm() -> void:
 	if not _active:
 		return
