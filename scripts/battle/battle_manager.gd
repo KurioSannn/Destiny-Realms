@@ -118,6 +118,10 @@ var screen_flash: ColorRect
 var basic_sfx_player: AudioStreamPlayer
 var skill_sfx_player: AudioStreamPlayer
 var impact_sfx_player: AudioStreamPlayer
+var cetar_sfx_player: AudioStreamPlayer
+var sring_sfx_player: AudioStreamPlayer
+var skill_release_sfx_player: AudioStreamPlayer
+var rift_crack_sfx_player: AudioStreamPlayer
 var takashi_idle_frames: Array[Texture2D] = []
 var idle_animation_playing: bool = false
 var idle_frame_index: int = 0
