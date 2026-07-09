@@ -63,21 +63,26 @@ const TAKASHI_BASIC_FRAME_PATHS: Array[String] = [
 	"res://public/idleattack/a4.png"
 ]
 const TAKASHI_SKILL_TEXTURE: Texture2D = preload("res://public/SkillTaka.png")
-const TAKASHI_SKILL_FRAME_RATE: float = 4.0
+const TAKASHI_SKILL_FRAME_RATE: float = 5.0
 const TAKASHI_SKILL_FRAME_PATHS: Array[String] = [
-	"res://public/idleskill/skill1.png",
-	"res://public/idleskill/skill2.png",
-	"res://public/idleskill/skill3.png",
-	"res://public/idleskill/skill4.png",
-	"res://public/idleskill/skill5.png"
+	"res://public/idleskill/s1.png",
+	"res://public/idleskill/s2.png",
+	"res://public/idleskill/s3.png",
+	"res://public/idleskill/s4.png"
 ]
 const TAKASHI_ULTIMATE_TEXTURE: Texture2D = preload("res://public/UltiTaka.png")
 const EFFECT_SLASH_TEXTURE: Texture2D = preload("res://public/effects/slash.png")
 const EFFECT_SPLASH_TEXTURE: Texture2D = preload("res://public/effects/Splash.png")
 const EFFECT_PARTICLE_TEXTURE: Texture2D = preload("res://public/effects/Particle Efect.png")
 const SFX_SAMPLE_RATE: float = 22050.0
-const BASIC_SFX_START_HZ: float = 950.0
-const BASIC_SFX_END_HZ: float = 260.0
+const BASIC_SFX_START_HZ: float = 520.0
+const BASIC_SFX_END_HZ: float = 180.0
+const BASIC_SFX_DURATION: float = 0.24
+const BASIC_SFX_VOLUME: float = 0.38
+const BASIC_SFX_SHIMMER_MIX: float = 0.08
+const BASIC_SFX_SUB_MIX: float = 0.2
+const BASIC_SFX_NOISE_MIX: float = 0.26
+const BASIC_SFX_CRYSTAL_MIX: float = 0.62
 const SKILL_SFX_START_HZ: float = 210.0
 const SKILL_SFX_END_HZ: float = 920.0
 const IMPACT_SFX_START_HZ: float = 120.0
