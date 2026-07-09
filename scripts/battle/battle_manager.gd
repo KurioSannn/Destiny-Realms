@@ -365,9 +365,16 @@ func _resolve_basic_attack() -> void:
 		return
 
 	_spawn_basic_slash_effect(enemy)
-	_spawn_hit_spark(enemy, Color(0.95, 0.86, 0.45, 1.0))
+	await get_tree().create_timer(0.08).timeout
+	if state != BattleState.ACTION_RESOLUTION:
+		return
+
 	enemy.take_damage(damage)
 	_show_floating_damage(enemy, damage)
+	await _play_basic_cetar_impact(enemy)
+	if state != BattleState.ACTION_RESOLUTION:
+		return
+
 	await enemy.play_hit_feedback()
 	_shake_camera()
 	_add_ultimate_energy(energy_gain)
