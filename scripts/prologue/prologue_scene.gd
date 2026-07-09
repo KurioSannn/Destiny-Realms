@@ -23,6 +23,12 @@ const BASE_VIEWPORT_SIZE: Vector2 = Vector2(1280.0, 720.0)
 	get_node_or_null("CharacterLayer/MitsukiVisual/MitsukiLabel") as Label,
 	get_node_or_null("CharacterLayer/MakotoVisual/MakotoLabel") as Label
 ]
+@onready var skip_button: Button = get_node_or_null("CanvasLayer/SkipButton") as Button
+@onready var menu_button: Button = get_node_or_null("CanvasLayer/MenuButton") as Button
+@onready var menu_popup: Panel = get_node_or_null("CanvasLayer/MenuPopup") as Panel
+@onready var menu_dim: ColorRect = get_node_or_null("CanvasLayer/MenuDim") as ColorRect
+@onready var restart_button: Button = get_node_or_null("CanvasLayer/MenuPopup/RestartButton") as Button
+@onready var quit_button: Button = get_node_or_null("CanvasLayer/MenuPopup/QuitButton") as Button
 
 
 func _ready() -> void:
@@ -31,6 +37,14 @@ func _ready() -> void:
 		dialogue_manager.dialogue_finished.connect(_on_dialogue_finished)
 		dialogue_manager.speaker_changed.connect(_on_dialogue_speaker_changed)
 	_hide_world_name_labels()
+	if skip_button != null:
+		skip_button.pressed.connect(_on_skip_pressed)
+	if menu_button != null:
+		menu_button.pressed.connect(_on_menu_button_pressed)
+	if restart_button != null:
+		restart_button.pressed.connect(_on_restart_button_pressed)
+	if quit_button != null:
+		quit_button.pressed.connect(_on_quit_button_pressed)
 
 	await get_tree().process_frame
 	_apply_runtime_layout()
@@ -88,6 +102,34 @@ func _apply_runtime_layout() -> void:
 
 func _on_dialogue_finished() -> void:
 	get_tree().change_scene_to_file(BATTLE_SCENE_PATH)
+
+
+func _on_skip_pressed() -> void:
+	get_tree().paused = false
+	get_tree().change_scene_to_file(BATTLE_SCENE_PATH)
+
+
+func _on_menu_button_pressed() -> void:
+	var opening: bool = not menu_popup.visible
+	_set_menu_open(opening)
+
+
+func _on_restart_button_pressed() -> void:
+	_set_menu_open(false)
+	get_tree().reload_current_scene()
+
+
+func _on_quit_button_pressed() -> void:
+	get_tree().paused = false
+	get_tree().quit()
+
+
+func _set_menu_open(is_open: bool) -> void:
+	if menu_popup != null:
+		menu_popup.visible = is_open
+	if menu_dim != null:
+		menu_dim.visible = is_open
+	get_tree().paused = is_open
 
 
 func _on_dialogue_speaker_changed(speaker_name: String) -> void:
