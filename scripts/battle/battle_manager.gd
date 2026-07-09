@@ -806,47 +806,59 @@ func _play_generated_sfx(player_node: AudioStreamPlayer, start_hz: float, end_hz
 	playback.clear_buffer()
 	var sample_count: int = int(SFX_SAMPLE_RATE * duration)
 	var phase: float = 0.0
+	var shimmer_phase: float = 0.0
 	for sample_index in range(sample_count):
 		var progress: float = float(sample_index) / float(maxi(sample_count - 1, 1))
 		var current_hz: float = lerpf(start_hz, end_hz, progress)
 		var envelope: float = pow(1.0 - progress, 2.0)
 		phase += TAU * current_hz / SFX_SAMPLE_RATE
 		var tone: float = sin(phase)
+
+		var combined_tone: float = tone
+		if shimmer_mix > 0.0:
+			shimmer_phase += TAU * (current_hz * 2.01) / SFX_SAMPLE_RATE
+			var shimmer_tone: float = sin(shimmer_phase)
+			var tremolo: float = 0.65 + 0.35 * sin(progress * TAU * 7.0)
+			combined_tone = lerpf(tone, shimmer_tone * tremolo, shimmer_mix)
+
 		var noise: float = randf_range(-1.0, 1.0)
-		var sample: float = ((tone * (1.0 - noise_mix)) + (noise * noise_mix)) * envelope * volume
+		var sample: float = ((combined_tone * (1.0 - noise_mix)) + (noise * noise_mix)) * envelope * volume
 		playback.push_frame(Vector2(sample, sample))
 
 
 func _spawn_basic_slash_effect(target: Node2D) -> void:
-	var impact_position: Vector2 = target.global_position + Vector2(-10.0, -118.0)
-	_spawn_slash_sprite(impact_position, -0.45, Color(1.0, 0.97, 0.86, 0.92), 1.0)
+	var start_position: Vector2 = player.global_position + Vector2(0.0, -118.0)
+	var end_position: Vector2 = target.global_position + Vector2(-10.0, -118.0)
+	_spawn_slash_projectile(start_position, end_position, Color(1.0, 0.97, 0.86, 0.92), 1.0)
 
 
 func _spawn_enemy_claw_effect(target: Node2D) -> void:
-	var impact_position: Vector2 = target.global_position + Vector2(10.0, -112.0)
-	_spawn_slash_sprite(impact_position, 0.5, Color(1.0, 0.5, 0.58, 0.88), 0.85)
+	var start_position: Vector2 = enemy.global_position + Vector2(0.0, -112.0)
+	var end_position: Vector2 = target.global_position + Vector2(10.0, -112.0)
+	_spawn_slash_projectile(start_position, end_position, Color(1.0, 0.5, 0.58, 0.88), 0.85)
 
 
-func _spawn_slash_sprite(start_position: Vector2, rotation_radians: float, color: Color, scale_multiplier: float) -> void:
+func _spawn_slash_projectile(start_position: Vector2, end_position: Vector2, color: Color, scale_multiplier: float) -> void:
 	if effect_layer == null:
 		return
 
 	var slash: Sprite2D = Sprite2D.new()
 	slash.texture = EFFECT_SLASH_TEXTURE
+	slash.flip_h = true
 	slash.position = start_position
-	slash.rotation = rotation_radians
+	slash.rotation = (end_position - start_position).angle()
 	slash.modulate = color
-	var start_scale: float = 0.08 * scale_multiplier
+	var start_scale: float = 0.07 * scale_multiplier
 	slash.scale = Vector2(start_scale, start_scale)
 	effect_layer.add_child(slash)
 
-	var end_scale: float = 0.13 * scale_multiplier
+	var end_scale: float = 0.14 * scale_multiplier
 	var tween: Tween = create_tween()
 	tween.set_trans(Tween.TRANS_QUAD)
 	tween.set_ease(Tween.EASE_OUT)
-	tween.tween_property(slash, "scale", Vector2(end_scale, end_scale), 0.1)
-	tween.parallel().tween_property(slash, "position", start_position + Vector2(42.0, -8.0), 0.1)
-	tween.tween_property(slash, "modulate:a", 0.0, 0.12)
+	tween.tween_property(slash, "position", end_position, 0.16)
+	tween.parallel().tween_property(slash, "scale", Vector2(end_scale, end_scale), 0.16)
+	tween.parallel().tween_property(slash, "modulate:a", 0.0, 0.2)
 	tween.tween_callback(slash.queue_free)
 
 
