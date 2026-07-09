@@ -1509,5 +1509,9 @@ func _advance_player_skill_animation(delta: float) -> void:
 	var frame_duration: float = 1.0 / TAKASHI_SKILL_FRAME_RATE
 	while skill_frame_elapsed >= frame_duration:
 		skill_frame_elapsed -= frame_duration
-		skill_frame_index = (skill_frame_index + 1) % takashi_skill_frames.size()
+		if skill_frame_index >= takashi_skill_frames.size() - 1:
+			skill_animation_playing = false
+			return
+
+		skill_frame_index += 1
 		player_action_sprite.texture = takashi_skill_frames[skill_frame_index]
