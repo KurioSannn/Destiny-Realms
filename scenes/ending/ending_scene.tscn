@@ -380,10 +380,10 @@ theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.72)
 theme_override_constants/shadow_offset_x = 2
 theme_override_constants/shadow_offset_y = 2
 theme_override_font_sizes/font_size = 23
-text = "To be continued..."
+text = "A new road awaits beyond the Abyss."
 horizontal_alignment = 1
 
-[node name="BackButton" type="Button" parent="CanvasLayer/FinalPanel" unique_id=1861185383]
+[node name="EnterWorldButton" type="Button" parent="CanvasLayer/FinalPanel" unique_id=1861185383]
 custom_minimum_size = Vector2(200, 42)
 layout_mode = 0
 offset_left = 320.0
@@ -392,7 +392,7 @@ offset_right = 520.0
 offset_bottom = 480.0
 theme_override_colors/font_color = Color(0.9, 0.88, 0.82, 1)
 theme_override_font_sizes/font_size = 18
-text = "Back to Prologue"
+text = "Enter Werdonia"
 
 [node name="EpilogFramePlayer" type="TextureRect" parent="CanvasLayer" unique_id=1015378757]
 visible = false

@@ -101,12 +101,12 @@ func _apply_runtime_layout() -> void:
 
 
 func _on_dialogue_finished() -> void:
-	get_tree().change_scene_to_file(BATTLE_SCENE_PATH)
+	SceneTransition.change_to_file(BATTLE_SCENE_PATH)
 
 
 func _on_skip_pressed() -> void:
 	get_tree().paused = false
-	get_tree().change_scene_to_file(BATTLE_SCENE_PATH)
+	SceneTransition.change_to_file(BATTLE_SCENE_PATH)
 
 
 func _on_menu_button_pressed() -> void:
@@ -116,7 +116,7 @@ func _on_menu_button_pressed() -> void:
 
 func _on_restart_button_pressed() -> void:
 	_set_menu_open(false)
-	get_tree().reload_current_scene()
+	SceneTransition.reload_current()
 
 
 func _on_quit_button_pressed() -> void:

@@ -1,7 +1,7 @@
 extends Node2D
 class_name EndingScene
 
-const PROLOGUE_SCENE_PATH: String = "res://scenes/prologue/prologue_scene.tscn"
+const WORLD_SCENE_PATH: String = "res://scenes/world/world_scene.tscn"
 const BASE_VIEWPORT_SIZE: Vector2 = Vector2(1280.0, 720.0)
 const TAKASHI_TALK_TEXTURE: Texture2D = preload("res://public/Takashi portrait 2 (talk).png")
 const MITSUKI_TALK_TEXTURE: Texture2D = preload("res://public/Mitsuki portrait 2 (talk).png")
@@ -33,7 +33,7 @@ const FINAL_BGM_PATH: String = "res://public/Gates_of_Werdonia.mp3"
 @onready var final_panel: Panel = get_node_or_null("CanvasLayer/FinalPanel") as Panel
 @onready var final_logo_texture: TextureRect = get_node_or_null("CanvasLayer/FinalPanel/LogoTexture") as TextureRect
 @onready var final_scrim: ColorRect = get_node_or_null("CanvasLayer/FinalScrim") as ColorRect
-@onready var back_button: Button = get_node_or_null("CanvasLayer/FinalPanel/BackButton") as Button
+@onready var enter_world_button: Button = get_node_or_null("CanvasLayer/FinalPanel/EnterWorldButton") as Button
 @onready var epilog_frame_player: TextureRect = get_node_or_null("CanvasLayer/EpilogFramePlayer") as TextureRect
 @onready var epilog_audio_player: AudioStreamPlayer = get_node_or_null("CanvasLayer/EpilogAudioPlayer") as AudioStreamPlayer
 @onready var world_portraits: Dictionary = {
@@ -97,8 +97,8 @@ func _ready() -> void:
 	_setup_dark_forest_bgm()
 	if next_button != null:
 		next_button.pressed.connect(_advance)
-	if back_button != null:
-		back_button.pressed.connect(_back_to_prologue)
+	if enter_world_button != null:
+		enter_world_button.pressed.connect(_enter_world)
 	if skip_button != null:
 		skip_button.pressed.connect(_on_skip_pressed)
 	if menu_button != null:
@@ -270,8 +270,8 @@ func _play_final_bgm() -> void:
 		dark_forest_bgm.play()
 
 
-func _back_to_prologue() -> void:
-	get_tree().change_scene_to_file(PROLOGUE_SCENE_PATH)
+func _enter_world() -> void:
+	SceneTransition.change_to_file(WORLD_SCENE_PATH)
 
 
 func _on_skip_pressed() -> void:
@@ -311,7 +311,7 @@ func _on_menu_button_pressed() -> void:
 
 func _on_restart_button_pressed() -> void:
 	_set_menu_open(false)
-	get_tree().reload_current_scene()
+	SceneTransition.reload_current()
 
 
 func _on_quit_button_pressed() -> void:

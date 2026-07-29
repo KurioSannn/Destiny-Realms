@@ -13,6 +13,7 @@
 [ext_resource type="Texture2D" uid="uid://di3siyc263n4i" path="res://public/Takashi portrait 1.png" id="9_takashi_profile"]
 [ext_resource type="Texture2D" uid="uid://dsrqexgu3p1q5" path="res://public/IdleTaka.png" id="10_takashi_idle"]
 [ext_resource type="AudioStream" uid="uid://dvgau22ra5fgk" path="res://public/Iron_and_Ivy.mp3" id="11_battle_bgm"]
+[ext_resource type="Texture2D" path="res://public/bandits/bandit_captain.png" id="12_bandit"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_bar_track"]
 bg_color = Color(0.025, 0.032, 0.045, 0.92)
@@ -259,7 +260,6 @@ polygon = PackedVector2Array(0, 518, 1280, 497, 1280, 720, 0, 720)
 [node name="BattleBgm" type="AudioStreamPlayer" parent="." unique_id=516040790]
 stream = ExtResource("11_battle_bgm")
 volume_db = -10.0
-autoplay = true
 
 [node name="BattleCamera" type="Camera2D" parent="." unique_id=2126337820]
 position = Vector2(640, 360)
@@ -389,6 +389,12 @@ vertical_alignment = 1
 z_index = 5
 position = Vector2(870, 504)
 script = ExtResource("2_cb")
+
+[node name="ActionSprite" type="Sprite2D" parent="Enemy"]
+visible = false
+position = Vector2(0, -68)
+scale = Vector2(0.22, 0.22)
+texture = ExtResource("12_bandit")
 
 [node name="PlaceholderVisual" type="Node2D" parent="Enemy" unique_id=1356944601]
 position = Vector2(0, -125)
