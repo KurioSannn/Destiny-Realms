@@ -2,9 +2,62 @@
 
 ## Scope
 
-This document defines the target battle contract for the next implementation
-phase. Block 4 does not refactor `battle_manager.gd`, alter damage, change enemy
-AI, rebalance turns, or implement the Ultimate interrupt system.
+This document defines the target battle contract. Block 5 implements the normal
+turn command slice in an isolated debug scene without refactoring
+`battle_manager.gd`, altering damage, changing enemy AI, rebalancing turns, or
+implementing the Ultimate interrupt queue. Block 6 migrates only production
+Basic Attack to that command contract behind a feature flag.
+
+## Block 5 implementation status
+
+Implemented in `scenes/battle/debug/battle_command_flow_debug.tscn`:
+
+- Pending Basic, Skill, and turn-owned Ultimate commands.
+- Ready idle, target selection, confirm/cancel, execution, resolution, recovery,
+  victory, and defeat states.
+- Final actor, target, and resource validation at the commit boundary.
+- Single-use commit tokens guarding resource and effect resolution.
+- Explicit rejection of off-turn interrupt requests until a later block.
+- F6 debug controls for target cycling, Energy fill, and target invalidation.
+
+## Block 6 implementation status
+
+Implemented in production `BattleManager` for Basic Attack only:
+
+- Runtime `BasicAttackCommandAdapter` composes `BattleCommandFlow` without
+  rewriting `battle_manager.gd`.
+- `use_new_basic_command_flow` enables the new Basic path by default; disabling
+  it restores the legacy immediate Basic fallback.
+- Pressing Basic creates a pending `BASIC_ATTACK`, enters Takashi Basic ready
+  idle, preselects a live enemy target, shows target highlight and production
+  confirm/cancel UI, and does not deal damage or grant SP.
+- Cancel clears pending command, target highlight, and confirm/cancel UI,
+  restores battle idle, keeps player turn ownership, and produces no VFX, SFX,
+  damage, SP, Energy, enemy turn, or camera action.
+- Confirm validates battle state, actor, live target, active action token, and
+  targetability before commit. Basic has no cost, so no resource mutation occurs
+  at commit.
+- Existing Basic execution remains authoritative for movement, animation, VFX,
+  SFX, damage, hit feedback, camera shake, Energy gain, SP reward, recovery,
+  victory, enemy turn, return scene, and `WorldProgress`.
+- Commit token, command lifecycle flags, and production recovery/turn token
+  dictionaries guard duplicate confirm, execution, resolution, recovery, and
+  turn completion.
+- Lesser Abyss and Bandit Captain production battles are covered. Bandit has
+  one live target today; target cycling is ready for future multi-enemy
+  production encounters but has no alternate target in current data.
+- Skill and Ultimate remain legacy. Selecting them while Basic is pending
+  cancels Basic safely first, then continues the legacy command if its existing
+  checks pass.
+
+Still not implemented:
+
+- Production Skill command flow.
+- Production Ultimate command flow.
+- Off-turn Ultimate request, FIFO queue, suspended context, or resume.
+
+See `docs/battle_command_flow_implementation.md` for file ownership, test
+commands, screenshots, feature flag, fallback, and known limitations.
 
 ## Responsibility model
 
@@ -319,4 +372,3 @@ Recommended extraction boundaries are `BattleFlowController`,
 `BattleActionResolver`, `BattleTurnQueue`, `UltimateRequestQueue`,
 `BattlePresentationController`, and `EncounterConfig`. Existing VFX/audio
 functions can remain behind the presentation controller until later.
-

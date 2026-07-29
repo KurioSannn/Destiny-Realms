@@ -163,6 +163,11 @@ const EFFECT_SLASH_TEXTURE: Texture2D = preload("res://public/effects/slash.png"
 const EFFECT_SPLASH_TEXTURE: Texture2D = preload("res://public/effects/Splash.png")
 const EFFECT_PARTICLE_TEXTURE: Texture2D = preload("res://public/effects/Particle Efect.png")
 const ULTIMATE_AUDIO_VOLUME_DB: float = 5.0
+const BasicAttackAdapter := preload(
+	"res://scripts/battle/command/basic_attack_command_adapter.gd"
+)
+
+@export var use_new_basic_command_flow: bool = true
 
 @onready var player: Combatant = $"../Player"
 @onready var enemy: Combatant = $"../Enemy"
@@ -220,6 +225,16 @@ var takashi_ultimate_fvx_frame_elapsed: float = 0.0
 var battle_ui_visible_before_ultimate: bool = true
 var enemy_impact_fvx_sprite: Sprite2D
 var enemy_impact_fvx_glow_sprite: Sprite2D
+var basic_command_adapter
+var basic_target_highlight: Line2D
+var basic_command_panel: Panel
+var basic_ready_label: Label
+var basic_target_label: Label
+var basic_confirm_button: Button
+var basic_cancel_button: Button
+var active_basic_command_token: int = 0
+var basic_recovery_tokens: Dictionary = {}
+var basic_turn_completion_tokens: Dictionary = {}
 var encounter_enemy_name: String = "Lesser Abyss"
 var encounter_enemy_max_hp: int = ENEMY_MAX_HP
 var encounter_enemy_damage: int = ENEMY_BASE_DAMAGE
@@ -264,6 +279,7 @@ func _ready() -> void:
 	await get_tree().process_frame
 	_setup_battle_effects()
 	_apply_runtime_layout()
+	_setup_basic_command_runtime()
 	restart_battle()
 	_play_battle_intro_effect()
 
@@ -273,6 +289,38 @@ func _process(delta: float) -> void:
 	_advance_player_basic_animation(delta)
 	_advance_player_skill_animation(delta)
 	_advance_takashi_ultimate_fvx(delta)
+	_sync_basic_target_highlight()
+
+
+func _unhandled_input(event: InputEvent) -> void:
+	if not _uses_new_basic_command_flow():
+		return
+	if not _has_pending_basic_command():
+		return
+
+	if event.is_action_pressed("ui_cancel"):
+		if _cancel_basic_attack_command():
+			get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("ui_left"):
+		if _cycle_basic_target(-1):
+			get_viewport().set_input_as_handled()
+	elif event.is_action_pressed("ui_right"):
+		if _cycle_basic_target(1):
+			get_viewport().set_input_as_handled()
+	elif event is InputEventMouseButton:
+		var mouse_event := event as InputEventMouseButton
+		if (
+			mouse_event.button_index == MOUSE_BUTTON_LEFT
+			and mouse_event.pressed
+			and _select_basic_target_at_position(mouse_event.position)
+		):
+			get_viewport().set_input_as_handled()
+
+
+func _exit_tree() -> void:
+	active_basic_command_token = 0
+	if basic_command_adapter != null:
+		basic_command_adapter.reset()
 
 
 func restart_battle() -> void:
@@ -336,6 +384,7 @@ func _reset_battle_values() -> void:
 	skill_points = START_SKILL_POINTS
 	_reset_camera()
 	_hide_takashi_ultimate_glow_effect()
+	_reset_basic_command_runtime()
 	timing_bar.cancel_window()
 	ui.set_timing_mode(false)
 	ui.set_restart_visible(false)
@@ -435,6 +484,525 @@ func _apply_player_action_sprite_grounding() -> void:
 	player_action_sprite.position.y = PLAYER_ACTION_SPRITE_GROUND_Y - visual_bottom_from_center * PLAYER_ACTION_SPRITE_SCALE.y
 
 
+func _setup_basic_command_runtime() -> void:
+	_setup_basic_command_adapter()
+	_create_basic_target_highlight()
+	_create_basic_command_panel()
+
+
+func _setup_basic_command_adapter() -> void:
+	if basic_command_adapter != null:
+		return
+	basic_command_adapter = BasicAttackAdapter.new()
+	basic_command_adapter.name = "BasicAttackCommandAdapter"
+	add_child(basic_command_adapter)
+	basic_command_adapter.configure(
+		player,
+		_get_basic_attack_candidate_targets,
+		_validate_basic_attack_command,
+		_commit_basic_attack_command_resources
+	)
+	basic_command_adapter.basic_ready.connect(_on_basic_command_ready)
+	basic_command_adapter.target_changed.connect(_on_basic_command_target_changed)
+	basic_command_adapter.basic_cancelled.connect(_on_basic_command_cancelled)
+	basic_command_adapter.basic_committed.connect(_on_basic_command_committed)
+	basic_command_adapter.basic_failed.connect(_on_basic_command_failed)
+
+
+func _reset_basic_command_runtime() -> void:
+	active_basic_command_token = 0
+	basic_recovery_tokens.clear()
+	basic_turn_completion_tokens.clear()
+	if basic_command_adapter != null:
+		basic_command_adapter.reset()
+	_hide_basic_target_highlight()
+	_set_basic_command_panel_visible(false)
+
+
+func _uses_new_basic_command_flow() -> bool:
+	return use_new_basic_command_flow and basic_command_adapter != null
+
+
+func _begin_basic_attack_command() -> bool:
+	if not _uses_new_basic_command_flow():
+		return false
+	if state != BattleState.PLAYER_TURN or _is_battle_over():
+		return false
+	if _has_pending_basic_command():
+		return false
+	return basic_command_adapter.begin_basic()
+
+
+func _confirm_basic_attack_command() -> bool:
+	if not _has_pending_basic_command():
+		return false
+	_repair_basic_pending_target()
+	return basic_command_adapter.confirm_basic()
+
+
+func _cancel_basic_attack_command() -> bool:
+	if not _has_pending_basic_command():
+		return false
+	return basic_command_adapter.cancel_basic()
+
+
+func _has_pending_basic_command() -> bool:
+	return (
+		basic_command_adapter != null
+		and basic_command_adapter.has_pending_basic()
+	)
+
+
+func _on_basic_command_ready(command: PendingBattleCommand) -> void:
+	_start_basic_ready_idle()
+	_update_action_buttons(false)
+	ui.set_battle_input_enabled(true)
+	ui.set_turn_text("Void Strike")
+	ui.set_battle_log("Void Strike ready. Choose a target or confirm.")
+	_update_basic_command_panel(command)
+	_set_basic_command_panel_visible(true)
+
+
+func _on_basic_command_target_changed(
+	command: PendingBattleCommand,
+	_targets: Array
+) -> void:
+	_update_basic_command_panel(command)
+	_show_basic_target_highlight(command)
+
+
+func _on_basic_command_cancelled(_command: PendingBattleCommand) -> void:
+	active_basic_command_token = 0
+	_stop_player_basic_animation()
+	_start_player_idle_animation()
+	_hide_basic_target_highlight()
+	_set_basic_command_panel_visible(false)
+	ui.set_battle_input_enabled(true)
+	ui.set_turn_text("Player Turn")
+	ui.set_battle_log("Void Strike cancelled.")
+	_update_action_buttons(true)
+
+
+func _on_basic_command_committed(command: PendingBattleCommand) -> void:
+	_hide_basic_target_highlight()
+	_set_basic_command_panel_visible(false)
+	_update_action_buttons(false)
+	ui.set_battle_input_enabled(false)
+	call_deferred("_execute_committed_basic_attack", command)
+
+
+func _on_basic_command_failed(
+	_command: PendingBattleCommand,
+	reason: StringName
+) -> void:
+	active_basic_command_token = 0
+	_stop_player_basic_animation()
+	_start_player_idle_animation()
+	_hide_basic_target_highlight()
+	_set_basic_command_panel_visible(false)
+	if _is_battle_over():
+		return
+	state = BattleState.PLAYER_TURN
+	ui.set_battle_input_enabled(true)
+	ui.set_turn_text("Player Turn")
+	ui.set_battle_log(_basic_command_failure_message(reason))
+	_update_action_buttons(true)
+
+
+func _start_basic_ready_idle() -> void:
+	_set_player_action_texture(TAKASHI_BASIC_TEXTURE)
+	if takashi_basic_frames.is_empty():
+		_play_screen_flash(Color(0.72, 0.95, 1.0, 0.12), 0.08)
+
+
+func _execute_committed_basic_attack(command: PendingBattleCommand) -> void:
+	if not _uses_new_basic_command_flow():
+		return
+	if not _is_committed_basic_command(command):
+		return
+	if not basic_command_adapter.execute_committed_command():
+		return
+
+	var target := _selected_basic_target(command)
+	if target == null:
+		_abort_committed_basic_command(command, &"target_missing_during_execution")
+		return
+
+	active_basic_command_token = command.commit_token
+	state = BattleState.ACTION_RESOLUTION
+	_set_player_action_texture(TAKASHI_BASIC_TEXTURE)
+	ui.set_turn_text("Void Strike")
+	ui.set_battle_log("Void Strike!")
+	await _resolve_basic_attack(target, command)
+
+
+func _finish_basic_command_resolution(
+	command: PendingBattleCommand,
+	log_text: String
+) -> void:
+	if not _is_committed_basic_command(command):
+		return
+	if not basic_command_adapter.resolve_committed_command(command):
+		return
+	if not basic_command_adapter.begin_recovery(command):
+		return
+
+	var token := command.commit_token
+	if basic_recovery_tokens.has(token):
+		return
+	basic_recovery_tokens[token] = true
+	_start_player_idle_animation()
+	_hide_basic_target_highlight()
+	if not _basic_recovery_guard(command):
+		return
+	if not basic_command_adapter.complete_recovery(command):
+		return
+	if basic_turn_completion_tokens.has(token):
+		return
+	basic_turn_completion_tokens[token] = true
+	active_basic_command_token = 0
+	_finish_player_action(log_text)
+
+
+func _abort_committed_basic_command(
+	command: PendingBattleCommand,
+	reason: StringName
+) -> void:
+	active_basic_command_token = 0
+	if basic_command_adapter != null:
+		basic_command_adapter.fail_basic(command, reason)
+		basic_command_adapter.reset()
+
+
+func _validate_basic_attack_command(command: PendingBattleCommand) -> String:
+	if command == null:
+		return "missing_command"
+	if command.command_type != PendingBattleCommand.CommandType.BASIC_ATTACK:
+		return "unsupported_command"
+	if _is_battle_over():
+		return "battle_already_finished"
+	if state != BattleState.PLAYER_TURN:
+		return "battle_state_not_player_turn"
+	if active_basic_command_token != 0:
+		return "action_execution_already_active"
+	if not is_instance_valid(player) or player.is_defeated():
+		return "actor_invalid"
+	if not command.has_required_targets():
+		return "target_invalid"
+	if _selected_basic_target(command) == null:
+		return "target_not_targetable"
+	return ""
+
+
+func _commit_basic_attack_command_resources(
+	command: PendingBattleCommand
+) -> bool:
+	return _validate_basic_attack_command(command).is_empty()
+
+
+func _get_basic_attack_candidate_targets() -> Array[Node]:
+	var targets: Array[Node] = []
+	if battle_scene == null:
+		return targets
+	for child in battle_scene.get_children():
+		if _is_basic_attack_targetable(child):
+			targets.append(child)
+	return targets
+
+
+func _is_basic_attack_targetable(target: Node) -> bool:
+	return (
+		target is Combatant
+		and target != player
+		and is_instance_valid(target)
+		and not (target as Combatant).is_defeated()
+	)
+
+
+func _selected_basic_target(command: PendingBattleCommand) -> Combatant:
+	if command == null or command.selected_targets.is_empty():
+		return null
+	var target := command.selected_targets[0] as Combatant
+	if target == null or not _is_basic_attack_targetable(target):
+		return null
+	return target
+
+
+func _repair_basic_pending_target() -> bool:
+	var command: PendingBattleCommand = basic_command_adapter.get_pending_command()
+	if command == null:
+		return false
+
+	command.candidate_targets.assign(_get_basic_attack_candidate_targets())
+	command.refresh_candidates()
+	if _selected_basic_target(command) != null:
+		return true
+	if command.candidate_targets.is_empty():
+		return false
+	return basic_command_adapter.select_target(command.candidate_targets[0])
+
+
+func _cycle_basic_target(direction: int) -> bool:
+	if not _has_pending_basic_command():
+		return false
+	var command: PendingBattleCommand = basic_command_adapter.get_pending_command()
+	command.candidate_targets.assign(_get_basic_attack_candidate_targets())
+	command.refresh_candidates()
+	if command.candidate_targets.size() < 2:
+		return false
+
+	var current_index := 0
+	if not command.selected_targets.is_empty():
+		current_index = command.candidate_targets.find(command.selected_targets[0])
+	if current_index < 0:
+		current_index = 0
+	var next_index := wrapi(
+		current_index + direction,
+		0,
+		command.candidate_targets.size()
+	)
+	return basic_command_adapter.select_target(command.candidate_targets[next_index])
+
+
+func _select_basic_target_at_position(screen_position: Vector2) -> bool:
+	if not _has_pending_basic_command():
+		return false
+	var command: PendingBattleCommand = basic_command_adapter.get_pending_command()
+	command.candidate_targets.assign(_get_basic_attack_candidate_targets())
+	command.refresh_candidates()
+	var closest_target: Combatant
+	var closest_distance := INF
+	for candidate in command.candidate_targets:
+		var combatant := candidate as Combatant
+		if combatant == null:
+			continue
+		var distance := screen_position.distance_to(combatant.global_position)
+		if distance < closest_distance:
+			closest_distance = distance
+			closest_target = combatant
+	if closest_target == null or closest_distance > 170.0:
+		return false
+	return basic_command_adapter.select_target(closest_target)
+
+
+func _basic_execution_guard(
+	command: PendingBattleCommand,
+	target: Combatant,
+	require_live_target: bool = true
+) -> bool:
+	if (
+		not is_inside_tree()
+		or state != BattleState.ACTION_RESOLUTION
+		or _is_battle_over()
+		or not is_instance_valid(player)
+		or player.is_defeated()
+		or target == null
+		or not is_instance_valid(target)
+		or (require_live_target and target.is_defeated())
+	):
+		return false
+	if command == null:
+		return true
+	return (
+		basic_command_adapter != null
+		and command == basic_command_adapter.get_pending_command()
+		and command.is_committed
+		and active_basic_command_token == command.commit_token
+		and basic_command_adapter.is_token_active(command.commit_token)
+	)
+
+
+func _basic_impact_guard(
+	command: PendingBattleCommand,
+	target: Node2D
+) -> bool:
+	if command == null:
+		return state == BattleState.ACTION_RESOLUTION and is_inside_tree()
+	var combatant := target as Combatant
+	if combatant == null:
+		return false
+	return _basic_execution_guard(command, combatant, false)
+
+
+func _basic_recovery_guard(command: PendingBattleCommand) -> bool:
+	return (
+		is_inside_tree()
+		and state == BattleState.ACTION_RESOLUTION
+		and not _is_battle_over()
+		and basic_command_adapter != null
+		and command == basic_command_adapter.get_pending_command()
+		and command.is_committed
+		and command.is_resolved
+		and active_basic_command_token == command.commit_token
+	)
+
+
+func _is_committed_basic_command(command: PendingBattleCommand) -> bool:
+	return (
+		command != null
+		and command.command_type == PendingBattleCommand.CommandType.BASIC_ATTACK
+		and command.is_committed
+		and command.commit_token > 0
+	)
+
+
+func _basic_command_failure_message(reason: StringName) -> String:
+	match reason:
+		&"target_invalid_before_confirm", &"target_not_targetable":
+			return "Void Strike target is no longer valid."
+		&"no_valid_targets", &"target_missing_during_execution":
+			return "Void Strike has no valid target."
+		&"battle_state_not_player_turn", &"action_execution_already_active":
+			return "Void Strike is not available right now."
+	return "Void Strike was cancelled safely."
+
+
+func _create_basic_target_highlight() -> void:
+	if basic_target_highlight != null or battle_scene == null:
+		return
+	basic_target_highlight = Line2D.new()
+	basic_target_highlight.name = "BasicTargetHighlight"
+	basic_target_highlight.width = 4.0
+	basic_target_highlight.default_color = Color(0.98, 0.78, 0.28, 0.96)
+	basic_target_highlight.closed = true
+	basic_target_highlight.z_index = 30
+	for index in range(32):
+		var angle := TAU * float(index) / 32.0
+		basic_target_highlight.add_point(
+			Vector2(cos(angle) * 62.0, sin(angle) * 78.0)
+		)
+	battle_scene.add_child(basic_target_highlight)
+	basic_target_highlight.visible = false
+
+
+func _show_basic_target_highlight(command: PendingBattleCommand) -> void:
+	if basic_target_highlight == null:
+		return
+	basic_target_highlight.visible = _selected_basic_target(command) != null
+	_sync_basic_target_highlight()
+
+
+func _hide_basic_target_highlight() -> void:
+	if basic_target_highlight != null:
+		basic_target_highlight.visible = false
+
+
+func _sync_basic_target_highlight() -> void:
+	if basic_target_highlight == null or not basic_target_highlight.visible:
+		return
+	if not _has_pending_basic_command():
+		basic_target_highlight.visible = false
+		return
+	var target := _selected_basic_target(basic_command_adapter.get_pending_command())
+	if target == null:
+		basic_target_highlight.visible = false
+		return
+	basic_target_highlight.global_position = target.global_position + Vector2(0.0, -72.0)
+	basic_target_highlight.rotation += 0.008
+
+
+func _create_basic_command_panel() -> void:
+	if basic_command_panel != null or canvas_layer == null:
+		return
+
+	basic_command_panel = Panel.new()
+	basic_command_panel.name = "BasicCommandPanel"
+	basic_command_panel.visible = false
+	basic_command_panel.anchor_left = 0.5
+	basic_command_panel.anchor_right = 0.5
+	basic_command_panel.anchor_top = 1.0
+	basic_command_panel.anchor_bottom = 1.0
+	basic_command_panel.offset_left = -210.0
+	basic_command_panel.offset_right = 210.0
+	basic_command_panel.offset_top = -224.0
+	basic_command_panel.offset_bottom = -120.0
+	basic_command_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	basic_command_panel.add_theme_stylebox_override(
+		"panel",
+		_make_basic_command_panel_style()
+	)
+	canvas_layer.add_child(basic_command_panel)
+
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 14)
+	margin.add_theme_constant_override("margin_top", 10)
+	margin.add_theme_constant_override("margin_right", 14)
+	margin.add_theme_constant_override("margin_bottom", 10)
+	basic_command_panel.add_child(margin)
+
+	var rows := VBoxContainer.new()
+	rows.add_theme_constant_override("separation", 6)
+	margin.add_child(rows)
+
+	basic_ready_label = Label.new()
+	basic_ready_label.text = "Void Strike Ready"
+	basic_ready_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	basic_ready_label.add_theme_font_size_override("font_size", 15)
+	basic_ready_label.add_theme_color_override(
+		"font_color",
+		Color(1.0, 0.88, 0.36, 1.0)
+	)
+	rows.add_child(basic_ready_label)
+
+	basic_target_label = Label.new()
+	basic_target_label.text = "Target: -"
+	basic_target_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	basic_target_label.add_theme_font_size_override("font_size", 13)
+	basic_target_label.add_theme_color_override(
+		"font_color",
+		Color(0.84, 0.92, 1.0, 1.0)
+	)
+	rows.add_child(basic_target_label)
+
+	var buttons := HBoxContainer.new()
+	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+	buttons.add_theme_constant_override("separation", 8)
+	rows.add_child(buttons)
+
+	basic_confirm_button = Button.new()
+	basic_confirm_button.text = "Confirm"
+	basic_confirm_button.custom_minimum_size = Vector2(104.0, 32.0)
+	basic_confirm_button.pressed.connect(_confirm_basic_attack_command)
+	buttons.add_child(basic_confirm_button)
+
+	basic_cancel_button = Button.new()
+	basic_cancel_button.text = "Cancel"
+	basic_cancel_button.custom_minimum_size = Vector2(104.0, 32.0)
+	basic_cancel_button.pressed.connect(_cancel_basic_attack_command)
+	buttons.add_child(basic_cancel_button)
+
+
+func _make_basic_command_panel_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.018, 0.032, 0.055, 0.94)
+	style.border_color = Color(0.98, 0.78, 0.28, 0.92)
+	style.border_width_left = 1
+	style.border_width_top = 1
+	style.border_width_right = 1
+	style.border_width_bottom = 1
+	style.corner_radius_top_left = 6
+	style.corner_radius_top_right = 6
+	style.corner_radius_bottom_right = 6
+	style.corner_radius_bottom_left = 6
+	return style
+
+
+func _set_basic_command_panel_visible(is_visible: bool) -> void:
+	if basic_command_panel != null:
+		basic_command_panel.visible = is_visible
+
+
+func _update_basic_command_panel(command: PendingBattleCommand) -> void:
+	if basic_target_label == null:
+		return
+	var target_name := "-"
+	var target := _selected_basic_target(command)
+	if target != null:
+		target_name = target.combatant_name
+	basic_target_label.text = "Target: %s" % target_name
+
+
 func _play_battle_intro_effect() -> void:
 	if battle_intro_overlay == null:
 		return
@@ -518,50 +1086,85 @@ func _on_attack_pressed() -> void:
 	if state != BattleState.PLAYER_TURN:
 		return
 
+	if _uses_new_basic_command_flow():
+		_begin_basic_attack_command()
+		return
+
+	await _start_legacy_basic_attack()
+
+
+func _start_legacy_basic_attack() -> void:
 	state = BattleState.ACTION_RESOLUTION
 	_set_player_action_texture(TAKASHI_BASIC_TEXTURE)
 	_update_action_buttons(false)
+	ui.set_battle_input_enabled(false)
 	ui.set_turn_text("Void Strike")
 	ui.set_battle_log("Void Strike!")
-	await _resolve_basic_attack()
+	await _resolve_basic_attack(enemy)
 
 
-func _resolve_basic_attack() -> void:
+func _resolve_basic_attack(
+	target: Combatant = null,
+	command: PendingBattleCommand = null
+) -> void:
 	if state != BattleState.ACTION_RESOLUTION:
+		return
+	if target == null:
+		target = enemy
+	if not _basic_execution_guard(command, target):
 		return
 
 	var damage: int = BASIC_ATTACK_DAMAGE
 	var energy_gain: int = BASIC_ATTACK_ENERGY
 
 	_play_basic_sfx()
-	await player.play_attack_movement(enemy)
+	await player.play_attack_movement(target)
 	if state != BattleState.ACTION_RESOLUTION:
 		return
+	if not _basic_execution_guard(command, target):
+		return
 
-	_spawn_basic_slash_effect(enemy)
+	_spawn_basic_slash_effect(target)
 	await get_tree().create_timer(0.08).timeout
 	if state != BattleState.ACTION_RESOLUTION:
 		return
-
-	enemy.take_damage(damage)
-	_show_floating_damage(enemy, damage)
-	await _play_basic_cetar_impact(enemy)
-	if state != BattleState.ACTION_RESOLUTION:
+	if not _basic_execution_guard(command, target):
+		return
+	if command != null and not basic_command_adapter.begin_resolution(command):
 		return
 
-	await enemy.play_hit_feedback()
+	target.take_damage(damage)
+	_show_floating_damage(target, damage)
+	await _play_basic_cetar_impact(target, command)
+	if state != BattleState.ACTION_RESOLUTION:
+		return
+	if not _basic_execution_guard(command, target, false):
+		return
+
+	await target.play_hit_feedback()
+	if not _basic_execution_guard(command, target, false):
+		return
 	_shake_camera()
 	_add_ultimate_energy(energy_gain)
 	_add_skill_points(SKILL_POINT_GAIN_BASIC)
-	_finish_player_action("Void Strike deals %d damage, gains %d energy, and restores %d Skill Point." % [damage, energy_gain, SKILL_POINT_GAIN_BASIC])
+	var log_text := "Void Strike deals %d damage, gains %d energy, and restores %d Skill Point." % [damage, energy_gain, SKILL_POINT_GAIN_BASIC]
+	if command != null:
+		_finish_basic_command_resolution(command, log_text)
+	else:
+		_finish_player_action(log_text)
 
 
 func _on_confirm_pressed() -> void:
+	if _uses_new_basic_command_flow() and _has_pending_basic_command():
+		_confirm_basic_attack_command()
+		return
 	if state == BattleState.PLAYER_TURN:
-		_on_attack_pressed()
+		await _on_attack_pressed()
 
 
 func _on_skill_pressed() -> void:
+	if _has_pending_basic_command() and not _cancel_basic_attack_command():
+		return
 	if state != BattleState.PLAYER_TURN or skill_points < SKILL_POINT_COST_SKILL:
 		return
 
@@ -591,6 +1194,8 @@ func _on_skill_pressed() -> void:
 
 
 func _on_ultimate_pressed() -> void:
+	if _has_pending_basic_command() and not _cancel_basic_attack_command():
+		return
 	if state != BattleState.PLAYER_TURN or ultimate_energy < MAX_ULTIMATE_ENERGY:
 		return
 
@@ -1613,7 +2218,10 @@ func _spawn_hit_spark(target: Node2D, color: Color) -> void:
 	tween.tween_callback(spark.queue_free)
 
 
-func _play_basic_cetar_impact(target: Node2D) -> void:
+func _play_basic_cetar_impact(
+	target: Node2D,
+	command: PendingBattleCommand = null
+) -> void:
 	_play_sring_sfx()
 	_spawn_hit_spark(target, Color(1.0, 0.95, 0.62, 1.0))
 	_spawn_cetar_text(target, "SRIING", Color(0.78, 0.96, 1.0, 1.0))
@@ -1623,7 +2231,7 @@ func _play_basic_cetar_impact(target: Node2D) -> void:
 	await get_tree().create_timer(0.045).timeout
 
 	for hit_index in range(BASIC_CETAR_HIT_COUNT):
-		if state != BattleState.ACTION_RESOLUTION:
+		if not _basic_impact_guard(command, target):
 			return
 
 		_play_cetar_sfx(hit_index)
@@ -1754,7 +2362,13 @@ func _on_restart_pressed() -> void:
 
 func _win(log_text: String) -> void:
 	state = BattleState.WIN
+	active_basic_command_token = 0
+	if basic_command_adapter != null:
+		basic_command_adapter.lock_for_outcome(true)
+	_hide_basic_target_highlight()
+	_set_basic_command_panel_visible(false)
 	timing_bar.cancel_window()
+	ui.set_battle_input_enabled(false)
 	ui.set_turn_text("Victory")
 	ui.set_battle_log(encounter_victory_log if not encounter_victory_log.is_empty() else log_text)
 	ui.set_timing_mode(false)
@@ -1771,7 +2385,13 @@ func _win(log_text: String) -> void:
 
 func _lose(log_text: String) -> void:
 	state = BattleState.LOSE
+	active_basic_command_token = 0
+	if basic_command_adapter != null:
+		basic_command_adapter.lock_for_outcome(false)
+	_hide_basic_target_highlight()
+	_set_basic_command_panel_visible(false)
 	timing_bar.cancel_window()
+	ui.set_battle_input_enabled(false)
 	ui.set_turn_text("Defeat")
 	ui.set_battle_log(log_text)
 	ui.set_timing_mode(false)

@@ -1,0 +1,19 @@
+[gd_scene load_steps=5 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/battle/battle_scene.tscn" id="1_battle"]
+[ext_resource type="Script" path="res://scripts/battle/debug/battle_command_flow_debug.gd" id="2_debug"]
+[ext_resource type="Script" path="res://scripts/battle/command/battle_command_flow.gd" id="3_flow"]
+[ext_resource type="Script" path="res://scripts/battle/debug/battle_command_debug_panel.gd" id="4_panel"]
+
+[node name="BattleCommandFlowDebug" instance=ExtResource("1_battle")]
+
+[node name="BattleManager" parent="." index="3"]
+script = ExtResource("2_debug")
+
+[node name="CommandFlow" type="Node" parent="." index="4"]
+script = ExtResource("3_flow")
+
+[node name="CommandDebugPanel" type="PanelContainer" parent="CanvasLayer" index="7"]
+script = ExtResource("4_panel")
+
+[editable path="CanvasLayer/BattleUI"]
