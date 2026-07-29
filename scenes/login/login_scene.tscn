@@ -1,0 +1,354 @@
+[gd_scene format=3 uid="uid://cgrlogin8v2ma"]
+
+[ext_resource type="Script" uid="uid://bf18j64arlogn" path="res://scripts/login/login_scene.gd" id="1_login"]
+[ext_resource type="Texture2D" uid="uid://ci353k1ik7wd8" path="res://public/LOGO (1).png" id="3_logo"]
+[ext_resource type="Texture2D" uid="uid://bxn1h6k6wi4vq" path="res://icon.svg" id="4_godot"]
+[ext_resource type="Texture2D" uid="uid://cabw7il7fccyt" path="res://public/Logo Dev/BrandingKurio.png" id="5_creator"]
+[ext_resource type="AudioStream" uid="uid://grjrux8qfdjm" path="res://public/The_Crown_of_Silent_Peaks.mp3" id="6_login_bgm"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_input_normal"]
+content_margin_left = 14.0
+content_margin_right = 14.0
+bg_color = Color(0.014, 0.023, 0.038, 0.86)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.24, 0.34, 0.46, 0.86)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_input_focus"]
+content_margin_left = 14.0
+content_margin_right = 14.0
+bg_color = Color(0.02, 0.037, 0.06, 0.92)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.86, 0.72, 0.42, 0.9)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_primary_normal"]
+bg_color = Color(0.58, 0.43, 0.18, 0.95)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.95, 0.78, 0.42, 0.96)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_primary_pressed"]
+bg_color = Color(0.44, 0.32, 0.13, 1)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.95, 0.78, 0.42, 0.96)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_primary_hover"]
+bg_color = Color(0.74, 0.56, 0.24, 0.98)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.95, 0.78, 0.42, 0.96)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_secondary_normal"]
+bg_color = Color(0.018, 0.03, 0.046, 0.82)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.32, 0.46, 0.58, 0.78)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_secondary_pressed"]
+bg_color = Color(0.01, 0.018, 0.03, 0.94)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.32, 0.46, 0.58, 0.78)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_secondary_hover"]
+bg_color = Color(0.035, 0.055, 0.076, 0.9)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.32, 0.46, 0.58, 0.78)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[node name="LoginScene" type="Control" unique_id=1291472151]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+script = ExtResource("1_login")
+
+[node name="BlackBackground" type="ColorRect" parent="." unique_id=1815081753]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0, 0, 0, 1)
+
+[node name="LoginBgm" type="AudioStreamPlayer" parent="." unique_id=246998400]
+stream = ExtResource("6_login_bgm")
+volume_db = -9.0
+
+[node name="SplashLayer" type="Control" parent="." unique_id=1341047560]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="DestinyLogo" type="TextureRect" parent="SplashLayer" unique_id=696765365]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -544.0
+offset_top = -198.0
+offset_right = 538.2472
+offset_bottom = 250.0
+grow_horizontal = 2
+grow_vertical = 2
+texture = ExtResource("3_logo")
+expand_mode = 1
+stretch_mode = 5
+
+[node name="PartnerLogoRow" type="HBoxContainer" parent="SplashLayer" unique_id=529924966]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -455.0
+offset_top = -118.0
+offset_right = 434.0
+offset_bottom = 136.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 52
+alignment = 1
+
+[node name="GodotLogo" type="TextureRect" parent="SplashLayer/PartnerLogoRow" unique_id=1098977234]
+custom_minimum_size = Vector2(150, 150)
+layout_mode = 2
+offset_transform_enabled = true
+texture = ExtResource("4_godot")
+expand_mode = 2
+stretch_mode = 5
+
+[node name="CreatorLogo" type="TextureRect" parent="SplashLayer/PartnerLogoRow" unique_id=333198347]
+custom_minimum_size = Vector2(150, 150)
+layout_mode = 2
+offset_transform_enabled = true
+texture = ExtResource("5_creator")
+expand_mode = 2
+stretch_mode = 5
+
+[node name="LoginLayer" type="Control" parent="." unique_id=1094563920]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="TitleLabel" type="Label" parent="LoginLayer" unique_id=960605886]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -190.0
+offset_top = -166.0
+offset_right = 190.0
+offset_bottom = -124.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.96, 0.88, 0.62, 1)
+theme_override_font_sizes/font_size = 32
+text = "Awakening Gate"
+horizontal_alignment = 1
+
+[node name="SubtitleLabel" type="Label" parent="LoginLayer" unique_id=1451286972]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -190.0
+offset_top = -126.0
+offset_right = 190.0
+offset_bottom = -98.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.72, 0.78, 0.84, 1)
+theme_override_font_sizes/font_size = 16
+text = "Enter the realm"
+horizontal_alignment = 1
+
+[node name="UsernameInput" type="LineEdit" parent="LoginLayer" unique_id=89441625]
+custom_minimum_size = Vector2(340, 46)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -170.0
+offset_top = -74.0
+offset_right = 170.0
+offset_bottom = -28.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.92, 0.95, 0.98, 1)
+theme_override_colors/font_placeholder_color = Color(0.48, 0.56, 0.64, 1)
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("StyleBoxFlat_input_normal")
+theme_override_styles/focus = SubResource("StyleBoxFlat_input_focus")
+placeholder_text = "Traveler name"
+
+[node name="PasswordInput" type="LineEdit" parent="LoginLayer" unique_id=1212657914]
+custom_minimum_size = Vector2(340, 46)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -170.0
+offset_top = -16.0
+offset_right = 170.0
+offset_bottom = 30.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.92, 0.95, 0.98, 1)
+theme_override_colors/font_placeholder_color = Color(0.48, 0.56, 0.64, 1)
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("StyleBoxFlat_input_normal")
+theme_override_styles/focus = SubResource("StyleBoxFlat_input_focus")
+placeholder_text = "Passcode"
+secret = true
+
+[node name="RememberCheckbox" type="CheckBox" parent="LoginLayer" unique_id=332302404]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -170.0
+offset_top = 38.0
+offset_right = 170.0
+offset_bottom = 68.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.78, 0.83, 0.88, 1)
+theme_override_font_sizes/font_size = 14
+button_pressed = true
+text = "Remember me"
+
+[node name="StartButton" type="Button" parent="LoginLayer" unique_id=1508999983]
+custom_minimum_size = Vector2(340, 48)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -170.0
+offset_top = 82.0
+offset_right = 170.0
+offset_bottom = 130.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.96, 0.94, 0.88, 1)
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("StyleBoxFlat_primary_normal")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_primary_pressed")
+theme_override_styles/hover = SubResource("StyleBoxFlat_primary_hover")
+theme_override_styles/focus = SubResource("StyleBoxFlat_primary_hover")
+text = "Start Journey"
+
+[node name="GuestButton" type="Button" parent="LoginLayer" unique_id=833957233]
+custom_minimum_size = Vector2(340, 42)
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -170.0
+offset_top = 142.0
+offset_right = 170.0
+offset_bottom = 184.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(0.96, 0.94, 0.88, 1)
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("StyleBoxFlat_secondary_normal")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_secondary_pressed")
+theme_override_styles/hover = SubResource("StyleBoxFlat_secondary_hover")
+theme_override_styles/focus = SubResource("StyleBoxFlat_secondary_hover")
+text = "Continue as Guest"
+
+[node name="ErrorLabel" type="Label" parent="LoginLayer" unique_id=1683781974]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -170.0
+offset_top = 194.0
+offset_right = 170.0
+offset_bottom = 216.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 0.58, 0.48, 1)
+theme_override_font_sizes/font_size = 13
+horizontal_alignment = 1
