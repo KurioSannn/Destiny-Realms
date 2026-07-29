@@ -1,0 +1,51 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/exploration/location_banner.gd" id="1_script"]
+[ext_resource type="Theme" path="res://themes/destiny_realms_theme.tres" id="2_theme"]
+
+[node name="LocationBanner" type="Control"]
+custom_minimum_size = Vector2(460, 92)
+layout_mode = 3
+anchors_preset = 0
+offset_right = 460.0
+offset_bottom = 92.0
+mouse_filter = 2
+theme = ExtResource("2_theme")
+script = ExtResource("1_script")
+
+[node name="BannerBody" type="VBoxContainer" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 4
+
+[node name="RegionLabel" type="Label" parent="BannerBody"]
+layout_mode = 2
+theme_type_variation = &"EyebrowLabel"
+text = "WERDONIA"
+
+[node name="AreaRow" type="HBoxContainer" parent="BannerBody"]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="AccentLine" type="ColorRect" parent="BannerBody/AreaRow"]
+custom_minimum_size = Vector2(3, 34)
+layout_mode = 2
+mouse_filter = 2
+
+[node name="AreaLabel" type="Label" parent="BannerBody/AreaRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"TitleLabel"
+text = "Sunstone Quarter"
+vertical_alignment = 1
+
+[node name="OrnamentLine" type="ColorRect" parent="BannerBody"]
+custom_minimum_size = Vector2(220, 1)
+layout_mode = 2
+size_flags_horizontal = 0
+mouse_filter = 2
+

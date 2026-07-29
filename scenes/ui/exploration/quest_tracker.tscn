@@ -1,0 +1,50 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/exploration/quest_tracker.gd" id="1_script"]
+[ext_resource type="Theme" path="res://themes/destiny_realms_theme.tres" id="2_theme"]
+
+[node name="QuestTracker" type="PanelContainer"]
+custom_minimum_size = Vector2(348, 120)
+offset_right = 348.0
+offset_bottom = 120.0
+size_flags_vertical = 0
+theme = ExtResource("2_theme")
+theme_type_variation = &"QuestPanel"
+script = ExtResource("1_script")
+
+[node name="Content" type="VBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="TitleRow" type="HBoxContainer" parent="Content"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="Marker" type="Label" parent="Content/TitleRow"]
+custom_minimum_size = Vector2(18, 0)
+layout_mode = 2
+theme_type_variation = &"EyebrowLabel"
+text = "<>"
+vertical_alignment = 1
+
+[node name="TitleLabel" type="Label" parent="Content/TitleRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"SubtitleLabel"
+text = "Road Toward Destiny"
+autowrap_mode = 2
+
+[node name="ObjectiveBlock" type="VBoxContainer" parent="Content"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="ObjectiveLabel" type="Label" parent="Content/ObjectiveBlock"]
+layout_mode = 2
+text = "Travel toward the old gate"
+autowrap_mode = 2
+
+[node name="ProgressLabel" type="Label" parent="Content/ObjectiveBlock"]
+layout_mode = 2
+theme_type_variation = &"MutedLabel"
+text = "2 / 3"
+horizontal_alignment = 2

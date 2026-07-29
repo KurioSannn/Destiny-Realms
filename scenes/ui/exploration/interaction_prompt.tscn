@@ -1,0 +1,34 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/exploration/interaction_prompt.gd" id="1_script"]
+[ext_resource type="Theme" path="res://themes/destiny_realms_theme.tres" id="2_theme"]
+
+[node name="InteractionPrompt" type="PanelContainer"]
+custom_minimum_size = Vector2(460, 54)
+offset_right = 460.0
+offset_bottom = 54.0
+theme = ExtResource("2_theme")
+theme_type_variation = &"InteractionPanel"
+script = ExtResource("1_script")
+
+[node name="Content" type="HBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="KeyBadge" type="PanelContainer" parent="Content"]
+custom_minimum_size = Vector2(38, 34)
+layout_mode = 2
+theme_type_variation = &"KeyBadge"
+
+[node name="KeyLabel" type="Label" parent="Content/KeyBadge"]
+layout_mode = 2
+text = "E"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="ActionLabel" type="Label" parent="Content"]
+layout_mode = 2
+size_flags_horizontal = 3
+text = "Inspect the ancient fountain"
+vertical_alignment = 1
+autowrap_mode = 2

@@ -1,0 +1,104 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/exploration/character_status.gd" id="1_script"]
+[ext_resource type="Theme" path="res://themes/destiny_realms_theme.tres" id="2_theme"]
+[ext_resource type="Texture2D" path="res://public/ui/optimized/takashi_portrait_hud_256.png" id="3_portrait"]
+
+[node name="CharacterStatus" type="PanelContainer"]
+custom_minimum_size = Vector2(356, 124)
+offset_right = 356.0
+offset_bottom = 124.0
+theme = ExtResource("2_theme")
+theme_type_variation = &"HudPanel"
+portrait_texture = ExtResource("3_portrait")
+script = ExtResource("1_script")
+
+[node name="Content" type="HBoxContainer" parent="."]
+layout_mode = 2
+theme_override_constants/separation = 12
+
+[node name="PortraitFrame" type="PanelContainer" parent="Content"]
+custom_minimum_size = Vector2(76, 92)
+layout_mode = 2
+theme_type_variation = &"KeyBadge"
+
+[node name="Portrait" type="TextureRect" parent="Content/PortraitFrame"]
+layout_mode = 2
+texture = ExtResource("3_portrait")
+expand_mode = 1
+stretch_mode = 6
+
+[node name="Stats" type="VBoxContainer" parent="Content"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 6
+
+[node name="IdentityRow" type="HBoxContainer" parent="Content/Stats"]
+layout_mode = 2
+
+[node name="CharacterName" type="Label" parent="Content/Stats/IdentityRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"SubtitleLabel"
+text = "Takashi"
+
+[node name="Level" type="Label" parent="Content/Stats/IdentityRow"]
+layout_mode = 2
+theme_type_variation = &"MutedLabel"
+text = "LV. 1"
+vertical_alignment = 1
+
+[node name="HpBlock" type="VBoxContainer" parent="Content/Stats"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="HpRow" type="HBoxContainer" parent="Content/Stats/HpBlock"]
+layout_mode = 2
+
+[node name="HpCaption" type="Label" parent="Content/Stats/HpBlock/HpRow"]
+layout_mode = 2
+theme_type_variation = &"EyebrowLabel"
+text = "HP"
+
+[node name="LowHealth" type="Label" parent="Content/Stats/HpBlock/HpRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"EyebrowLabel"
+text = "LOW VITALITY"
+horizontal_alignment = 2
+
+[node name="HpValue" type="Label" parent="Content/Stats/HpBlock/HpRow"]
+layout_mode = 2
+theme_type_variation = &"MutedLabel"
+text = "100 / 100"
+
+[node name="HpBar" type="ProgressBar" parent="Content/Stats/HpBlock"]
+custom_minimum_size = Vector2(0, 8)
+layout_mode = 2
+theme_type_variation = &"HpBar"
+value = 100.0
+show_percentage = false
+
+[node name="EnergyBlock" type="VBoxContainer" parent="Content/Stats"]
+layout_mode = 2
+theme_override_constants/separation = 2
+
+[node name="EnergyRow" type="HBoxContainer" parent="Content/Stats/EnergyBlock"]
+layout_mode = 2
+
+[node name="EnergyCaption" type="Label" parent="Content/Stats/EnergyBlock/EnergyRow"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_type_variation = &"EyebrowLabel"
+text = "CELESTIAL ENERGY"
+
+[node name="EnergyValue" type="Label" parent="Content/Stats/EnergyBlock/EnergyRow"]
+layout_mode = 2
+theme_type_variation = &"MutedLabel"
+text = "40 / 100"
+
+[node name="EnergyBar" type="ProgressBar" parent="Content/Stats/EnergyBlock"]
+custom_minimum_size = Vector2(0, 7)
+layout_mode = 2
+value = 40.0
+show_percentage = false

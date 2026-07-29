@@ -1,0 +1,60 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/ui/exploration/notification_toast.gd" id="1_script"]
+[ext_resource type="Theme" path="res://themes/destiny_realms_theme.tres" id="2_theme"]
+
+[node name="NotificationToast" type="Control"]
+custom_minimum_size = Vector2(348, 96)
+layout_mode = 3
+anchors_preset = 0
+offset_right = 348.0
+offset_bottom = 96.0
+size_flags_vertical = 0
+mouse_filter = 2
+theme = ExtResource("2_theme")
+script = ExtResource("1_script")
+
+[node name="Card" type="PanelContainer" parent="."]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_bottom = 96.0
+grow_horizontal = 2
+theme_type_variation = &"ToastPanel"
+
+[node name="Content" type="HBoxContainer" parent="Card"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Accent" type="ColorRect" parent="Card/Content"]
+custom_minimum_size = Vector2(3, 0)
+layout_mode = 2
+mouse_filter = 2
+
+[node name="Symbol" type="Label" parent="Card/Content"]
+custom_minimum_size = Vector2(24, 0)
+layout_mode = 2
+theme_type_variation = &"TitleLabel"
+text = "*"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="Copy" type="VBoxContainer" parent="Card/Content"]
+layout_mode = 2
+size_flags_horizontal = 3
+theme_override_constants/separation = 2
+
+[node name="Title" type="Label" parent="Card/Content/Copy"]
+layout_mode = 2
+text = "Quest updated"
+autowrap_mode = 2
+max_lines_visible = 1
+text_overrun_behavior = 3
+
+[node name="Description" type="Label" parent="Card/Content/Copy"]
+layout_mode = 2
+theme_type_variation = &"MutedLabel"
+text = "The old road now points east."
+autowrap_mode = 2
+max_lines_visible = 2
+text_overrun_behavior = 3
