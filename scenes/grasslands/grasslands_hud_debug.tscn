@@ -1,0 +1,27 @@
+[gd_scene load_steps=4 format=3]
+
+[ext_resource type="PackedScene" path="res://scenes/grasslands/grasslands_scene.tscn" id="1_grasslands"]
+[ext_resource type="Script" path="res://scripts/grasslands/grasslands_hud_debug.gd" id="2_adapter"]
+[ext_resource type="PackedScene" path="res://scenes/ui/exploration/exploration_hud.tscn" id="3_hud"]
+
+[node name="GrasslandsHudDebug" instance=ExtResource("1_grasslands")]
+script = ExtResource("2_adapter")
+
+[node name="WorldCanvas" parent="." index="3"]
+layer = 40
+
+[node name="LocationBanner" parent="WorldCanvas" index="0"]
+visible = false
+
+[node name="QuestPanel" parent="WorldCanvas" index="1"]
+visible = false
+
+[node name="MenuButton" parent="WorldCanvas" index="2"]
+visible = false
+
+[node name="InteractionPrompt" parent="WorldCanvas" index="3"]
+visible = false
+
+[node name="ExplorationHUD" parent="." index="4" instance=ExtResource("3_hud")]
+
+[editable path="WorldCanvas"]
