@@ -36,6 +36,13 @@ turn). Window A (mid-enemy-action interrupt) and full suspend/resume via
 `RequestSource.INTERRUPT_REQUEST` only when explicitly authorized by an
 additive `interrupt_authorized` parameter that defaults to `false`.
 
+Block 9C gives the legacy enemy attack coroutine (`_enemy_attack()`) a
+commit-token/duplicate-prevention guard chain equivalent to what Basic/
+Skill/Ultimate already had, closing the "no guard-chain discipline at all"
+gap the Block 9A audit flagged as a prerequisite for window A. This block
+adds no new interrupt capability: window A is still not implemented, and
+safe window B's behavior and ordering are unchanged from Block 9B.
+
 Run the isolated scene with F6:
 
 `res://scenes/battle/debug/battle_command_flow_debug.tscn`
@@ -855,3 +862,129 @@ decide whether window A is worth the enemy-turn guard-chain work the
 Block 9A audit flagged, and whether multi-request-per-window or
 actor-scoped Energy are needed before any second Ultimate-capable
 character is added.
+
+## Block 9C: enemy attack guard chain & interrupt state cleanup
+
+Block 9C is prerequisite hardening, not a new capability. It gives
+`_enemy_attack()` — previously a single ad hoc coroutine with exactly one
+guard check across its whole body — the same commit-token/duplicate-
+prevention discipline Basic/Skill/Ultimate already have, so a stray double
+callback can never apply enemy damage twice, call `_lose()` twice, or call
+`_resume_after_enemy_action()` twice. See `docs/battle_system_spec.md`,
+"Block 9C implementation status" for the full design writeup (token model
+table, guard predicates, guard-point placement, technical-debt decision on
+the `state = PLAYER_TURN` bridge). This section covers only what changed
+in code and how to verify it.
+
+**Files changed:**
+
+- `scripts/battle/battle_manager.gd` — new fields
+  (`active_enemy_attack_token`, `enemy_hit_tokens`, `enemy_recovery_tokens`,
+  `enemy_turn_completion_tokens`, `enemy_action_in_progress`,
+  `_enemy_attack_token_sequence`); new guard/consume/reset functions
+  (`_is_committed_enemy_attack`, `_enemy_attack_guard`,
+  `_enemy_recovery_guard`, `_enemy_turn_completion_guard`,
+  `_consume_enemy_hit`, `_consume_enemy_recovery`,
+  `_consume_enemy_turn_completion`, `_clear_enemy_attack_token`,
+  `_reset_enemy_attack_runtime`); `_enemy_attack()` rewritten internally to
+  generate a token and check/consume it at four points (movement complete,
+  hit-feedback complete, before `_lose()`, before
+  `_resume_after_enemy_action()`) — damage value, movement calls, SFX/VFX
+  calls, and await ordering are unchanged; `_exit_tree()`,
+  `_reset_battle_values()`, `_win()`, `_lose()` each gained one call to
+  `_reset_enemy_attack_runtime()`; `_process_interrupt_queue_at_safe_window()`
+  gained one additional defensive condition
+  (`or enemy_action_in_progress`) alongside its existing
+  `is_processing_interrupt_queue` check.
+
+No changes to `battle_command_flow.gd`, any command adapter,
+`pending_battle_command.gd`, `suspended_battle_context.gd`,
+`ultimate_interrupt_queue.gd`, `ultimate_interrupt_request.gd`,
+`battle_ui.gd`, damage formulas, enemy damage/balance, AI, encounter data,
+story, `WorldProgress`, `MusicDirector`, or `SceneTransition`. Basic,
+Skill, on-turn Ultimate, and Block 9B's safe-window-B behavior are
+unchanged — verified by full regression below, not just by inspection.
+
+### Block 9C Verification
+
+Automated tests (all pre-existing suites re-run with zero modifications
+required, plus one new suite):
+
+`godot --headless --disable-crash-handler --log-file godot-production-basic.log --path . --scene res://tests/battle/test_production_basic_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-production-skill.log --path . --scene res://tests/battle/test_production_skill_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-production-ultimate.log --path . --scene res://tests/battle/test_production_ultimate_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-interrupt-queue.log --path . --scene res://tests/battle/test_ultimate_interrupt_queue.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-interrupt-integration.log --path . --scene res://tests/battle/test_ultimate_off_turn_interrupt.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-debug-scene.log --path . --scene res://tests/battle/test_battle_command_debug_scene.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-bandit-startup.log --path . --scene res://tests/battle/test_bandit_battle_startup.tscn`
+
+New in Block 9C:
+
+`godot --headless --disable-crash-handler --log-file godot-enemy-guard.log --path . --scene res://tests/battle/test_enemy_attack_guard_chain.tscn`
+
+`test_enemy_attack_guard_chain.gd` covers, mostly by driving the new
+guard/consume helpers directly (the same style existing suites already use
+to poke at private state via `.call()`): hit token consumed exactly once;
+recovery guard requires a prior hit consumption and is itself consumed
+exactly once; turn completion guard requires a prior recovery consumption
+and is itself consumed exactly once; a stale token (superseded by a newer
+attack) fails all three guards even though its own hit/recovery history is
+still present; victory/defeat/`restart_battle()` each invalidate the token
+and clear the relevant token dictionary; and one full real-attack
+integration run (`_begin_enemy_turn()` through to `PLAYER_TURN`) proving
+the guard chain changes nothing observable about the normal path.
+
+Startup smoke tests continue to cover Login, Prologue, and Lesser Abyss
+battle scene startup with `--quit-after`.
+
+Visual QA capture script (new):
+`tests/battle/capture_enemy_attack_guard_chain.gd` (+ `.tscn`), intended to
+capture 4 screenshots per resolution to
+`docs/images/battle_command_flow/enemy_attack_guard_chain/{1280x720,1920x1080}/`
+(normal enemy attack with no queue, enemy attack with a queued Ultimate,
+queued Ultimate ready idle after enemy recovery, player turn resumed after
+the queued Ultimate finishes). **Could not be captured this session** — see
+"Known limitations" below.
+
+`godot --headless --disable-crash-handler --log-file godot-capture-enemy-guard.log --path . --scene res://tests/battle/capture_enemy_attack_guard_chain.tscn -- --capture-size=1280x720`
+
+`godot --headless --disable-crash-handler --log-file godot-capture-enemy-guard.log --path . --scene res://tests/battle/capture_enemy_attack_guard_chain.tscn -- --capture-size=1920x1080`
+
+Known Block 9C limitations:
+
+- Window A is still not implemented; this block only made the enemy attack
+  safe to eventually interrupt, it did not add an interrupt point inside
+  it.
+- The `state = PLAYER_TURN` bridge in `_begin_queued_ultimate()` (Block 9B)
+  remains, kept deliberately per the user's explicit allowance — see
+  `docs/battle_system_spec.md`'s "Temporary PLAYER_TURN bridge" section for
+  why removing it is riskier than keeping it, and what a future block
+  needs before it can be removed.
+- Visual QA screenshots for this block were not captured: the headless
+  screenshot pipeline failed with a persistent `texture_2d_get: Parameter
+  "t" is null` / dummy-rendering-backend error. This was confirmed
+  environmental rather than a Block 9C regression by reproducing the
+  identical failure against the pre-existing, previously-working Block
+  8/9B capture scripts (`capture_production_ultimate_command_flow.gd`,
+  `capture_ultimate_off_turn_interrupt.gd`) in the same session, and by
+  trying an explicit `--rendering-driver opengl3` override with no change
+  in outcome. All non-visual verification (automated tests, full
+  regression, startup smoke) passed cleanly in the same session, both
+  before and after this failure was encountered, confirming the engine
+  itself was otherwise healthy. The capture script and output directory
+  are ready to run once headless screenshot capture recovers.
+
+Block 9C does not touch Basic, Skill, or on-turn Ultimate behavior; does
+not implement window A; does not implement mid-action suspend/resume; does
+not change damage formulas, enemy damage/balance, AI, encounter data,
+story, `WorldProgress`, `MusicDirector`, or `SceneTransition`; does not
+overhaul battle UI; does not rewrite `battle_manager.gd`. Next step: Block
+9D should decide whether window A is now worth attempting given the guard
+chain this block added, or whether further hardening (e.g. giving the
+enemy attack its own `PendingBattleCommand`) should come first.

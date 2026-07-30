@@ -116,6 +116,12 @@ that instant. See `docs/battle_system_spec.md`, "Block 9B implementation
 status" for the current design, what changed since Block 9A, and what
 remains for later blocks.
 
+Block 9C changes nothing a player can see or feel — it gave the enemy's
+attack the same internal duplicate-prevention guarantees the player's
+commands already had, as groundwork for someday interrupting *during* an
+enemy action rather than only after it finishes. See
+`docs/battle_system_spec.md`, "Block 9C implementation status".
+
 ## Visual character direction
 
 - Stylized compact anime proportions.

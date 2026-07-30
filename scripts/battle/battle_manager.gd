@@ -268,6 +268,12 @@ var is_processing_interrupt_queue: bool = false
 var active_interrupt_request: UltimateInterruptRequest = null
 var interrupt_resume_token: int = 0
 var _processed_interrupt_request_ids: Dictionary = {}
+var active_enemy_attack_token: int = 0
+var enemy_hit_tokens: Dictionary = {}
+var enemy_recovery_tokens: Dictionary = {}
+var enemy_turn_completion_tokens: Dictionary = {}
+var enemy_action_in_progress: bool = false
+var _enemy_attack_token_sequence: int = 0
 var encounter_enemy_name: String = "Lesser Abyss"
 var encounter_enemy_max_hp: int = ENEMY_MAX_HP
 var encounter_enemy_damage: int = ENEMY_BASE_DAMAGE
@@ -402,6 +408,7 @@ func _exit_tree() -> void:
 	if ultimate_command_adapter != null:
 		ultimate_command_adapter.reset()
 	_reset_ultimate_interrupt_queue()
+	_reset_enemy_attack_runtime()
 
 
 func restart_battle() -> void:
@@ -468,6 +475,7 @@ func _reset_battle_values() -> void:
 	_reset_basic_command_runtime()
 	_reset_skill_command_runtime()
 	_reset_ultimate_command_runtime()
+	_reset_enemy_attack_runtime()
 	timing_bar.cancel_window()
 	ui.set_timing_mode(false)
 	ui.set_restart_visible(false)
@@ -1671,7 +1679,7 @@ func _process_interrupt_queue_at_safe_window(window_id: StringName) -> bool:
 		return false
 	if ultimate_interrupt_queue == null or ultimate_interrupt_queue.is_empty():
 		return false
-	if is_processing_interrupt_queue:
+	if is_processing_interrupt_queue or enemy_action_in_progress:
 		return false
 	if (
 		active_basic_command_token != 0
@@ -2365,14 +2373,91 @@ func _begin_enemy_turn(log_text: String = "Enemy is preparing to attack.") -> vo
 		_enemy_attack()
 
 
+## Block 9C: enemy attack token model. Unlike Basic/Skill/Ultimate, the
+## enemy attack was never modeled through PendingBattleCommand/
+## BattleCommandFlow (see docs/battle_system_spec.md's Block 9A
+## characterization). Rather than build a full command flow for it —
+## explicitly out of scope for Block 9C — this gives the existing ad hoc
+## coroutine the same commit-token/duplicate-prevention discipline
+## Basic/Skill/Ultimate already have, so a stray double-callback can never
+## apply damage twice, call _lose() twice, or call
+## _resume_after_enemy_action() twice. It changes nothing about damage,
+## timing, movement, or animation on the normal single-invocation path.
+func _is_committed_enemy_attack(token: int) -> bool:
+	return token != 0 and active_enemy_attack_token == token
+
+
+func _enemy_attack_guard(token: int) -> bool:
+	return (
+		is_inside_tree()
+		and state == BattleState.ENEMY_TURN
+		and not _is_battle_over()
+		and is_instance_valid(enemy)
+		and is_instance_valid(player)
+		and _is_committed_enemy_attack(token)
+	)
+
+
+func _enemy_recovery_guard(token: int) -> bool:
+	return _enemy_attack_guard(token) and enemy_hit_tokens.has(token)
+
+
+func _enemy_turn_completion_guard(token: int) -> bool:
+	return _enemy_attack_guard(token) and enemy_recovery_tokens.has(token)
+
+
+func _consume_enemy_hit(token: int) -> bool:
+	if enemy_hit_tokens.has(token):
+		return false
+	enemy_hit_tokens[token] = true
+	return true
+
+
+func _consume_enemy_recovery(token: int) -> bool:
+	if enemy_recovery_tokens.has(token):
+		return false
+	enemy_recovery_tokens[token] = true
+	return true
+
+
+func _consume_enemy_turn_completion(token: int) -> bool:
+	if enemy_turn_completion_tokens.has(token):
+		return false
+	enemy_turn_completion_tokens[token] = true
+	return true
+
+
+func _clear_enemy_attack_token(token: int) -> void:
+	if active_enemy_attack_token == token:
+		active_enemy_attack_token = 0
+	enemy_action_in_progress = false
+
+
+func _reset_enemy_attack_runtime() -> void:
+	active_enemy_attack_token = 0
+	enemy_hit_tokens.clear()
+	enemy_recovery_tokens.clear()
+	enemy_turn_completion_tokens.clear()
+	enemy_action_in_progress = false
+
+
 func _enemy_attack() -> void:
+	_enemy_attack_token_sequence += 1
+	var token: int = _enemy_attack_token_sequence
+	active_enemy_attack_token = token
+	enemy_action_in_progress = true
+
 	var damage: int = enemy.base_attack_damage
 	var log_text: String = "Enemy attacks for %d damage." % damage
 
 	await enemy.play_attack_movement(player)
-	if state != BattleState.ENEMY_TURN:
+	if not _enemy_attack_guard(token):
+		_clear_enemy_attack_token(token)
 		return
 
+	if not _consume_enemy_hit(token):
+		_clear_enemy_attack_token(token)
+		return
 	_play_impact_sfx()
 	_spawn_enemy_claw_effect(player)
 	_spawn_hit_spark(player, Color(1.0, 0.4, 0.42, 1.0))
@@ -2380,12 +2465,23 @@ func _enemy_attack() -> void:
 	_refresh_player_status_ui()
 	_show_floating_damage(player, damage)
 	await player.play_hit_feedback()
+	if not _enemy_recovery_guard(token) or not _consume_enemy_recovery(token):
+		_clear_enemy_attack_token(token)
+		return
 	_shake_camera()
 
 	if player.is_defeated():
+		if not _enemy_turn_completion_guard(token) or not _consume_enemy_turn_completion(token):
+			_clear_enemy_attack_token(token)
+			return
+		_clear_enemy_attack_token(token)
 		_lose("You were defeated.")
 		return
 
+	if not _enemy_turn_completion_guard(token) or not _consume_enemy_turn_completion(token):
+		_clear_enemy_attack_token(token)
+		return
+	_clear_enemy_attack_token(token)
 	await _resume_after_enemy_action(log_text)
 
 
@@ -3783,6 +3879,7 @@ func _win(log_text: String) -> void:
 	active_skill_command_token = 0
 	active_ultimate_command_token = 0
 	_reset_ultimate_interrupt_queue()
+	_reset_enemy_attack_runtime()
 	if basic_command_adapter != null:
 		basic_command_adapter.lock_for_outcome(true)
 	if skill_command_adapter != null:
@@ -3816,6 +3913,7 @@ func _lose(log_text: String) -> void:
 	active_skill_command_token = 0
 	active_ultimate_command_token = 0
 	_reset_ultimate_interrupt_queue()
+	_reset_enemy_attack_runtime()
 	if basic_command_adapter != null:
 		basic_command_adapter.lock_for_outcome(false)
 	if skill_command_adapter != null:
