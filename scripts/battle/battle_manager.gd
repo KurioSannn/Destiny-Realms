@@ -267,6 +267,7 @@ var ultimate_interrupt_queue: UltimateInterruptQueue
 var is_processing_interrupt_queue: bool = false
 var active_interrupt_request: UltimateInterruptRequest = null
 var interrupt_resume_token: int = 0
+var _consumed_interrupt_resume_tokens: Dictionary = {}
 var _processed_interrupt_request_ids: Dictionary = {}
 var active_enemy_attack_token: int = 0
 var enemy_hit_tokens: Dictionary = {}
@@ -1599,6 +1600,21 @@ func _reset_ultimate_interrupt_queue() -> void:
 	is_processing_interrupt_queue = false
 	active_interrupt_request = null
 	_processed_interrupt_request_ids.clear()
+	_consumed_interrupt_resume_tokens.clear()
+
+
+## Block 9D: interrupt_resume_token was write-only through Block 9C (issued
+## in _begin_queued_ultimate(), never checked) -- double-resume was only
+## prevented incidentally, by is_processing_interrupt_queue already being
+## false by the time a second resume path could run. This makes that
+## guarantee explicit and independently testable: each resume token may
+## reach _begin_player_turn()/_win() exactly once, matching the same
+## single-consumption pattern as enemy_hit_tokens/enemy_recovery_tokens.
+func _consume_interrupt_resume_token(token: int) -> bool:
+	if token == 0 or _consumed_interrupt_resume_tokens.has(token):
+		return false
+	_consumed_interrupt_resume_tokens[token] = true
+	return true
 
 
 func _interrupt_energy_lookup(_actor: Node) -> int:
@@ -1672,6 +1688,14 @@ func _interrupt_request_failure_message(reason: StringName) -> String:
 ## was nothing safe/valid to process (in which case the caller must call
 ## _begin_player_turn() itself). Never processes more than one request per
 ## call, per docs/battle_system_spec.md's Block 9B recommendation.
+##
+## Block 9D hardening: `enemy_action_in_progress` and
+## `active_enemy_attack_token != 0` are each independently sufficient to
+## block processing and are not reachable simultaneously as true today
+## (this function's only caller, _resume_after_enemy_action(), only runs
+## after _enemy_attack() has already cleared both) -- kept as two explicit
+## conditions rather than one, so the invariant is documented in code, not
+## only in comments.
 func _process_interrupt_queue_at_safe_window(window_id: StringName) -> bool:
 	if window_id != &"after_enemy_recovery":
 		return false
@@ -1680,6 +1704,8 @@ func _process_interrupt_queue_at_safe_window(window_id: StringName) -> bool:
 	if ultimate_interrupt_queue == null or ultimate_interrupt_queue.is_empty():
 		return false
 	if is_processing_interrupt_queue or enemy_action_in_progress:
+		return false
+	if active_enemy_attack_token != 0:
 		return false
 	if (
 		active_basic_command_token != 0
@@ -1719,11 +1745,31 @@ func _process_interrupt_queue_at_safe_window(window_id: StringName) -> bool:
 ## `state == PLAYER_TURN`; this is genuinely accurate here too, since safe
 ## window B is, by construction, a moment where nothing else is active and
 ## it is safe for the player to act.
+##
+## Block 9D audit (see docs/battle_system_spec.md, "Block 9D implementation
+## status" for the full write-up): this `state = PLAYER_TURN` assignment is
+## a deliberately kept bridge, not forgotten cleanup. Only one guard has a
+## hard functional dependency on it (_validate_ultimate_command, at commit
+## time) -- but roughly ten other `state == PLAYER_TURN` checks across this
+## file (Basic/Skill begin-command guards, the Attack/Skill/Confirm button
+## handlers) were written assuming that value means "genuinely idle, safe
+## for new input," and none of them were designed or tested against a
+## queued-Ultimate-in-flight condition. The bridge is what makes all of
+## that already-tested machinery (including button-disabling, which is what
+## actually keeps Basic/Skill unreachable during this window -- see
+## _on_ultimate_command_ready) apply to the queued path for free. Removing
+## it would mean auditing and probably duplicating guard logic at every one
+## of those call sites, which is a materially larger and riskier change
+## than anything else in Block 9D. It stays, and this comment is the
+## documented technical debt: state == PLAYER_TURN during this window does
+## NOT mean a normal player turn is active -- always check
+## is_processing_interrupt_queue first if that distinction matters.
 func _begin_queued_ultimate(request: UltimateInterruptRequest) -> bool:
 	_processed_interrupt_request_ids[request.unique_request_id] = true
 	is_processing_interrupt_queue = true
 	active_interrupt_request = request
 	interrupt_resume_token += 1
+	var resume_token := interrupt_resume_token
 
 	state = BattleState.PLAYER_TURN
 	ultimate_command_adapter.begin_ultimate(
@@ -1746,7 +1792,7 @@ func _begin_queued_ultimate(request: UltimateInterruptRequest) -> bool:
 	# the failure as interrupt-sourced (e.g. a foreign pending command
 	# already existed) — so the battle can never get stuck waiting on a
 	# request that never actually started.
-	if is_processing_interrupt_queue:
+	if is_processing_interrupt_queue and _consume_interrupt_resume_token(resume_token):
 		is_processing_interrupt_queue = false
 		active_interrupt_request = null
 		_begin_player_turn()
@@ -1759,7 +1805,14 @@ func _begin_queued_ultimate(request: UltimateInterruptRequest) -> bool:
 ## exactly one call to _begin_player_turn(). See
 ## docs/battle_system_spec.md, "Block 9B implementation status" for why a
 ## full SuspendedBattleContext is not instantiated here.
+##
+## Block 9D: guarded by _consume_interrupt_resume_token() as a second,
+## independent layer against ever resolving/resuming the same queued
+## Ultimate twice, on top of BattleCommandFlow's own commit-token
+## consumption.
 func _finish_interrupt_ultimate_action(log_text: String) -> void:
+	if not _consume_interrupt_resume_token(interrupt_resume_token):
+		return
 	_refresh_energy_ui()
 	_refresh_skill_points_ui()
 	_start_player_idle_animation()
@@ -1837,6 +1890,8 @@ func _on_ultimate_command_cancelled(command: PendingBattleCommand) -> void:
 	_hide_ultimate_target_highlight()
 	_set_ultimate_command_panel_visible(false)
 	if was_interrupt:
+		if not _consume_interrupt_resume_token(interrupt_resume_token):
+			return
 		is_processing_interrupt_queue = false
 		active_interrupt_request = null
 		_begin_player_turn("Octagram Fragment cancelled.")
@@ -1867,6 +1922,8 @@ func _on_ultimate_command_failed(
 	if _is_battle_over():
 		return
 	if was_interrupt:
+		if not _consume_interrupt_resume_token(interrupt_resume_token):
+			return
 		is_processing_interrupt_queue = false
 		active_interrupt_request = null
 		_begin_player_turn(_ultimate_command_failure_message(reason))
@@ -1957,6 +2014,17 @@ func _abort_committed_ultimate_command(
 		ultimate_command_adapter.reset()
 
 
+## Block 9D: named per the bridge audit in docs/battle_system_spec.md,
+## "Block 9D implementation status" so this specific check has a
+## documented, greppable identity. Still just `state == PLAYER_TURN` --
+## the audit found removing the `state = PLAYER_TURN` bridge in
+## _begin_queued_ultimate() unsafe to do broadly (see that function's doc
+## comment), so this helper does not widen what's accepted, it only names
+## the one check that genuinely depends on the bridge.
+func _is_ultimate_command_state_allowed() -> bool:
+	return state == BattleState.PLAYER_TURN
+
+
 func _validate_ultimate_command(command: PendingBattleCommand) -> String:
 	if command == null:
 		return "missing_command"
@@ -1966,7 +2034,7 @@ func _validate_ultimate_command(command: PendingBattleCommand) -> String:
 		return "unsupported_ultimate"
 	if _is_battle_over():
 		return "battle_already_finished"
-	if state != BattleState.PLAYER_TURN:
+	if not _is_ultimate_command_state_allowed():
 		return "battle_state_not_player_turn"
 	if (
 		active_basic_command_token != 0

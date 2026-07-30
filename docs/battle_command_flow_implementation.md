@@ -43,6 +43,16 @@ gap the Block 9A audit flagged as a prerequisite for window A. This block
 adds no new interrupt capability: window A is still not implemented, and
 safe window B's behavior and ordering are unchanged from Block 9B.
 
+Block 9D audits and hardens the safe-window-B feature Block 9B/9C built,
+without adding any new interrupt capability: it resolves whether the
+`state = PLAYER_TURN` bridge in `_begin_queued_ultimate()` can be
+removed (audit result: kept, documented as permanent technical debt),
+gives the previously write-only `interrupt_resume_token` real single-use
+semantics, adds one defense-in-depth guard to safe window B, corrects a
+stale doc comment on the Block 9A stub methods, and locks Block 9's
+feature boundary as production-ready for safe window B only. Window A
+remains fully disabled.
+
 Run the isolated scene with F6:
 
 `res://scenes/battle/debug/battle_command_flow_debug.tscn`
@@ -988,3 +998,136 @@ overhaul battle UI; does not rewrite `battle_manager.gd`. Next step: Block
 9D should decide whether window A is now worth attempting given the guard
 chain this block added, or whether further hardening (e.g. giving the
 enemy attack its own `PendingBattleCommand`) should come first.
+
+## Block 9D: interrupt state cleanup & Block 9 stabilization
+
+Block 9D is an audit-and-harden block, not a new-capability block. It
+answers the question Block 9C's report left open (whether the `state =
+PLAYER_TURN` bridge can be reduced) and closes small gaps in the
+interrupt state/queue/resume lifecycle Block 9B/9C built. See
+`docs/battle_system_spec.md`, "Block 9D implementation status" for the
+full design writeup (bridge audit findings, interrupt state model
+decisions, queue/request lifecycle trace, resume policy table, final
+Block 9 feature boundary). This section covers only what changed in code
+and how to verify it.
+
+**Files changed:**
+
+- `scripts/battle/battle_manager.gd` — new field
+  (`_consumed_interrupt_resume_tokens: Dictionary`); new function
+  `_consume_interrupt_resume_token(token) -> bool` (single-use guard,
+  called at all four resume paths); new function
+  `_is_ultimate_command_state_allowed() -> bool` (named wrapper around the
+  one genuinely load-bearing `state == PLAYER_TURN` check, used by
+  `_validate_ultimate_command()`); `_reset_ultimate_interrupt_queue()`
+  gained one line clearing the new dictionary;
+  `_process_interrupt_queue_at_safe_window()` gained one additional
+  explicit condition (`active_enemy_attack_token != 0`); `_begin_queued_ultimate()`,
+  `_finish_interrupt_ultimate_action()`, and the interrupt branches of
+  `_on_ultimate_command_cancelled()`/`_on_ultimate_command_failed()` each
+  now call `_consume_interrupt_resume_token()` before resuming; the
+  `state = PLAYER_TURN` bridge in `_begin_queued_ultimate()` gained an
+  expanded doc comment recording the audit's findings and conclusion as
+  permanent technical debt.
+- `scripts/battle/command/battle_command_flow.gd` — doc comments only, on
+  the three Block 9A stub methods (`can_process_interrupt_now()`,
+  `queue_ultimate_interrupt()`, `begin_interrupt_request()`). No behavior
+  changed; all three are still always `false` and still never called by
+  production code. The `begin_interrupt_request()` comment specifically
+  was corrected — it previously (incorrectly, since Block 9B) claimed
+  `begin_command()` still rejects `INTERRUPT_REQUEST` unconditionally.
+
+No changes to any command adapter, `pending_battle_command.gd`,
+`suspended_battle_context.gd`, `ultimate_interrupt_queue.gd`,
+`ultimate_interrupt_request.gd`, `battle_ui.gd`, damage formulas, enemy
+damage/balance, AI, encounter data, story, `WorldProgress`,
+`MusicDirector`, or `SceneTransition`. Basic, Skill, on-turn Ultimate, and
+Block 9B/9C's existing behavior are all unchanged — verified by full
+regression, not just by inspection: every one of the ~10 non-load-bearing
+`state == PLAYER_TURN` call sites the bridge audit traced was left exactly
+as-is.
+
+### Block 9D Verification
+
+Automated tests (all pre-existing suites re-run with zero modifications
+required, plus one new suite):
+
+`godot --headless --disable-crash-handler --log-file godot-production-basic.log --path . --scene res://tests/battle/test_production_basic_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-production-skill.log --path . --scene res://tests/battle/test_production_skill_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-production-ultimate.log --path . --scene res://tests/battle/test_production_ultimate_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-interrupt-queue.log --path . --scene res://tests/battle/test_ultimate_interrupt_queue.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-interrupt-integration.log --path . --scene res://tests/battle/test_ultimate_off_turn_interrupt.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-enemy-guard.log --path . --scene res://tests/battle/test_enemy_attack_guard_chain.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-debug-scene.log --path . --scene res://tests/battle/test_battle_command_debug_scene.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-bandit-startup.log --path . --scene res://tests/battle/test_bandit_battle_startup.tscn`
+
+New in Block 9D:
+
+`godot --headless --disable-crash-handler --log-file godot-interrupt-cleanup.log --path . --scene res://tests/battle/test_interrupt_state_cleanup.tscn`
+
+`test_interrupt_state_cleanup.gd` covers, against the Lesser Abyss
+encounter: `active_interrupt_request` correctly cleared after
+confirm/cancel/stale-discard; `interrupt_resume_token` cannot be consumed
+twice (and token `0` — never issued — is never treated as consumable);
+the interrupt queue and its resume-token history both clear on
+`_win()`/`_lose()`/`_exit_tree()`; a lethal queued Ultimate (enemy HP set
+to exactly `ULTIMATE_DAMAGE` before confirming) reaches `WIN` without also
+triggering a stray `_begin_player_turn()`; a direct
+`BattleCommandFlow.begin_command()` call with
+`RequestSource.INTERRUPT_REQUEST` and no `interrupt_authorized` argument
+is rejected even when the queue is bypassed entirely; a second off-turn
+request made while one is already processing is rejected and never
+queues; the queue is not processed while `enemy_action_in_progress` or
+`active_enemy_attack_token` are set; and the three Block 9A stub methods
+remain inert.
+
+Startup smoke tests continue to cover Login, Prologue, and the production
+battle scene with `--quit-after`.
+
+Visual QA capture script (new):
+`tests/battle/capture_interrupt_state_cleanup.gd` (+ `.tscn`), intended to
+capture the cancel sequence (enemy turn queued → ready idle → player turn
+resumed), the confirm sequence (cut-in → recovery → player turn resumed),
+and a lethal-confirm victory screenshot, at both resolutions, to
+`docs/images/battle_command_flow/interrupt_state_cleanup/{1280x720,1920x1080}/`.
+**Could not be captured this session** — hit the identical
+`texture_2d_get: Parameter "t" is null` / dummy-rendering-backend failure
+already documented in Block 9C, confirmed still present (not a Block 9D
+regression) by retrying once.
+
+`godot --headless --disable-crash-handler --log-file godot-capture-interrupt-cleanup.log --path . --scene res://tests/battle/capture_interrupt_state_cleanup.tscn -- --capture-size=1280x720`
+
+`godot --headless --disable-crash-handler --log-file godot-capture-interrupt-cleanup.log --path . --scene res://tests/battle/capture_interrupt_state_cleanup.tscn -- --capture-size=1920x1080`
+
+### Final Block 9 status
+
+Locked as **production-ready for safe window B only** — see
+`docs/battle_system_spec.md`'s "Final Block 9 feature boundary" for the
+complete list of what is and is not built. Window A remains fully
+disabled and is not a default next step; if pursued, it is scoped as an
+optional, separately-reviewed Block 9E R&D spike, not part of Block 10 UI
+work.
+
+Known Block 9D limitations (all inherited, none new):
+
+- The `state = PLAYER_TURN` bridge remains permanent technical debt — see
+  the bridge audit above for why removing it is out of proportion to any
+  benefit.
+- `ultimate_energy` remains `BattleManager`-scoped, not actor-scoped.
+- Visual QA for both Block 9C and Block 9D could not be captured this
+  session, for the same confirmed-environmental reason.
+
+Block 9D does not touch Basic, Skill, or on-turn Ultimate flow beyond one
+readability-only helper (`_is_ultimate_command_state_allowed()`, same
+check, new name); does not implement window A; does not implement
+mid-action suspend/resume; does not change damage formulas, enemy
+damage/balance, AI, encounter data, story, `WorldProgress`,
+`MusicDirector`, or `SceneTransition`; does not overhaul battle UI; does
+not rewrite `battle_manager.gd`.

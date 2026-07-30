@@ -1007,6 +1007,259 @@ Prologue, and Lesser Abyss battle scene with `--quit-after`.
    ready to run once headless screenshot capture recovers in this
    environment.
 
+## Block 9D implementation status
+
+Block 9 is locked as **production-ready for safe window B only**. Block
+9D added no new capability — it audited and hardened what Block 9B/9C
+already built: the `state = PLAYER_TURN` bridge, the interrupt state
+lifecycle, the resume policy, safe window B's guard surface, and the
+Block 9A stub methods' documentation. Window A and mid-action suspend
+remain fully disabled, unchanged from every prior block.
+
+### Bridge state audit — result: kept
+
+The audit traced every `state == BattleState.PLAYER_TURN` /
+`state != BattleState.PLAYER_TURN` check in `battle_manager.gd` (11 sites)
+against what the queued-Ultimate path in `_begin_queued_ultimate()`
+actually exercises before `_execute_committed_ultimate()` reassigns
+`state = ACTION_RESOLUTION` on commit:
+
+- **Genuinely load-bearing**: exactly one — `_validate_ultimate_command()`'s
+  `state != PLAYER_TURN` check (now named `_is_ultimate_command_state_allowed()`,
+  a Block 9D readability addition with zero behavior change), called once
+  at commit time via `commit_pending_command() -> _validate_resources()`.
+  Ready idle, target selection, confirm, and cancel (`_confirm_ultimate_command`,
+  `_cancel_ultimate_command`, `_select_ultimate_target_at_position`) have
+  **no** state dependency at all — they gate only on
+  `_has_pending_ultimate_command()`.
+- **Not load-bearing but reachable if the bridge were removed**: ~10 other
+  sites — `_begin_basic_attack_command()`, `_begin_skill_command()`,
+  `_on_attack_pressed()`, `_on_skill_pressed()`, `_on_confirm_pressed()`,
+  `_on_ultimate_pressed()`. None of these have a hard functional need for
+  `state == PLAYER_TURN` during the queued-Ultimate window — what actually
+  keeps Basic/Skill unreachable during that window is `_update_action_buttons(false)`,
+  called by `_on_ultimate_command_ready()` (the same signal handler
+  on-turn Ultimate ready idle already uses, unchanged since Block 8). The
+  bridge is what lets the queued path inherit that already-tested
+  protection for free.
+
+**Decision: the bridge is kept.** Removing it would require re-deriving
+safety for all ~10 non-load-bearing sites under a condition they were
+never designed against, which is a materially larger and riskier change
+than anything else in scope — exactly the "tidak aman" branch the block's
+own instructions anticipated. The bridge is documented as permanent
+technical debt directly at its assignment site in
+`_begin_queued_ultimate()`, with an explicit warning: `state ==
+PLAYER_TURN` during this window does **not** mean a normal player turn is
+active — code that needs to distinguish the two must check
+`is_processing_interrupt_queue` first.
+
+### Interrupt state model
+
+No new enum or state machine was added — the audit found the existing
+flags already describe the lifecycle correctly, with one real gap closed:
+
+| Field | Status after Block 9D |
+| --- | --- |
+| `is_processing_interrupt_queue` | Unchanged — already correctly the "is a queued Ultimate in flight" flag |
+| `active_interrupt_request` | Unchanged — already cleared on every resume path (confirm/cancel/fail/discard/win/lose/exit) |
+| `interrupt_resume_token` | **Fixed** — was write-only through Block 9C (incremented, never read); now genuinely single-use via a new `_consumed_interrupt_resume_tokens` dictionary and `_consume_interrupt_resume_token()`, called at all four resume paths (`_finish_interrupt_ultimate_action`, the interrupt branches of `_on_ultimate_command_cancelled`/`_on_ultimate_command_failed`, and `_begin_queued_ultimate`'s defensive fallback) |
+| `enemy_action_in_progress`, `active_enemy_attack_token` | Unchanged from Block 9C — now also explicitly (if redundantly) checked in `_process_interrupt_queue_at_safe_window()` |
+
+Two fields named in the block's own instructions were deliberately **not**
+added:
+- `pending_resume_after_interrupt` — no async gap exists between "queued
+  Ultimate resolved" and "resume decided"; the existing four resume paths
+  decide and act synchronously. Where this concept matters, it is already
+  expressed by `is_processing_interrupt_queue`.
+- `interrupt_phase` enum (`NONE`/`QUEUED`/`READY`/…) — `PendingBattleCommand.request_source`
+  plus `BattleCommandFlow`'s own `BattleFlowState` (ready idle, target
+  select, confirm, execution, recovery) already carry this information;
+  duplicating it into a second parallel enum on `BattleManager` would be a
+  new state machine with nothing to synchronize against, which the block's
+  own instructions rule out ("jangan membuat state machine besar baru").
+
+### Queue and request lifecycle — audit result: already clean
+
+Traced every creation and clear point:
+
+- **Created**: once, in `_setup_ultimate_interrupt_queue()`, called from
+  `_ready()`.
+- **Cleared**: `_win()`, `_lose()`, `_exit_tree()`, and
+  `_reset_ultimate_command_runtime()` (itself called from
+  `_reset_battle_values()` — battle start/restart) all call
+  `_reset_ultimate_interrupt_queue()`, which now also clears
+  `_consumed_interrupt_resume_tokens` (Block 9D addition). Encounter
+  completion and scene transition need no separate hook: `_win()` already
+  runs the clear before `WorldProgress.complete_active_encounter()` and
+  the subsequent `SceneTransition.change_to_file()` await.
+- **`active_interrupt_request` specifically**: verified cleared before
+  every `_begin_player_turn()`/`_win()` call on all four resume paths —
+  including the `_is_battle_over()` early-return branch in
+  `_on_ultimate_command_failed()`, which skips its own clear but is still
+  safe because `_win()`/`_lose()` (which must have already run to make
+  `_is_battle_over()` true) already cleared it via
+  `_reset_ultimate_interrupt_queue()`.
+
+No leaks found; no new clear hooks were needed. This section exists to
+record that the audit happened, not to document a fix.
+
+### Resume policy stabilization
+
+`AFTER_INTERRUPT_CONTINUE_TO_PLAYER_TURN` (Block 9B) is unchanged. Every
+path now independently verified:
+
+| Scenario | Resume path | Behavior |
+| --- | --- | --- |
+| No queue / stale queue discarded | `_process_interrupt_queue_at_safe_window()` returns `false` → `_resume_after_enemy_action()`'s single `if not processed:` branch | `_begin_player_turn()` exactly once, structurally — only one call site, not reachable twice per invocation |
+| Cancel | `_on_ultimate_command_cancelled`'s interrupt branch | `_begin_player_turn()` exactly once, now behind `_consume_interrupt_resume_token()` |
+| Confirm (non-lethal) | `_finish_interrupt_ultimate_action()` | `_begin_player_turn()` exactly once, now behind `_consume_interrupt_resume_token()` |
+| Confirm (lethal — new test coverage) | `_finish_interrupt_ultimate_action()` | `_win()` called, `_begin_player_turn()` **not** called — verified by a new test that sets enemy HP to exactly `ULTIMATE_DAMAGE` before confirming |
+| Failed | `_on_ultimate_command_failed`'s interrupt branch | `_begin_player_turn()` exactly once, now behind `_consume_interrupt_resume_token()` |
+| `begin_ultimate()` fails before any signal fires | `_begin_queued_ultimate()`'s defensive fallback | `_begin_player_turn()` exactly once, now behind both `is_processing_interrupt_queue` and `_consume_interrupt_resume_token()` |
+
+The resume-token guard is a second, independent layer on top of the
+existing flag-based protection — on every currently-reachable path exactly
+one resume branch fires per token, so the guard never blocks real
+functionality; it only makes "never twice" an explicit, tested invariant
+instead of an incidental one.
+
+### Safe window B hardening
+
+`_process_interrupt_queue_at_safe_window()` gained one additional explicit
+condition: `active_enemy_attack_token != 0` now blocks processing exactly
+like `enemy_action_in_progress` already does. The two conditions are
+provably redundant today (both fields are always cleared together, by
+`_clear_enemy_attack_token()` and `_reset_enemy_attack_runtime()`), and
+the function's only caller (`_resume_after_enemy_action()`) only ever runs
+after both are already false — so this is defense-in-depth, not a
+behavior change, and is documented as such at the call site. All other
+guards requested by the block's instructions (victory/defeat, scene
+validity, Ultimate cut-in, any committed command) were already present
+since Block 9B/9C and needed no change.
+
+### External interrupt request hardening
+
+Confirmed, not newly built: `request_off_turn_ultimate()` is the only
+production path that ever reaches `UltimateInterruptQueue.request_ultimate()`,
+and `begin_command(..., interrupt_authorized = true)` is only ever called
+from `_begin_queued_ultimate()`. A new test
+(`_test_direct_begin_command_interrupt_request_rejected_without_authorization`)
+calls `BattleCommandFlow.begin_command()` directly with
+`RequestSource.INTERRUPT_REQUEST` and no `interrupt_authorized` argument,
+proving the rejection holds even when the queue is bypassed entirely. A
+second new test
+(`_test_external_request_during_interrupt_processing_rejected`) proves a
+second off-turn request made while one is already being processed is
+rejected and never enters the queue. The existing reject reason
+(`off_turn_interrupt_not_available`) was **not** renamed — it is already
+asserted by `test_production_ultimate_command_flow.gd`, and the block's
+suggested alternative names (`interrupt_must_be_queued`, etc.) were
+offered as optional ("jika perlu"); renaming would break a passing
+regression test for no behavioral gain, so the existing name and its
+comment in `begin_command()` were kept as-is.
+
+### BattleCommandFlow stub cleanup
+
+`can_process_interrupt_now()`, `queue_ultimate_interrupt()`, and
+`begin_interrupt_request()` are unchanged in behavior (still always
+`false`, still never called by production code) but their doc comments
+were rewritten. The `begin_interrupt_request()` comment specifically was
+**stale and actively misleading** before this block: it said
+"`begin_command()` ... continues to reject `RequestSource.INTERRUPT_REQUEST`
+unconditionally," which stopped being true the moment Block 9B added
+`interrupt_authorized`. All three comments now correctly state that
+`begin_command()` can accept an interrupt request, but only via
+`interrupt_authorized = true` from BattleManager's controlled safe-window-B
+path — never through these stubs. A new test
+(`_test_interrupt_stubs_remain_inert`) asserts all three still return
+`false`/reject, as a regression guard against window A being silently
+activated by a future change to one of these names.
+
+### Tests
+
+New: `tests/battle/test_interrupt_state_cleanup.gd` (+ `.tscn`), 13
+functions, all passing: confirm/cancel/stale-discard each correctly manage
+`active_interrupt_request`; `interrupt_resume_token` cannot be consumed
+twice (and token `0` is never treated as consumable); queue clears on
+win/lose/`_exit_tree()` including resume-token history; a lethal queued
+Ultimate reaches `WIN` without also resuming a normal player turn; a
+direct `begin_command(INTERRUPT_REQUEST)` call without authorization is
+rejected; a concurrent off-turn request during active interrupt processing
+is rejected; the queue is not processed while `enemy_action_in_progress`
+or `active_enemy_attack_token` would say otherwise; and the three Block 9A
+stub methods remain inert.
+
+All pre-existing suites re-run clean with zero modifications required:
+`test_production_basic/skill/ultimate_command_flow`,
+`test_ultimate_interrupt_queue` (Block 9A contract),
+`test_ultimate_off_turn_interrupt` (Block 9B, all 10 functions),
+`test_enemy_attack_guard_chain` (Block 9C, all 8 functions),
+`test_battle_command_debug_scene`, `test_bandit_battle_startup`. Startup
+smoke continues to cover Login, Prologue, and the production battle scene
+with `--quit-after`.
+
+### Visual QA
+
+Not captured this session. `tests/battle/capture_interrupt_state_cleanup.gd`
+(+ `.tscn`, new this block) was written to capture the cancel, confirm,
+and lethal-victory sequences at both resolutions, but hit the same
+persistent `texture_2d_get: Parameter "t" is null` / dummy-rendering-backend
+failure already documented in Block 9C's known limitations — confirmed
+still present (not a Block 9D regression) by retrying once and observing
+identical behavior. All non-visual verification (13 new tests plus the
+full pre-existing suite, 12 scenes total) passed cleanly both before and
+after this failure was encountered. The capture script and output path
+(`docs/images/battle_command_flow/interrupt_state_cleanup/`) are ready to
+run once headless screenshot capture recovers.
+
+### Final Block 9 feature boundary
+
+As of Block 9D, off-turn Ultimate is **production-ready for safe window B
+only**:
+- A player may request Ultimate during `ENEMY_TURN`; it queues with zero
+  side effects.
+- The request resolves automatically at the first safe window B (after
+  the enemy's action and recovery fully complete, before the next player
+  turn would otherwise begin).
+- The queued Ultimate reuses the exact on-turn ready
+  idle/target/confirm/cancel/cut-in/execution/recovery experience.
+- Energy is deducted only at commit, identically to on-turn Ultimate.
+- Cancel, confirm, and failure each return control to the player exactly
+  once; a lethal confirm ends the battle instead.
+- The enemy's own attack has commit-token-equivalent duplicate protection
+  (Block 9C), and the interrupt queue/request/resume lifecycle has been
+  independently audited and hardened (Block 9D) with no functional gaps
+  remaining within this boundary.
+
+**Not built, by design, in any Block 9 sub-block**: window A (interrupting
+during the enemy's action itself), true suspend/resume of a mid-flight
+atomic phase (`SuspendedBattleContext` remains an unused, unmodified
+skeleton), multi-request-per-safe-window processing, and actor-scoped
+Energy.
+
+### Known limitations carried into Block 10 / optional Block 9E
+
+1. Window A remains fully disabled — see "Bridge state audit" above for
+   why enabling it is a larger, separately-scoped decision, not a small
+   follow-on.
+2. The `state = PLAYER_TURN` bridge is permanent technical debt unless a
+   future block is willing to audit/duplicate guard logic at ~10 call
+   sites for zero player-facing benefit.
+3. `ultimate_energy` remains `BattleManager`-scoped, not actor-scoped
+   (unresolved since Block 9A; still not exercised by a second
+   Ultimate-capable actor).
+4. Visual QA for Block 9C and Block 9D could not be captured this session
+   due to a persistent headless-rendering environment issue, confirmed
+   unrelated to code across two separate blocks.
+
+### Recommendation
+
+Block 9 is stable and ready for UI polish (Block 10) on top of the
+existing safe-window-B feature set. Window A remains available as a
+future **Block 9E R&D spike**, scoped separately and explicitly, per the
+user's own framing — not a default next step.
+
 ## Responsibility model
 
 Four independent state domains are required:

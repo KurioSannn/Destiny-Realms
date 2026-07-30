@@ -388,11 +388,22 @@ func is_token_consumed(token: int) -> bool:
 
 
 ## --- Block 9A off-turn interrupt stubs -------------------------------
-## These three methods are additive seams for Block 9B+. None of them are
-## called by production code yet, and none of them change the behavior of
-## any method above. begin_command() still rejects
-## PendingBattleCommand.RequestSource.INTERRUPT_REQUEST unconditionally,
-## regardless of what these stubs would report.
+## UPDATED Block 9D: these three methods are STILL always-false stubs and
+## are STILL never called by any production code. What changed since
+## Block 9A is begin_command() itself — it no longer rejects
+## RequestSource.INTERRUPT_REQUEST unconditionally (see its
+## `interrupt_authorized` parameter, added Block 9B). Do not read that as
+## these stubs having become active: the real, and only, production path
+## for an off-turn Ultimate is BattleManager calling
+## `begin_command(..., interrupt_authorized = true)` directly from its own
+## controlled safe-window-B processing
+## (`_process_interrupt_queue_at_safe_window()` /
+## `_begin_queued_ultimate()`), never through can_process_interrupt_now(),
+## queue_ultimate_interrupt(), or begin_interrupt_request() below. Window A
+## (mid-enemy-action interrupt) remains fully disabled as of Block 9D — if
+## any of these three stubs is ever made to return something other than
+## `false`, that is the signal a future block actually decided to build
+## window A, not an incidental side effect.
 ##
 ## This controller models one pending command for one actor; it has no
 ## notion of enemy turns or which command belongs to which battle-wide
@@ -402,25 +413,33 @@ func is_token_consumed(token: int) -> bool:
 ## docs/battle_system_spec.md, "Safe interrupt window" for why this is a
 ## BattleManager-owned query, not a BattleCommandFlow-owned one.
 
-## Always false in Block 9A. A real implementation (Block 9B+) still would
-## not belong here for the reason above — this stub exists so callers can
-## be written against a stable name ahead of that decision.
+## Always false through Block 9D. Real safe-window detection lives in
+## BattleManager._process_interrupt_queue_at_safe_window(), not here — see
+## the reason above. This stub exists so callers can be written against a
+## stable name ahead of any future decision to move that logic here.
 func can_process_interrupt_now() -> bool:
 	return false
 
 
-## Always false in Block 9A. No UltimateInterruptQueue is wired to this
-## flow controller; queuing is not this class's responsibility (see
-## UltimateInterruptQueue, which is deliberately independent of
-## BattleCommandFlow so it stays unit-testable without a live battle).
+## Always false through Block 9D. No UltimateInterruptQueue is wired to
+## this flow controller; queuing is BattleManager's responsibility (it
+## owns the one production UltimateInterruptQueue instance directly, see
+## `ultimate_interrupt_queue` in battle_manager.gd) — deliberately kept
+## independent of BattleCommandFlow so the queue stays unit-testable
+## without a live battle.
 func queue_ultimate_interrupt(_request: UltimateInterruptRequest) -> bool:
 	return false
 
 
-## Always false in Block 9A. begin_command() remains the sole entry point
-## for starting a pending command, and it continues to reject
-## RequestSource.INTERRUPT_REQUEST unconditionally. This stub documents the
-## intended future signature without opening a second entry point now.
+## Always false through Block 9D. begin_command() is still the sole entry
+## point for starting a pending command; as of Block 9B it can accept
+## RequestSource.INTERRUPT_REQUEST, but only when the caller explicitly
+## passes `interrupt_authorized = true`, and the only production caller
+## that ever does is BattleManager's own safe-window-B processing. This
+## stub documents an alternative future entry-point signature without
+## opening a second real one now — reject reason
+## `off_turn_interrupt_not_available` (see begin_command() below) is the
+## actual production guard against any other caller bypassing the queue.
 func begin_interrupt_request(
 	_actor: Node,
 	_action_id: StringName,

@@ -122,6 +122,16 @@ commands already had, as groundwork for someday interrupting *during* an
 enemy action rather than only after it finishes. See
 `docs/battle_system_spec.md`, "Block 9C implementation status".
 
+Block 9D also changes nothing a player can see or feel. It is the
+stabilization pass that locks everything above as production-ready: the
+off-turn Ultimate request, the safe-window-B queue, and the return to a
+normal player turn afterward all behave exactly as already described in
+this pillar, now with an internal audit confirming there is no path where
+a queued Ultimate resolves twice, leaves stray state behind, or skips the
+player's next turn. See `docs/battle_system_spec.md`, "Block 9D
+implementation status" for the audit and "Final Block 9 feature boundary"
+for the complete, current scope of this pillar.
+
 ## Visual character direction
 
 - Stylized compact anime proportions.
