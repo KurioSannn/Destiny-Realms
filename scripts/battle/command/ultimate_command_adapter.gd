@@ -48,7 +48,8 @@ func begin_ultimate(
 	target_rule: int,
 	energy_cost: int,
 	source_turn: int = 0,
-	request_source: int = PendingCommand.RequestSource.TURN_COMMAND
+	request_source: int = PendingCommand.RequestSource.TURN_COMMAND,
+	interrupt_authorized: bool = false
 ) -> bool:
 	if flow == null:
 		return false
@@ -63,7 +64,11 @@ func begin_ultimate(
 		energy_cost,
 		source_turn,
 		CommandFlow.BattleFlowState.COMMAND_SELECT,
-		request_source
+		request_source,
+		true,
+		true,
+		false,
+		interrupt_authorized
 	)
 
 

@@ -525,6 +525,241 @@ exists yet.
    this has not mattered yet, but Block 9B must confirm before a second
    Ultimate-capable actor is added).
 
+## Block 9B implementation status
+
+Off-turn Ultimate is now **executable in production, safe window B only**.
+A player may request Ultimate during `ENEMY_TURN`; the request is queued
+with zero side effects; it is processed exactly once, immediately after the
+enemy's action/recovery fully completes and before `_begin_player_turn()`
+would otherwise run. Window A (mid-enemy-action interrupt) and window C
+(explicit off-turn request while already in `COMMAND_SELECT`, which is
+really just on-turn Ultimate) remain out of scope. This section is
+authoritative where it differs from the Block 9A section above; the Block
+9A section remains the historical record of the architecture decision.
+
+### What changed vs. Block 9A
+
+`UltimateInterruptQueue` and `UltimateInterruptRequest` (both Block 9A
+skeletons) are used as-is, unmodified. `SuspendedBattleContext` is **not**
+used — Block 9B does not suspend/resume anything, because safe window B sits
+between two turns, not inside one; there is nothing mid-flight to capture.
+`BattleCommandFlow.begin_command()` gained one additive parameter,
+`interrupt_authorized: bool = false` (14th positional param, default
+preserves the exact Block 5–9A behavior for every existing caller):
+
+```gdscript
+if (
+    request_source == PendingBattleCommand.RequestSource.INTERRUPT_REQUEST
+    and not interrupt_authorized
+):
+    _fail(null, &"off_turn_interrupt_not_available")
+    return false
+```
+
+Only `BattleManager`'s new queued-Ultimate path passes `true`. The Block 9A
+stub methods (`can_process_interrupt_now()`, `queue_ultimate_interrupt()`,
+`begin_interrupt_request()`) are untouched and still always return `false` —
+Block 9B does not call them, since routing happens directly through
+`begin_command()`'s new parameter instead.
+
+### Queue integration (BattleManager)
+
+`battle_manager.gd` owns one `UltimateInterruptQueue` instance
+(`ultimate_interrupt_queue`), created in `_setup_ultimate_interrupt_queue()`
+(called from `_ready()`) and configured with three lookups exactly as the
+Block 9A design specified: Energy (`_interrupt_energy_lookup`, currently
+returns the single `BattleManager`-level `ultimate_energy` — see limitations
+below), battle-over (`_is_battle_over`), and Ultimate-active-or-processing
+(`_is_ultimate_active_or_processing`, true when either
+`active_ultimate_command_token != 0` or `is_processing_interrupt_queue` is
+true). The queue is reset (cleared, flags zeroed) on every path that already
+resets battle state: `_reset_ultimate_command_runtime()` (battle
+start/restart), `_win()`, `_lose()`, and `_exit_tree()` (scene exit). No new
+reset path was invented; the queue rides along on existing hooks.
+
+### Off-turn request lifecycle
+
+`request_off_turn_ultimate(actor)` is the single entry point. It is called
+from `_on_ultimate_pressed()` whenever `state != BattleState.PLAYER_TURN`
+(the pre-existing on-turn branch is otherwise unchanged — the on-turn check
+now simply runs first). Request-time validation is entirely delegated to
+`UltimateInterruptQueue.request_ultimate()` (Block 9A logic, unmodified):
+actor alive, not a duplicate for that actor, battle not over, no Ultimate
+already active/processing, Energy sufficient. On accept, the request is
+appended to the FIFO queue and a `battle_log` line ("Octagram Fragment
+queued.") is shown — nothing else happens: no state change, no UI lock, no
+Energy deduction, no target selection. On reject,
+`_interrupt_request_failure_message(reason)` maps the reason to one of
+"Ultimate already queued.", "Not enough Energy.", or "Cannot use Ultimate
+now.", shown the same way `_basic_command_failure_message`/
+`_skill_command_failure_message`/`_ultimate_command_failure_message` already
+report on-turn failures.
+
+The Ultimate button itself stays independently clickable during enemy turn
+via one additive parameter on the shared UI helper,
+`battle_ui.gd::set_actions_enabled(enabled, ultimate_ready, skill_ready,
+ultimate_interactable_override = false)`. `_update_action_buttons()` passes
+`_can_request_off_turn_ultimate_input()` as that fourth argument — true only
+when `state == ENEMY_TURN`, the new flow is active, the queue is not
+currently processing, no Ultimate command is active, and no Ultimate
+command is already pending. Basic and Skill buttons are unaffected; they
+still use only the first three parameters exactly as before Block 9B.
+
+### Safe window B and process-time validation
+
+The hook lives at the exact point the Block 9A audit identified as window
+B: the tail of `_enemy_attack()`, previously `_begin_player_turn(log_text)`
+directly, now `await _resume_after_enemy_action(log_text)`. Every line of
+`_enemy_attack()` above that tail call (movement, damage, hit feedback,
+`is_defeated()` check, the `_lose()` branch) is byte-for-byte unchanged —
+Block 9B does not add guard checks inside the enemy attack coroutine, since
+the hook only replaces what already ran *after* the enemy turn was fully
+resolved.
+
+`_resume_after_enemy_action(log_text)` re-checks `_is_battle_over()`/scene
+validity (covers the `_lose()` case — a defeated player never reaches the
+queue), then calls `_process_interrupt_queue_at_safe_window(&"after_enemy_recovery")`.
+That function performs the Block 9A-specified process-time validation
+(actor still alive, Energy still sufficient, no Ultimate now active,
+battle not over) by dequeuing with `revalidate()` in a loop, discarding any
+now-stale request and trying the next one, until either a valid request is
+found or the queue empties. At most **one** request is processed per safe
+window — a second queued request (if any) waits for the *next* safe window
+B, i.e. after the following enemy turn, not immediately. If no request is
+valid or the queue is empty, `_resume_after_enemy_action` falls through to
+the original `_begin_player_turn(log_text)` call, so normal play is
+byte-identical to pre-Block-9B whenever nothing is queued.
+
+### Queued Ultimate execution path (reuse, not rebuild)
+
+`_begin_queued_ultimate(request)` sets `state = BattleState.PLAYER_TURN`
+*before* calling `ultimate_command_adapter.begin_ultimate(&"octagram_fragment",
+SINGLE_ENEMY, request.energy_cost, 0, RequestSource.INTERRUPT_REQUEST,
+true)` — the last two arguments are `request_source` and the new
+`interrupt_authorized` flag. Setting `state` first is what makes every
+existing on-turn guard (`_validate_ultimate_command`,
+`_ultimate_execution_guard`, `_ultimate_recovery_guard`, all of
+`_run_ultimate_sequence()`'s 11 checkpoints) work completely unmodified:
+those guards check `state == PLAYER_TURN`/`ACTION_RESOLUTION`, never turn
+*origin*, so a queued Ultimate walks through ready idle, target select,
+confirm/cancel, commit/Energy-spend, cut-in, execution, and recovery via the
+exact same code path Block 8 built and Block 8.5/9A left untouched — no
+duplicate implementation was written.
+
+The only new branching is at the very end of that shared path, where the
+system must decide whether to hand off to enemy turn (on-turn behavior) or
+back to player turn (off-turn behavior). `PendingBattleCommand` already
+carries `request_source`; a new helper, `_is_interrupt_sourced(command)`,
+reads it. `_finish_ultimate_command_resolution()` gained one additive
+parameter, `is_interrupt: bool = false` (every existing on-turn call site is
+unaffected since it defaults false), and its final branch is now:
+
+```gdscript
+if is_interrupt:
+    _finish_interrupt_ultimate_action(log_text)
+else:
+    _finish_player_action(log_text)
+```
+
+`_finish_interrupt_ultimate_action(log_text)` is the
+`AFTER_INTERRUPT_CONTINUE_TO_PLAYER_TURN` resume policy: refresh UI, clear
+`is_processing_interrupt_queue`/`active_interrupt_request`, check
+`enemy.is_defeated()` (a queued Ultimate can still win the battle) → `_win()`,
+otherwise `_begin_player_turn(log_text)`. This is the only path that leads
+to player turn after a queued Ultimate; `_finish_player_action` (which would
+incorrectly call `_begin_enemy_turn()` a second time) is never reached for
+an interrupt-sourced command.
+
+### Confirm/cancel/fail on a queued Ultimate
+
+`_on_ultimate_command_cancelled(command)` and
+`_on_ultimate_command_failed(command, reason)` both gained an
+interrupt-sourced branch (checked via `_is_interrupt_sourced(command)`)
+that resets the same processing flags and calls
+`_begin_player_turn(...)` directly instead of falling through to the
+existing on-turn else-branch, which is preserved byte-identical below the
+new branch. Cancelling a queued Ultimate at target-select/confirm returns
+control to the player, exactly as cancelling an on-turn Ultimate returns to
+`COMMAND_SELECT` — Energy is never spent, since cancel already happens
+before the commit boundary in both cases.
+
+### Energy timing (unchanged rule, re-verified for the off-turn path)
+
+Energy is deducted **only** inside the existing commit boundary
+(`commit_pending_command()`), which a queued Ultimate reaches through the
+identical adapter call an on-turn Ultimate uses. Nothing in
+`request_off_turn_ultimate()`, the queue, or
+`_process_interrupt_queue_at_safe_window()` touches `ultimate_energy`. This
+was verified by `_test_off_turn_request_enqueues_without_side_effects` and
+`_test_safe_window_b_cancel_returns_to_player_turn` (Energy unchanged after
+a queued-then-cancelled request) in the new automated suite.
+
+### Automated tests
+
+New: `tests/battle/test_ultimate_off_turn_interrupt.gd` (+ `.tscn`), 10
+functions, all passing against the Lesser Abyss and Bandit Captain
+encounters: request enqueues without side effects; duplicate off-turn
+request rejected; insufficient-Energy request rejected; dead-actor request
+rejected; queue clears on victory; stale-Energy request discarded at
+process-time; stale-actor request discarded at process-time; safe window B
+cancel returns to player turn; safe window B full confirm flow (ready idle
+through recovery, each flow signal firing exactly once); Bandit Captain
+safe window B cancel (encounter-independent regression coverage).
+
+Existing suites re-run clean with zero changes required:
+`test_ultimate_interrupt_queue.gd` (Block 9A contract test, still exercises
+the queue in isolation), `test_ultimate_command_flow.gd`,
+`test_production_ultimate_command_flow.gd`,
+`test_production_skill_command_flow.gd`,
+`test_production_basic_attack_flow.gd`, `test_basic_attack_fast_flow.gd`,
+`test_bandit_encounter_startup.gd`, and the full battle scene manual smoke
+path.
+
+### Known limitations carried into Block 9C
+
+1. **Window A is not built.** Requesting off-turn Ultimate still only
+   resolves at safe window B (after enemy recovery). A request made the
+   instant enemy turn begins still waits for that same enemy turn to fully
+   finish before it can process — it does not shorten or interrupt the
+   enemy's action. This matches the Block 9B scope exactly; window A
+   remains a Block 9C+ decision requiring the enemy-attack guard-chain work
+   the Block 9A audit flagged as out of scope.
+2. **Only one request processes per safe window.** If somehow more than one
+   request were queued (not reachable today, since only Takashi has
+   Ultimate and duplicate requests per actor are rejected), the second
+   would wait for the *next* window B, not the same one.
+3. **`ultimate_energy` is still `BattleManager`-scoped, not actor-scoped**
+   (inherited limitation from Block 9A, confirmed still true and still
+   unaddressed — no second Ultimate-capable actor exists yet, so this has
+   not caused an observable bug).
+4. **Camera/VFX state during the cut-in is not snapshotted or restored**
+   around the interrupt boundary — this does not matter for window B (there
+   is no camera state to preserve, since nothing was mid-animation when the
+   request was queued), but would matter immediately if window A were ever
+   attempted, per the Block 9A risk list.
+5. `SuspendedBattleContext` remains an unused skeleton after this block —
+   confirmed still correct to leave unintegrated, since window B never
+   suspends anything mid-flight.
+
+### Explicit confirmations
+
+- Window A (mid-enemy-action interrupt) is **not** implemented.
+- Mid-action suspended context (`SuspendedBattleContext` actually capturing
+  and resuming) is **not** active anywhere in production.
+- A queued Ultimate does **not** consume or skip the player's next on-turn
+  turn — `_finish_interrupt_ultimate_action` always routes back through
+  `_begin_player_turn()`, the same function that starts every ordinary
+  player turn.
+- Energy is **not** deducted at request time or while queued — only at the
+  existing commit boundary, unchanged from Block 8.
+- Damage formula, Energy/SP balance constants, AI, encounter data, story
+  flags, `WorldProgress`, `MusicDirector`, and `SceneTransition` were not
+  touched by this block.
+- `battle_manager.gd` was not rewritten; all changes are additive
+  (new functions, new optional trailing parameters with defaults matching
+  prior behavior) or single-line tail replacements
+  (`_enemy_attack()`'s final call site).
+
 ## Responsibility model
 
 Four independent state domains are required:

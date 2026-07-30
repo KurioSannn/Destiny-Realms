@@ -263,6 +263,11 @@ var active_ultimate_command_token: int = 0
 var ultimate_recovery_tokens: Dictionary = {}
 var ultimate_turn_completion_tokens: Dictionary = {}
 var ultimate_hit_tokens: Dictionary = {}
+var ultimate_interrupt_queue: UltimateInterruptQueue
+var is_processing_interrupt_queue: bool = false
+var active_interrupt_request: UltimateInterruptRequest = null
+var interrupt_resume_token: int = 0
+var _processed_interrupt_request_ids: Dictionary = {}
 var encounter_enemy_name: String = "Lesser Abyss"
 var encounter_enemy_max_hp: int = ENEMY_MAX_HP
 var encounter_enemy_damage: int = ENEMY_BASE_DAMAGE
@@ -310,6 +315,7 @@ func _ready() -> void:
 	_setup_basic_command_runtime()
 	_setup_skill_command_runtime()
 	_setup_ultimate_command_runtime()
+	_setup_ultimate_interrupt_queue()
 	restart_battle()
 	_play_battle_intro_effect()
 
@@ -395,6 +401,7 @@ func _exit_tree() -> void:
 	active_ultimate_command_token = 0
 	if ultimate_command_adapter != null:
 		ultimate_command_adapter.reset()
+	_reset_ultimate_interrupt_queue()
 
 
 func restart_battle() -> void:
@@ -1558,10 +1565,202 @@ func _reset_ultimate_command_runtime() -> void:
 		ultimate_command_adapter.reset()
 	_hide_ultimate_target_highlight()
 	_set_ultimate_command_panel_visible(false)
+	_reset_ultimate_interrupt_queue()
 
 
 func _uses_new_ultimate_command_flow() -> bool:
 	return use_new_ultimate_command_flow and ultimate_command_adapter != null
+
+
+## --- Block 9B off-turn interrupt queue integration ---------------------
+
+func _setup_ultimate_interrupt_queue() -> void:
+	if ultimate_interrupt_queue != null:
+		return
+	ultimate_interrupt_queue = UltimateInterruptQueue.new()
+	ultimate_interrupt_queue.configure(
+		_interrupt_energy_lookup,
+		_is_battle_over,
+		_is_ultimate_active_or_processing
+	)
+
+
+func _reset_ultimate_interrupt_queue() -> void:
+	if ultimate_interrupt_queue != null:
+		ultimate_interrupt_queue.clear()
+	is_processing_interrupt_queue = false
+	active_interrupt_request = null
+	_processed_interrupt_request_ids.clear()
+
+
+func _interrupt_energy_lookup(_actor: Node) -> int:
+	return ultimate_energy
+
+
+func _is_ultimate_active_or_processing() -> bool:
+	return active_ultimate_command_token != 0 or is_processing_interrupt_queue
+
+
+## True only while ENEMY_TURN is genuinely in progress and nothing else
+## (a committed command, an already-active Ultimate, an existing queued
+## request for this actor) makes an off-turn request unsafe to even queue.
+## Used both to gate the Ultimate button's independent interactable state
+## and as the first check inside request_off_turn_ultimate().
+func _can_request_off_turn_ultimate_input() -> bool:
+	return (
+		state == BattleState.ENEMY_TURN
+		and _uses_new_ultimate_command_flow()
+		and not is_processing_interrupt_queue
+		and active_ultimate_command_token == 0
+		and not _has_pending_ultimate_command()
+	)
+
+
+## Off-turn Ultimate request entry point. This only enqueues — it never
+## spends Energy, never starts ready idle, never selects a target, never
+## starts a cut-in, and never changes whose turn it is. See
+## docs/battle_system_spec.md, "Block 9B implementation status" for the
+## full request lifecycle.
+func request_off_turn_ultimate(actor: Node) -> bool:
+	if ultimate_interrupt_queue == null or not _uses_new_ultimate_command_flow():
+		ui.set_battle_log("Cannot use Ultimate now.")
+		return false
+	if state == BattleState.PLAYER_TURN or _is_battle_over():
+		ui.set_battle_log("Cannot use Ultimate now.")
+		return false
+	if is_processing_interrupt_queue or active_ultimate_command_token != 0:
+		ui.set_battle_log("Cannot use Ultimate now.")
+		return false
+
+	var request := ultimate_interrupt_queue.request_ultimate(
+		actor,
+		&"octagram_fragment",
+		MAX_ULTIMATE_ENERGY,
+		state,
+		0
+	)
+	if request.validation_status != UltimateInterruptRequest.ValidationStatus.ACCEPTED:
+		ui.set_battle_log(_interrupt_request_failure_message(request.reject_reason))
+		return false
+
+	var actor_name: String = actor.combatant_name if actor is Combatant else "Ultimate"
+	ui.set_battle_log("Ultimate queued: %s" % actor_name)
+	return true
+
+
+func _interrupt_request_failure_message(reason: StringName) -> String:
+	match reason:
+		&"duplicate_request":
+			return "Ultimate already queued."
+		&"insufficient_energy":
+			return "Not enough Energy."
+	return "Cannot use Ultimate now."
+
+
+## Safe window B hook: called once, right after enemy action recovery, and
+## nowhere else. Returns true if a queued Ultimate was actually begun (in
+## which case its own cancel/fail/finish handlers are responsible for
+## eventually calling _begin_player_turn() exactly once) or false if there
+## was nothing safe/valid to process (in which case the caller must call
+## _begin_player_turn() itself). Never processes more than one request per
+## call, per docs/battle_system_spec.md's Block 9B recommendation.
+func _process_interrupt_queue_at_safe_window(window_id: StringName) -> bool:
+	if window_id != &"after_enemy_recovery":
+		return false
+	if not is_inside_tree() or _is_battle_over():
+		return false
+	if ultimate_interrupt_queue == null or ultimate_interrupt_queue.is_empty():
+		return false
+	if is_processing_interrupt_queue:
+		return false
+	if (
+		active_basic_command_token != 0
+		or active_skill_command_token != 0
+		or active_ultimate_command_token != 0
+	):
+		return false
+	if (
+		_has_pending_basic_command()
+		or _has_pending_skill_command()
+		or _has_pending_ultimate_command()
+	):
+		return false
+
+	while not ultimate_interrupt_queue.is_empty():
+		var request: UltimateInterruptRequest = ultimate_interrupt_queue.dequeue_next()
+		if request == null:
+			return false
+		if _processed_interrupt_request_ids.has(request.unique_request_id):
+			continue
+		var reason := ultimate_interrupt_queue.revalidate(request)
+		if not reason.is_empty():
+			_processed_interrupt_request_ids[request.unique_request_id] = true
+			continue
+		return _begin_queued_ultimate(request)
+
+	return false
+
+
+## Starts the queued Ultimate through the exact on-turn command flow
+## (UltimateCommandAdapter.begin_ultimate -> BattleCommandFlow.begin_command),
+## with request_source = INTERRUPT_REQUEST and interrupt_authorized = true
+## so BattleCommandFlow's normal rejection is bypassed for this one call
+## only. `state` is set to PLAYER_TURN first because every existing
+## Ultimate validation function (_validate_ultimate_command,
+## _begin_ultimate_command's own guard) already requires
+## `state == PLAYER_TURN`; this is genuinely accurate here too, since safe
+## window B is, by construction, a moment where nothing else is active and
+## it is safe for the player to act.
+func _begin_queued_ultimate(request: UltimateInterruptRequest) -> bool:
+	_processed_interrupt_request_ids[request.unique_request_id] = true
+	is_processing_interrupt_queue = true
+	active_interrupt_request = request
+	interrupt_resume_token += 1
+
+	state = BattleState.PLAYER_TURN
+	ultimate_command_adapter.begin_ultimate(
+		&"octagram_fragment",
+		PendingBattleCommand.TargetRule.SINGLE_ENEMY,
+		request.energy_cost,
+		0,
+		PendingBattleCommand.RequestSource.INTERRUPT_REQUEST,
+		true
+	)
+
+	if _has_pending_ultimate_command():
+		return true
+
+	# begin_ultimate() failed before (or without) creating a pending command.
+	# _on_ultimate_command_failed already ran synchronously above as part of
+	# that call and, for an interrupt-sourced command, already reset the
+	# flags above and resumed player turn itself. This block only fires as a
+	# defensive fallback for the rare case its own guard could not identify
+	# the failure as interrupt-sourced (e.g. a foreign pending command
+	# already existed) — so the battle can never get stuck waiting on a
+	# request that never actually started.
+	if is_processing_interrupt_queue:
+		is_processing_interrupt_queue = false
+		active_interrupt_request = null
+		_begin_player_turn()
+	return false
+
+
+## Resume policy for Block 9B: AFTER_INTERRUPT_CONTINUE_TO_PLAYER_TURN.
+## Safe window B occurs after the enemy action has fully completed, so
+## there is no suspended mid-action state to restore — resuming means
+## exactly one call to _begin_player_turn(). See
+## docs/battle_system_spec.md, "Block 9B implementation status" for why a
+## full SuspendedBattleContext is not instantiated here.
+func _finish_interrupt_ultimate_action(log_text: String) -> void:
+	_refresh_energy_ui()
+	_refresh_skill_points_ui()
+	_start_player_idle_animation()
+	is_processing_interrupt_queue = false
+	active_interrupt_request = null
+	if enemy.is_defeated():
+		_win("Enemy defeated. You win!")
+		return
+	_begin_player_turn(log_text)
 
 
 func _begin_ultimate_command() -> bool:
@@ -1623,11 +1822,17 @@ func _on_ultimate_command_target_changed(
 	_show_ultimate_target_highlight(command)
 
 
-func _on_ultimate_command_cancelled(_command: PendingBattleCommand) -> void:
+func _on_ultimate_command_cancelled(command: PendingBattleCommand) -> void:
+	var was_interrupt := _is_interrupt_sourced(command)
 	active_ultimate_command_token = 0
 	_start_player_idle_animation()
 	_hide_ultimate_target_highlight()
 	_set_ultimate_command_panel_visible(false)
+	if was_interrupt:
+		is_processing_interrupt_queue = false
+		active_interrupt_request = null
+		_begin_player_turn("Octagram Fragment cancelled.")
+		return
 	ui.set_battle_input_enabled(true)
 	ui.set_turn_text("Player Turn")
 	ui.set_battle_log("Octagram Fragment cancelled.")
@@ -1643,20 +1848,35 @@ func _on_ultimate_command_committed(command: PendingBattleCommand) -> void:
 
 
 func _on_ultimate_command_failed(
-	_command: PendingBattleCommand,
+	command: PendingBattleCommand,
 	reason: StringName
 ) -> void:
+	var was_interrupt := _is_interrupt_sourced(command)
 	active_ultimate_command_token = 0
 	_start_player_idle_animation()
 	_hide_ultimate_target_highlight()
 	_set_ultimate_command_panel_visible(false)
 	if _is_battle_over():
 		return
+	if was_interrupt:
+		is_processing_interrupt_queue = false
+		active_interrupt_request = null
+		_begin_player_turn(_ultimate_command_failure_message(reason))
+		return
 	state = BattleState.PLAYER_TURN
 	ui.set_battle_input_enabled(true)
 	ui.set_turn_text("Player Turn")
 	ui.set_battle_log(_ultimate_command_failure_message(reason))
 	_update_action_buttons(true)
+
+
+## True when `command` was started via the Block 9B off-turn interrupt
+## queue rather than the normal on-turn Ultimate button.
+func _is_interrupt_sourced(command: PendingBattleCommand) -> bool:
+	return (
+		command != null
+		and command.request_source == PendingBattleCommand.RequestSource.INTERRUPT_REQUEST
+	)
 
 
 func _start_ultimate_ready_idle() -> void:
@@ -1689,7 +1909,8 @@ func _execute_committed_ultimate(command: PendingBattleCommand) -> void:
 
 func _finish_ultimate_command_resolution(
 	command: PendingBattleCommand,
-	log_text: String
+	log_text: String,
+	is_interrupt: bool = false
 ) -> void:
 	if not _is_committed_ultimate_command(command):
 		return
@@ -1712,7 +1933,10 @@ func _finish_ultimate_command_resolution(
 		return
 	ultimate_turn_completion_tokens[token] = true
 	active_ultimate_command_token = 0
-	_finish_player_action(log_text)
+	if is_interrupt:
+		_finish_interrupt_ultimate_action(log_text)
+	else:
+		_finish_player_action(log_text)
 
 
 func _abort_committed_ultimate_command(
@@ -2162,7 +2386,23 @@ func _enemy_attack() -> void:
 		_lose("You were defeated.")
 		return
 
-	_begin_player_turn(log_text)
+	await _resume_after_enemy_action(log_text)
+
+
+## Safe window B guard: the only place _enemy_attack() no longer calls
+## _begin_player_turn() directly. This is the minimal change
+## docs/battle_system_spec.md's Block 9B section calls for — enemy movement,
+## damage, and hit feedback above are byte-for-byte unchanged; only this
+## tail call was replaced, and only to add exactly one more decision point
+## before player turn resumes.
+func _resume_after_enemy_action(log_text: String) -> void:
+	if _is_battle_over() or not is_inside_tree():
+		return
+	var processed: bool = await _process_interrupt_queue_at_safe_window(&"after_enemy_recovery")
+	if _is_battle_over() or not is_inside_tree():
+		return
+	if not processed:
+		_begin_player_turn(log_text)
 
 
 func _on_attack_pressed() -> void:
@@ -2283,11 +2523,18 @@ func _start_legacy_skill() -> void:
 
 
 func _on_ultimate_pressed() -> void:
+	# Block 9B: off-turn requests only ever reach here when the Ultimate
+	# button was independently made interactable by
+	# _can_request_off_turn_ultimate_input() (see _update_action_buttons),
+	# which already requires state == ENEMY_TURN. Basic/Skill can never have
+	# a pending command in that state, so routing here first does not skip
+	# any cancellation the original PLAYER_TURN path used to do.
+	if state != BattleState.PLAYER_TURN:
+		request_off_turn_ultimate(player)
+		return
 	if _has_pending_basic_command() and not _cancel_basic_attack_command():
 		return
 	if _has_pending_skill_command() and not _cancel_skill_command():
-		return
-	if state != BattleState.PLAYER_TURN:
 		return
 
 	if _uses_new_ultimate_command_flow():
@@ -2392,7 +2639,7 @@ func _run_ultimate_sequence(
 	_shake_camera()
 	var log_text := "Octagram Fragment deals %d damage and consumes all energy." % ULTIMATE_DAMAGE
 	if command != null:
-		_finish_ultimate_command_resolution(command, log_text)
+		_finish_ultimate_command_resolution(command, log_text, _is_interrupt_sourced(command))
 	else:
 		_finish_player_action(log_text)
 
@@ -3535,6 +3782,7 @@ func _win(log_text: String) -> void:
 	active_basic_command_token = 0
 	active_skill_command_token = 0
 	active_ultimate_command_token = 0
+	_reset_ultimate_interrupt_queue()
 	if basic_command_adapter != null:
 		basic_command_adapter.lock_for_outcome(true)
 	if skill_command_adapter != null:
@@ -3567,6 +3815,7 @@ func _lose(log_text: String) -> void:
 	active_basic_command_token = 0
 	active_skill_command_token = 0
 	active_ultimate_command_token = 0
+	_reset_ultimate_interrupt_queue()
 	if basic_command_adapter != null:
 		basic_command_adapter.lock_for_outcome(false)
 	if skill_command_adapter != null:
@@ -3600,7 +3849,12 @@ func _refresh_skill_points_ui() -> void:
 
 
 func _update_action_buttons(enabled: bool) -> void:
-	ui.set_actions_enabled(enabled, ultimate_energy >= MAX_ULTIMATE_ENERGY, skill_points >= SKILL_POINT_COST_SKILL)
+	ui.set_actions_enabled(
+		enabled,
+		ultimate_energy >= MAX_ULTIMATE_ENERGY,
+		skill_points >= SKILL_POINT_COST_SKILL,
+		_can_request_off_turn_ultimate_input()
+	)
 
 
 func _add_ultimate_energy(amount: int) -> void:

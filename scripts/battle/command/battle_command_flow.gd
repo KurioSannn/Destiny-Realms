@@ -79,9 +79,19 @@ func begin_command(
 	request_source: int = PendingBattleCommand.RequestSource.TURN_COMMAND,
 	requires_ready_idle: bool = true,
 	requires_confirm: bool = true,
-	auto_commit_on_target_selected: bool = false
+	auto_commit_on_target_selected: bool = false,
+	interrupt_authorized: bool = false
 ) -> bool:
-	if request_source == PendingBattleCommand.RequestSource.INTERRUPT_REQUEST:
+	# Block 9B: INTERRUPT_REQUEST is still rejected unless the caller passes
+	# interrupt_authorized = true. No existing caller does — Basic/Skill/
+	# on-turn Ultimate, the debug scene, and the contract test all omit this
+	# argument, so they keep getting rejected exactly as before this block.
+	# Only BattleManager's safe-window-B queue processing (Block 9B) passes
+	# true, and only after its own process-time validation already ran.
+	if (
+		request_source == PendingBattleCommand.RequestSource.INTERRUPT_REQUEST
+		and not interrupt_authorized
+	):
 		_fail(null, &"off_turn_interrupt_not_available")
 		return false
 	if battle_state != BattleFlowState.COMMAND_SELECT:

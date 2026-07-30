@@ -134,7 +134,12 @@ func set_battle_input_enabled(enabled: bool) -> void:
 	battle_input_enabled = enabled
 
 
-func set_actions_enabled(enabled: bool, ultimate_ready: bool = false, skill_ready: bool = true) -> void:
+func set_actions_enabled(
+	enabled: bool,
+	ultimate_ready: bool = false,
+	skill_ready: bool = true,
+	ultimate_interactable_override: bool = false
+) -> void:
 	attack_button.disabled = not enabled
 	attack_button.text = ""
 	attack_button.tooltip_text = ""
@@ -147,16 +152,22 @@ func set_actions_enabled(enabled: bool, ultimate_ready: bool = false, skill_read
 	_apply_action_button_style(skill_button, enabled and skill_ready, false)
 	skill_caption.add_theme_color_override("font_color", TEXT_COLOR if enabled and skill_ready else MUTED_TEXT_COLOR)
 
-	ultimate_button.disabled = not enabled or not ultimate_ready
+	# ultimate_interactable_override lets BattleManager keep the Ultimate
+	# button clickable (Block 9B off-turn interrupt requests) even while
+	# enabled is false for Basic/Skill. Every existing caller omits this
+	# argument, so it defaults to false and this line reduces to the
+	# original `not enabled or not ultimate_ready` for them.
+	var ultimate_interactable := enabled or ultimate_interactable_override
+	ultimate_button.disabled = not ultimate_interactable or not ultimate_ready
 	ultimate_button.text = ""
 	ultimate_button.tooltip_text = ""
-	if ultimate_ready and enabled:
+	if ultimate_ready and ultimate_interactable:
 		_apply_action_button_style(ultimate_button, true, true)
 	elif ultimate_ready:
 		_apply_action_button_style(ultimate_button, false, true)
 	else:
 		_apply_action_button_style(ultimate_button, false, false)
-	ultimate_caption.add_theme_color_override("font_color", READY_TEXT_COLOR if enabled and ultimate_ready else MUTED_TEXT_COLOR)
+	ultimate_caption.add_theme_color_override("font_color", READY_TEXT_COLOR if ultimate_interactable and ultimate_ready else MUTED_TEXT_COLOR)
 
 
 func set_restart_visible(_show_restart: bool) -> void:

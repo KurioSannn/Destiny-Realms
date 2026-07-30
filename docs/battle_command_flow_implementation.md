@@ -28,6 +28,14 @@ additive stub methods on `BattleCommandFlow`. None of it is wired to
 production. `begin_command()` still rejects `RequestSource.INTERRUPT_REQUEST`
 unconditionally, exactly as before this block.
 
+Block 9B wires the Block 9A `UltimateInterruptQueue` into `BattleManager`
+and makes off-turn Ultimate executable in production for **safe window B
+only** (after enemy action/recovery completes, before the next player
+turn). Window A (mid-enemy-action interrupt) and full suspend/resume via
+`SuspendedBattleContext` remain unimplemented. `begin_command()` now accepts
+`RequestSource.INTERRUPT_REQUEST` only when explicitly authorized by an
+additive `interrupt_authorized` parameter that defaults to `false`.
+
 Run the isolated scene with F6:
 
 `res://scenes/battle/debug/battle_command_flow_debug.tscn`
@@ -41,9 +49,9 @@ Run the isolated scene with F6:
 | `scripts/battle/command/basic_attack_command_adapter.gd` | Production Basic Attack bridge from `BattleManager` to `BattleCommandFlow` |
 | `scripts/battle/command/skill_command_adapter.gd` | Production Skill bridge from `BattleManager` to `BattleCommandFlow` |
 | `scripts/battle/command/ultimate_command_adapter.gd` | Production on-turn Ultimate bridge from `BattleManager` to `BattleCommandFlow` |
-| `scripts/battle/command/suspended_battle_context.gd` | Block 9A skeleton: snapshot data for a future paused turn. Not constructed by production code yet |
-| `scripts/battle/command/ultimate_interrupt_request.gd` | Block 9A skeleton: off-turn Ultimate request data. Not constructed by production code yet |
-| `scripts/battle/command/ultimate_interrupt_queue.gd` | Block 9A skeleton: pure FIFO queue for interrupt requests. Not instantiated by production code yet |
+| `scripts/battle/command/suspended_battle_context.gd` | Block 9A skeleton: snapshot data for a future paused turn. Still not constructed by production code — Block 9B's safe window B never suspends mid-flight state |
+| `scripts/battle/command/ultimate_interrupt_request.gd` | Block 9A skeleton: off-turn Ultimate request data. Now constructed by `BattleManager.request_off_turn_ultimate()` (Block 9B) |
+| `scripts/battle/command/ultimate_interrupt_queue.gd` | Block 9A skeleton: pure FIFO queue for interrupt requests. Now instantiated and owned by `BattleManager` (Block 9B), unmodified since Block 9A |
 | `scripts/battle/debug/battle_command_flow_debug.gd` | Adapter to existing combatants, resources, VFX, audio, damage, and enemy turn |
 | `scripts/battle/debug/battle_command_debug_panel.gd` | F6-only state readout and debug controls |
 | `scenes/battle/debug/battle_command_flow_debug.tscn` | Isolated inherited battle scene; production scene is unchanged |
@@ -714,3 +722,136 @@ missing enemy-turn guard chain, and give `can_process_interrupt_now()` (or
 its real replacement, likely `BattleManager`-owned) an actual
 implementation — starting with window B (after enemy recovery, before next
 turn), the least architecturally risky of the three candidate windows.
+
+## Block 9B: off-turn interrupt wired to production (safe window B only)
+
+Block 9B makes the Block 9A skeletons load-bearing. It does not rewrite
+`battle_manager.gd`; every change is either a new function, an additive
+optional trailing parameter with a default that preserves prior behavior
+exactly, or a single-line tail replacement inside one existing function
+(`_enemy_attack()`). See `docs/battle_system_spec.md`, "Block 9B
+implementation status" for the full design writeup (request lifecycle,
+safe window B mechanics, execution-path reuse, resume policy, known
+limitations, explicit confirmations). This section covers only what
+changed in code and how to verify it.
+
+**Files changed:**
+
+- `scripts/battle/command/battle_command_flow.gd` — `begin_command()`
+  gained a 14th parameter, `interrupt_authorized: bool = false`. The
+  Block 5 rejection of `RequestSource.INTERRUPT_REQUEST` now only fires
+  `if ... and not interrupt_authorized`. Every existing on-turn caller
+  omits the new argument and is unaffected.
+- `scripts/battle/command/ultimate_command_adapter.gd` — `begin_ultimate()`
+  gained a matching `interrupt_authorized: bool = false` parameter,
+  forwarded positionally into `flow.begin_command()`.
+- `scripts/battle/battle_ui.gd` — `set_actions_enabled()` gained a 4th
+  parameter, `ultimate_interactable_override: bool = false`, letting the
+  Ultimate button stay clickable during enemy turn without touching Basic
+  or Skill button logic.
+- `scripts/battle/battle_manager.gd` — new fields
+  (`ultimate_interrupt_queue`, `is_processing_interrupt_queue`,
+  `active_interrupt_request`, `interrupt_resume_token`,
+  `_processed_interrupt_request_ids`), queue setup/reset wired into
+  `_ready()`, `_exit_tree()`, `_reset_ultimate_command_runtime()`,
+  `_win()`, `_lose()`; new functions `_setup_ultimate_interrupt_queue()`,
+  `_reset_ultimate_interrupt_queue()`, `_interrupt_energy_lookup()`,
+  `_is_ultimate_active_or_processing()`,
+  `_can_request_off_turn_ultimate_input()`, `request_off_turn_ultimate()`,
+  `_interrupt_request_failure_message()`,
+  `_process_interrupt_queue_at_safe_window()`, `_begin_queued_ultimate()`,
+  `_finish_interrupt_ultimate_action()`, `_is_interrupt_sourced()`,
+  `_resume_after_enemy_action()`; `_enemy_attack()`'s tail call changed
+  from `_begin_player_turn(log_text)` to
+  `await _resume_after_enemy_action(log_text)` (only line changed in that
+  function); `_on_ultimate_pressed()` now checks
+  `state != BattleState.PLAYER_TURN` first and routes to
+  `request_off_turn_ultimate(player)`; `_on_ultimate_command_cancelled()`
+  and `_on_ultimate_command_failed()` each gained an interrupt-sourced
+  branch ahead of their unchanged on-turn branch;
+  `_finish_ultimate_command_resolution()` gained an `is_interrupt: bool =
+  false` parameter controlling the final `_finish_interrupt_ultimate_action`
+  vs `_finish_player_action` branch; `_update_action_buttons()` passes
+  `_can_request_off_turn_ultimate_input()` as the new 4th argument to
+  `ui.set_actions_enabled()`.
+
+No changes to `basic_attack_command_adapter.gd`, `skill_command_adapter.gd`,
+`pending_battle_command.gd`, `suspended_battle_context.gd`, damage
+formulas, SP/Energy balance constants, AI, encounter data, story,
+`WorldProgress`, `MusicDirector`, or `SceneTransition`.
+
+### Block 9B Verification
+
+Automated tests (all pre-existing suites re-run with zero modifications
+required, plus one new suite):
+
+`godot --headless --disable-crash-handler --log-file godot-command-flow.log --path . --script res://tests/battle/test_battle_command_flow.gd`
+
+`godot --headless --disable-crash-handler --log-file godot-production-basic.log --path . --scene res://tests/battle/test_production_basic_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-production-skill.log --path . --scene res://tests/battle/test_production_skill_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-production-ultimate.log --path . --scene res://tests/battle/test_production_ultimate_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-basic-fast-flow.log --path . --scene res://tests/battle/test_basic_attack_fast_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-debug-scene.log --path . --scene res://tests/battle/test_battle_command_debug_scene.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-bandit-startup.log --path . --scene res://tests/battle/test_bandit_battle_startup.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-interrupt-queue.log --path . --scene res://tests/battle/test_ultimate_interrupt_queue.tscn`
+
+New in Block 9B:
+
+`godot --headless --disable-crash-handler --log-file godot-interrupt-integration.log --path . --scene res://tests/battle/test_ultimate_off_turn_interrupt.tscn`
+
+`test_ultimate_off_turn_interrupt.gd` covers, against both the Lesser Abyss
+and Bandit Captain encounters: off-turn request enqueues with zero side
+effects; duplicate off-turn request rejected; insufficient-Energy request
+rejected; dead-actor request rejected; queue clears on victory; a request
+that goes stale (Energy spent elsewhere / actor state changed) between
+enqueue and safe window B is discarded rather than executed; a request from
+an actor that becomes invalid before window B is discarded; safe window B
+cancel returns cleanly to player turn with Energy unchanged; a full safe
+window B confirm flow (ready idle through recovery) with each
+`BattleCommandFlow` signal firing exactly once; the same cancel-flow
+regression against the Bandit Captain encounter.
+
+Visual QA: `tests/battle/capture_ultimate_off_turn_interrupt.gd` (+
+`.tscn`) captures 10 screenshots per resolution (1280x720 and 1920x1080) to
+`docs/images/battle_command_flow/ultimate_off_turn_interrupt/{1280x720,1920x1080}/`:
+command select, enemy turn with Ultimate queued, ready idle immediately
+after enemy recovery, queued target select, queued confirm/cancel, queued
+cut-in, queued execution, queued damage resolution, queued recovery, and
+player turn resumed.
+
+`godot --headless --disable-crash-handler --log-file godot-capture-interrupt.log --path . --scene res://tests/battle/capture_ultimate_off_turn_interrupt.tscn -- --capture-size=1280x720`
+
+`godot --headless --disable-crash-handler --log-file godot-capture-interrupt.log --path . --scene res://tests/battle/capture_ultimate_off_turn_interrupt.tscn -- --capture-size=1920x1080`
+
+Known Block 9B limitations:
+
+- Window A (mid-enemy-action interrupt) is not implemented; a request made
+  the instant enemy turn begins still waits for that enemy turn to fully
+  finish before it can process.
+- At most one queued request is processed per safe window B; a
+  hypothetical second queued request (not reachable today — only Takashi
+  has Ultimate, and duplicate requests per actor are rejected) would wait
+  for the next window B.
+- `ultimate_energy` remains `BattleManager`-scoped, not actor-scoped —
+  unresolved carry-over from Block 9A, still not exercised by a second
+  Ultimate-capable actor.
+- `SuspendedBattleContext` remains unintegrated; not needed for window B,
+  would be needed for window A.
+- Camera/VFX state is not snapshotted around the interrupt boundary — not
+  observable today since window B never interrupts a mid-flight animation.
+
+Block 9B does not touch Basic, Skill, or on-turn Ultimate behavior beyond
+the minimal reuse changes listed above; does not implement window A; does
+not implement suspend/resume; does not change damage formulas, SP/Energy
+balance, AI, encounter data, story, `WorldProgress`, `MusicDirector`, or
+`SceneTransition`; does not overhaul battle UI. Next step: Block 9C should
+decide whether window A is worth the enemy-turn guard-chain work the
+Block 9A audit flagged, and whether multi-request-per-window or
+actor-scoped Energy are needed before any second Ultimate-capable
+character is added.

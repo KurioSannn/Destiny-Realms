@@ -97,18 +97,24 @@ The active atomic action phase finishes first. The battle then stores the
 suspended context, resolves queued Ultimates without allowing an Ultimate to
 interrupt another Ultimate, and restores the original turn exactly once.
 
-This pillar states player-facing intent; it is not yet reality. As of Block
-9A this is architecture and characterization only — a
-`SuspendedBattleContext` skeleton, an `UltimateInterruptRequest`/
-`UltimateInterruptQueue` skeleton, and a documented audit of which points in
-the current battle code are actually safe to interrupt exist, but none of
-it is connected to a production button, and requesting an Ultimate off-turn
-is still rejected outright. When it does land, the queued Ultimate reuses
-the exact on-turn ready idle/target/confirm/cancel/cut-in experience Skill
-and Ultimate already have — off-turn changes *when* an Ultimate can begin,
-never what pressing it feels like once the safe window arrives. See
-`docs/battle_system_spec.md`, "Block 9A implementation status" for the
-current design and what remains for later blocks.
+This pillar is partially reality as of Block 9B. Requesting Ultimate during
+the enemy's turn is now possible from the production Ultimate button: the
+request joins the FIFO queue with no immediate effect, and is resolved
+automatically the moment the enemy's action and recovery finish — before
+the player would otherwise regain control. The queued Ultimate reuses the
+exact on-turn ready idle/target/confirm/cancel/cut-in experience Skill and
+Ultimate already have; off-turn changes *when* an Ultimate can begin, never
+what pressing it feels like once the safe window arrives.
+
+What remains player-facing intent, not yet reality: interrupting *during*
+the enemy's action itself (rather than waiting for it to finish), and true
+suspend/resume of a mid-flight atomic phase. Block 9A's
+`SuspendedBattleContext` skeleton still exists but is unused — the one safe
+window implemented so far (after enemy recovery, before the next turn)
+never needs to suspend anything mid-flight, since nothing is in progress at
+that instant. See `docs/battle_system_spec.md`, "Block 9B implementation
+status" for the current design, what changed since Block 9A, and what
+remains for later blocks.
 
 ## Visual character direction
 
