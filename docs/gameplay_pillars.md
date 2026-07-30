@@ -97,6 +97,19 @@ The active atomic action phase finishes first. The battle then stores the
 suspended context, resolves queued Ultimates without allowing an Ultimate to
 interrupt another Ultimate, and restores the original turn exactly once.
 
+This pillar states player-facing intent; it is not yet reality. As of Block
+9A this is architecture and characterization only — a
+`SuspendedBattleContext` skeleton, an `UltimateInterruptRequest`/
+`UltimateInterruptQueue` skeleton, and a documented audit of which points in
+the current battle code are actually safe to interrupt exist, but none of
+it is connected to a production button, and requesting an Ultimate off-turn
+is still rejected outright. When it does land, the queued Ultimate reuses
+the exact on-turn ready idle/target/confirm/cancel/cut-in experience Skill
+and Ultimate already have — off-turn changes *when* an Ultimate can begin,
+never what pressing it feels like once the safe window arrives. See
+`docs/battle_system_spec.md`, "Block 9A implementation status" for the
+current design and what remains for later blocks.
+
 ## Visual character direction
 
 - Stylized compact anime proportions.

@@ -21,6 +21,13 @@ Block 8.5 revises production Basic Attack into a fast command with no ready
 idle and no confirm/cancel step, while Skill and Ultimate keep their ready
 idle and confirm/cancel steps unchanged.
 
+Block 9A designs and characterizes the architecture for Ultimate off-turn
+interrupt: safe/unsafe window audit, a `SuspendedBattleContext` skeleton, an
+`UltimateInterruptRequest`/`UltimateInterruptQueue` skeleton, and three
+additive stub methods on `BattleCommandFlow`. None of it is wired to
+production. `begin_command()` still rejects `RequestSource.INTERRUPT_REQUEST`
+unconditionally, exactly as before this block.
+
 Run the isolated scene with F6:
 
 `res://scenes/battle/debug/battle_command_flow_debug.tscn`
@@ -34,6 +41,9 @@ Run the isolated scene with F6:
 | `scripts/battle/command/basic_attack_command_adapter.gd` | Production Basic Attack bridge from `BattleManager` to `BattleCommandFlow` |
 | `scripts/battle/command/skill_command_adapter.gd` | Production Skill bridge from `BattleManager` to `BattleCommandFlow` |
 | `scripts/battle/command/ultimate_command_adapter.gd` | Production on-turn Ultimate bridge from `BattleManager` to `BattleCommandFlow` |
+| `scripts/battle/command/suspended_battle_context.gd` | Block 9A skeleton: snapshot data for a future paused turn. Not constructed by production code yet |
+| `scripts/battle/command/ultimate_interrupt_request.gd` | Block 9A skeleton: off-turn Ultimate request data. Not constructed by production code yet |
+| `scripts/battle/command/ultimate_interrupt_queue.gd` | Block 9A skeleton: pure FIFO queue for interrupt requests. Not instantiated by production code yet |
 | `scripts/battle/debug/battle_command_flow_debug.gd` | Adapter to existing combatants, resources, VFX, audio, damage, and enemy turn |
 | `scripts/battle/debug/battle_command_debug_panel.gd` | F6-only state readout and debug controls |
 | `scenes/battle/debug/battle_command_flow_debug.tscn` | Isolated inherited battle scene; production scene is unchanged |
@@ -588,3 +598,119 @@ damage formulas, SP/Energy cost or gain, AI, encounter data, story,
 Block 9 should design the safe-interrupt-window detection and FIFO queue
 described in `docs/battle_system_spec.md`, using the `request_source`
 parameter already threaded through all three command adapters.
+
+## Block 9A: off-turn interrupt architecture (not wired to production)
+
+Block 9A adds three new skeleton classes and three additive stub methods.
+Nothing in this block changes what `battle_manager.gd`, any of the three
+production adapters, or `BattleCommandFlow`'s existing methods actually do
+at runtime. See `docs/battle_system_spec.md`, "Block 9A implementation
+status" for the full design (characterization, safe/unsafe windows,
+suspended context field table, validation layers, UI readiness, known
+risks). This section covers only what changed in code.
+
+**`suspended_battle_context.gd`** (`SuspendedBattleContext`, `RefCounted`).
+Plain data snapshot plus two guard methods: `mark_resumed()` returns `true`
+exactly once, `false` on every subsequent call and after `discard()`;
+`discard()` is permanent. Nothing constructs one from live `BattleManager`
+state yet.
+
+**`ultimate_interrupt_request.gd`** (`UltimateInterruptRequest`,
+`RefCounted`). Plain data holder for one off-turn request:
+actor/action/cost/timestamps plus a `ValidationStatus` enum
+(`PENDING`/`ACCEPTED`/`REJECTED`/`EXPIRED`) and `reject_reason`.
+Constructing one never touches Energy or battle state.
+
+**`ultimate_interrupt_queue.gd`** (`UltimateInterruptQueue`, `RefCounted`).
+Pure FIFO queue over `UltimateInterruptRequest`. `configure()` takes three
+`Callable`s (`energy_lookup`, `battle_over_lookup`, `ultimate_active_lookup`)
+so the queue never reaches into `BattleManager` directly — the same
+dependency-injection shape `BattleCommandFlow.configure_resource_callbacks()`
+already uses. `request_ultimate()` validates and enqueues/rejects
+synchronously (request-time validation); `revalidate()` re-runs the same
+checks against an already-queued request (process-time validation, not
+called by anything yet); `dequeue_next()`/`peek_next()` preserve FIFO;
+`cancel_request_for(actor)` removes a still-queued request. No method on
+this class can mutate Energy, HP, or turn state — it only reads through the
+configured lookups.
+
+**`battle_command_flow.gd` additions** — three methods appended after
+`is_token_consumed()`, none of them called anywhere:
+- `can_process_interrupt_now() -> bool` — always `false`. Documented inline
+  as deliberately *not* a real implementation even in a future block,
+  because real safe-window detection needs `BattleManager`-level state
+  (whose turn it is, whether the enemy await chain is mid-flight) that this
+  per-command controller does not have.
+- `queue_ultimate_interrupt(request: UltimateInterruptRequest) -> bool` —
+  always `false`. No queue is wired to this controller.
+- `begin_interrupt_request(actor, action_id, target_rule, candidate_targets,
+  energy_cost) -> bool` — always `false`. `begin_command()` remains the only
+  way to start a pending command, and its first line is still the
+  unconditional `if request_source == RequestSource.INTERRUPT_REQUEST:
+  _fail(...); return false` check from Block 5, byte-for-byte unchanged.
+
+No enum values were added to `BattleFlowState`, `CharacterAnimationState`,
+or `UiInteractionState` — see "BattleCommandFlow impact" in
+`docs/battle_system_spec.md` for why a battle-wide suspended state does not
+belong on this per-command enum.
+
+### Block 9A Verification
+
+Automated tests:
+
+`godot --headless --disable-crash-handler --log-file godot-command-flow.log --path . --script res://tests/battle/test_battle_command_flow.gd`
+
+`godot --headless --disable-crash-handler --log-file godot-production-basic.log --path . --scene res://tests/battle/test_production_basic_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-production-skill.log --path . --scene res://tests/battle/test_production_skill_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-production-ultimate.log --path . --scene res://tests/battle/test_production_ultimate_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-debug-scene.log --path . --scene res://tests/battle/test_battle_command_debug_scene.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-bandit-startup.log --path . --scene res://tests/battle/test_bandit_battle_startup.tscn`
+
+New in Block 9A:
+
+`godot --headless --disable-crash-handler --log-file godot-interrupt-queue.log --path . --scene res://tests/battle/test_ultimate_interrupt_queue.tscn`
+
+`test_ultimate_interrupt_queue.gd` exercises `UltimateInterruptQueue` in
+total isolation — no `BattleManager`, no scene tree beyond a couple of fake
+`Node`s standing in for combatants. It covers: valid request accepted, a
+second request from the same actor rejected as duplicate, insufficient
+Energy rejected, a dead actor rejected, a request while the battle is
+already over rejected, a request while another Ultimate is active rejected,
+FIFO ordering across two actors, enqueue never spending Energy, cancel
+clearing a still-queued request, and `revalidate()` catching an actor that
+died after its request was already queued.
+
+Startup smoke tests continue to cover Login, Prologue, and Lesser Abyss
+startup with `--quit-after`.
+
+Known Block 9A limitations:
+
+- Off-turn Ultimate cannot be requested, queued, or executed through any
+  production input. This is intentional — Block 9A is architecture and
+  characterization only.
+- The enemy turn (`_enemy_attack()`) has no guard-chain discipline
+  comparable to Basic/Skill/Ultimate. Adding it is a prerequisite for any
+  real interrupt window inside the enemy turn, and is explicitly deferred
+  to Block 9B since it would change enemy-turn behavior, which this block
+  may not do.
+- `SuspendedBattleContext.camera_state` is a `Dictionary` with no
+  populate/restore implementation yet; the actual camera tweens in
+  `_run_ultimate_sequence()` are not wired to it.
+- `ultimate_energy` is currently a single `BattleManager`-level variable,
+  not actor-scoped. This has not mattered because only one character
+  (Takashi) can use Ultimate today; Block 9B must confirm the scoping model
+  before assuming any other actor could hold a queued request.
+
+Block 9A does not touch Basic, Skill, Ultimate on-turn, damage formulas,
+SP/Energy cost or balance, AI, encounter data, story, `WorldProgress`,
+`MusicDirector`, or `SceneTransition`. `INTERRUPT_REQUEST` is still rejected
+in the one place it always was. Next step: Block 9B should decide how
+`BattleManager` instantiates and drains an `UltimateInterruptQueue`, add the
+missing enemy-turn guard chain, and give `can_process_interrupt_now()` (or
+its real replacement, likely `BattleManager`-owned) an actual
+implementation — starting with window B (after enemy recovery, before next
+turn), the least architecturally risky of the three candidate windows.

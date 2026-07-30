@@ -377,6 +377,50 @@ func is_token_consumed(token: int) -> bool:
 	return _consumed_tokens.has(token)
 
 
+## --- Block 9A off-turn interrupt stubs -------------------------------
+## These three methods are additive seams for Block 9B+. None of them are
+## called by production code yet, and none of them change the behavior of
+## any method above. begin_command() still rejects
+## PendingBattleCommand.RequestSource.INTERRUPT_REQUEST unconditionally,
+## regardless of what these stubs would report.
+##
+## This controller models one pending command for one actor; it has no
+## notion of enemy turns or which command belongs to which battle-wide
+## turn. Real safe-window detection therefore cannot live here — it needs
+## BattleManager-level state (whose turn it is, whether the enemy attack
+## await chain is mid-flight) that this class does not have. See
+## docs/battle_system_spec.md, "Safe interrupt window" for why this is a
+## BattleManager-owned query, not a BattleCommandFlow-owned one.
+
+## Always false in Block 9A. A real implementation (Block 9B+) still would
+## not belong here for the reason above — this stub exists so callers can
+## be written against a stable name ahead of that decision.
+func can_process_interrupt_now() -> bool:
+	return false
+
+
+## Always false in Block 9A. No UltimateInterruptQueue is wired to this
+## flow controller; queuing is not this class's responsibility (see
+## UltimateInterruptQueue, which is deliberately independent of
+## BattleCommandFlow so it stays unit-testable without a live battle).
+func queue_ultimate_interrupt(_request: UltimateInterruptRequest) -> bool:
+	return false
+
+
+## Always false in Block 9A. begin_command() remains the sole entry point
+## for starting a pending command, and it continues to reject
+## RequestSource.INTERRUPT_REQUEST unconditionally. This stub documents the
+## intended future signature without opening a second entry point now.
+func begin_interrupt_request(
+	_actor: Node,
+	_action_id: StringName,
+	_target_rule: int,
+	_candidate_targets: Array[Node],
+	_energy_cost: int
+) -> bool:
+	return false
+
+
 func _validate_resources(command: PendingBattleCommand) -> String:
 	if not _resource_validator.is_valid():
 		return ""
