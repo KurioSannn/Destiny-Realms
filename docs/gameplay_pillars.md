@@ -117,14 +117,15 @@ either); off-turn changes *when* an Ultimate can begin, never what
 pressing it feels like once the safe window arrives.
 
 What remains player-facing intent, not yet reality: interrupting *during*
-the enemy's action itself (rather than waiting for it to finish), and true
-suspend/resume of a mid-flight atomic phase. Block 9A's
-`SuspendedBattleContext` skeleton still exists but is unused — the one safe
-window implemented so far (after enemy recovery, before the next turn)
-never needs to suspend anything mid-flight, since nothing is in progress at
-that instant. See `docs/battle_system_spec.md`, "Block 9B implementation
-status" for the current design, what changed since Block 9A, and what
-remains for later blocks.
+the enemy's action itself — while it is actually moving, striking, or
+resolving damage (rather than only before it starts, or after it fully
+finishes) — and true suspend/resume of a mid-flight atomic phase. Block
+9A's `SuspendedBattleContext` skeleton still exists but is unused — none
+of the safe windows implemented so far ever need to suspend anything
+mid-flight, since each one sits at a boundary between phases, not inside
+one. See `docs/battle_system_spec.md`, "Block 9B implementation status"
+for the current design, what changed since Block 9A, and what remains for
+later blocks.
 
 Block 9C changes nothing a player can see or feel — it gave the enemy's
 attack the same internal duplicate-prevention guarantees the player's
@@ -150,6 +151,20 @@ pressing Basic/Skill or Escape/Back cancels and resumes a normal player
 turn. The resume policy itself (queued Ultimate never taking the next
 player turn) is unchanged from Block 9B/9D. See
 `docs/battle_system_spec.md`, "Block 9E implementation status".
+
+Block 9F is the first real expansion of this pillar since Block 9B: a
+queued Ultimate can now resolve *before* the enemy's own attack starts
+(safe window A1), not only after it finishes (safe window B). A
+well-timed off-turn request can beat the enemy to the punch entirely —
+if it defeats the enemy, the enemy's attack never happens at all; if the
+enemy survives, its attack still proceeds normally right afterward,
+exactly as if nothing had been queued. The ready idle/target/commit/
+cut-in experience is identical whichever window the request resolves at
+— no confirm/cancel panel either way, unchanged from Block 9E. What still
+remains player-facing intent, not yet reality, narrows further: only
+interrupting the enemy *while it is actually acting* (mid-movement or
+mid-damage) is left. See `docs/battle_system_spec.md`, "Block 9F
+implementation status".
 
 ## Visual character direction
 

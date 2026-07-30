@@ -181,7 +181,7 @@ func _test_queued_ultimate_ready_shows_no_panel() -> void:
 	manager.call("_refresh_energy_ui")
 
 	manager.call("_begin_enemy_turn")
-	await _idle_frames(1)
+	await _wait_past_window_a1(manager, 5.0)
 	manager.request_off_turn_ultimate(manager.player)
 
 	_check(
@@ -203,7 +203,7 @@ func _test_queued_ultimate_second_press_commits() -> void:
 	manager.call("_refresh_energy_ui")
 
 	manager.call("_begin_enemy_turn")
-	await _idle_frames(1)
+	await _wait_past_window_a1(manager, 5.0)
 	manager.request_off_turn_ultimate(manager.player)
 	_check(
 		await _wait_for_pending_ultimate(manager, 10.0),
@@ -233,7 +233,7 @@ func _test_queued_ultimate_target_click_commits() -> void:
 	manager.call("_refresh_energy_ui")
 
 	manager.call("_begin_enemy_turn")
-	await _idle_frames(1)
+	await _wait_past_window_a1(manager, 5.0)
 	manager.request_off_turn_ultimate(manager.player)
 	_check(
 		await _wait_for_pending_ultimate(manager, 10.0),
@@ -260,7 +260,7 @@ func _test_queued_ultimate_basic_press_cancels_and_resumes_player_turn() -> void
 	manager.call("_refresh_energy_ui")
 
 	manager.call("_begin_enemy_turn")
-	await _idle_frames(1)
+	await _wait_past_window_a1(manager, 5.0)
 	manager.request_off_turn_ultimate(manager.player)
 	_check(
 		await _wait_for_pending_ultimate(manager, 10.0),
@@ -288,7 +288,7 @@ func _test_queued_ultimate_skill_press_cancels_and_resumes_player_turn() -> void
 	manager.call("_refresh_energy_ui")
 
 	manager.call("_begin_enemy_turn")
-	await _idle_frames(1)
+	await _wait_past_window_a1(manager, 5.0)
 	manager.request_off_turn_ultimate(manager.player)
 	_check(
 		await _wait_for_pending_ultimate(manager, 10.0),
@@ -316,7 +316,7 @@ func _test_queued_ultimate_escape_cancels_and_resumes_player_turn() -> void:
 	manager.call("_refresh_energy_ui")
 
 	manager.call("_begin_enemy_turn")
-	await _idle_frames(1)
+	await _wait_past_window_a1(manager, 5.0)
 	manager.request_off_turn_ultimate(manager.player)
 	_check(
 		await _wait_for_pending_ultimate(manager, 10.0),
@@ -367,6 +367,25 @@ func _free_battle(battle: Node) -> void:
 func _idle_frames(count: int) -> void:
 	for _index in range(count):
 		await get_tree().process_frame
+
+
+## Block 9F: requesting immediately after _begin_enemy_turn() (1 frame
+## later) now lands before safe window A1's check, so it would be
+## processed there instead of at window B -- this suite's queued-Ultimate
+## tests are about the general gesture (second press / target click /
+## cancel-and-resume), not A1-specific timing (see
+## tests/battle/test_window_a1_ultimate_interrupt.gd for that), so they
+## deliberately wait until enemy_action_in_progress is true (meaning A1
+## already ran, found nothing, and _enemy_attack() has now genuinely
+## started) before requesting, guaranteeing the request is only picked up
+## later at window B.
+func _wait_past_window_a1(manager: BattleManager, timeout_seconds: float) -> void:
+	var elapsed := 0.0
+	while elapsed < timeout_seconds:
+		if not is_instance_valid(manager) or manager.enemy_action_in_progress:
+			return
+		await get_tree().process_frame
+		elapsed += 1.0 / 60.0
 
 
 func _wait_for_enemy_hp(manager: BattleManager, expected_hp: int, timeout_seconds: float) -> bool:

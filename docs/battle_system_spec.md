@@ -1509,6 +1509,241 @@ act, press again or click to commit, press elsewhere to cancel") and
 ready for Block 10 visual UI polish on top of it. Window A remains a
 separately-scoped future decision, unaffected by this block.
 
+## Block 9F implementation status
+
+Block 9F implements the first slice of window A ("A1"): a queued
+off-turn Ultimate may now resolve **before** the enemy's own attack ever
+starts, not only after it finishes (window B, Block 9B/9D). Window A2
+(interrupting during enemy movement) and A3 (interrupting during enemy
+damage resolution) remain out of scope — A1 is deliberately the single
+safest sub-window: a boundary between "enemy turn declared" and "enemy
+attack begins," where nothing is mid-flight to protect.
+
+### Window A1 definition
+
+Open (checked exactly once per enemy turn):
+- `state == BattleState.ENEMY_TURN`.
+- The pre-attack delay (`TURN_DELAY_SECONDS`, 0.6s) has just elapsed.
+- `_enemy_attack()` has not yet been called for this enemy turn —
+  `active_enemy_attack_token == 0` and `enemy_action_in_progress == false`
+  (both are always true at this exact point, since nothing has started
+  yet; see "Guard reuse" below for why this isn't a new condition).
+- Battle not over, scene valid, no command active/committed, no Ultimate
+  cut-in active, queue not already being processed, queue has a valid
+  request.
+
+Closed: everywhere else. Once `_enemy_attack()` is called (whether
+because A1 found nothing, or because a queued Ultimate processed at A1
+already finished and the enemy's attack is now resuming), A1's one-time
+check never runs again for that enemy turn — a request arriving after
+that point can only be picked up at window B.
+
+### A1 vs B comparison
+
+| | Window A1 (Block 9F) | Window B (Block 9B/9D) |
+| --- | --- | --- |
+| `window_id` | `&"before_enemy_commit"` | `&"after_enemy_recovery"` |
+| Hook location | `_begin_enemy_turn()`, after the pre-attack delay, before `_enemy_attack()` is ever called | `_resume_after_enemy_action()`, called from `_enemy_attack()`'s tail, after damage/hit-feedback/recovery fully complete |
+| Resume policy | `AFTER_INTERRUPT_CONTINUE_ENEMY_ACTION` | `AFTER_INTERRUPT_CONTINUE_TO_PLAYER_TURN` |
+| On cancel/fail/non-lethal-confirm | `_enemy_attack()` runs (enemy's own attack proceeds) | `_begin_player_turn()` runs |
+| On lethal confirm | `_win()` — the enemy's attack never happens | `_win()` — same outcome |
+| Enemy's own damage vs. Ultimate's damage ordering | Ultimate resolves first | Ultimate resolves after |
+
+### Request timing rules
+
+`request_off_turn_ultimate()` (Block 9B, unchanged) is the only entry
+point — it always just enqueues, regardless of which window will
+eventually process it. Which window picks it up depends purely on
+**when** the request arrives relative to A1's one-time check:
+- Arrives before the check runs → processed at A1.
+- Arrives after the check has already run (queue was empty at that
+  instant), but before the enemy's attack finishes → held in the queue,
+  picked up at B.
+- Arrives while the enemy is mid-damage/recovery → same as above, held
+  until B.
+- Duplicate/invalid/stale → rejected or discarded exactly as Block 9B/9D
+  already specified, independent of window.
+
+No new rejection reasons or queue methods were needed — `UltimateInterruptQueue`
+(Block 9A/9B, unmodified again this block) has no concept of "windows" at
+all; it only knows FIFO order and validity.
+
+### Resume policy dispatch
+
+`active_interrupt_window: StringName` (new field) is set by
+`_begin_queued_ultimate(request, window_id)` to whichever window called
+it, and read exactly once by a new shared function,
+`_resume_after_interrupt(log_text)`, which clears it and dispatches:
+
+```gdscript
+func _resume_after_interrupt(log_text: String = "Your turn. Choose an action.") -> void:
+    var window := active_interrupt_window
+    active_interrupt_window = &""
+    if window == &"before_enemy_commit":
+        _resume_enemy_action_after_a1()
+        return
+    _begin_player_turn(log_text)
+
+
+func _resume_enemy_action_after_a1() -> void:
+    if _is_battle_over() or not is_inside_tree():
+        return
+    state = BattleState.ENEMY_TURN
+    _enemy_attack()
+```
+
+All four places that used to call `_begin_player_turn()` directly after a
+queued Ultimate resolved (`_finish_interrupt_ultimate_action`'s non-lethal
+branch, `_on_ultimate_command_cancelled`'s and
+`_on_ultimate_command_failed`'s interrupt branches, and
+`_begin_queued_ultimate`'s own defensive fallback) now call
+`_resume_after_interrupt()` instead — the window that actually began the
+request is what decides the outcome, not which handler happened to fire.
+The lethal-confirm check (`enemy.is_defeated()` → `_win()`) in
+`_finish_interrupt_ultimate_action` runs identically for both windows and
+is checked *before* `_resume_after_interrupt()`, so a lethal A1 confirm
+correctly skips the enemy's attack entirely rather than "resuming" it.
+
+`_resume_enemy_action_after_a1()` restores `state` to `ENEMY_TURN` (it was
+bridged to `PLAYER_TURN` by `_begin_queued_ultimate()` for the Ultimate's
+own validation, exactly as Block 9B's bridge already does for window B)
+and calls `_enemy_attack()` directly — the same function
+`_begin_enemy_turn()` would have called if nothing had been queued.
+Damage value, movement, and timing are untouched; `_enemy_attack()`
+generates its own fresh guard token the normal way (Block 9C), so the
+resumed attack has full duplicate-prevention exactly like any other.
+
+### Guard reuse, not new guards
+
+`_process_interrupt_queue_at_safe_window()` accepts both window IDs and
+shares its **entire** existing guard chain unchanged — no A1-specific
+condition was added. This was a deliberate finding, not an oversight: at
+A1's call site, `enemy_action_in_progress` and `active_enemy_attack_token`
+are false/0 for the same reason they are false/0 at B's call site —
+neither window's call ever happens while `_enemy_attack()` is actually
+mid-flight (A1 runs strictly before it starts; B runs strictly after it
+ends). One guard chain correctly serves both; `window_id` only selects
+the resume policy on completion, never which checks gate entry.
+
+### Queued Ultimate execution path
+
+Fully reused from Block 9B/9E, byte-for-byte: `_begin_queued_ultimate()`
+still calls `ultimate_command_adapter.begin_ultimate(..., RequestSource.INTERRUPT_REQUEST,
+true)`, which walks the exact same ready idle → target selection →
+same-command-press-or-target-click commit → Energy deduction → cut-in →
+execution → recovery path Block 9E already built, with no confirm/cancel
+panel. `_on_ultimate_pressed()` (Block 9E) already checks "is an Ultimate
+pending" before anything else, so pressing Ultimate again during an A1
+ready idle commits through the identical `confirm_pending_command()` call
+on-turn Ultimate uses — no A1-specific input code was written.
+
+### Preventing double-processing across A1 and B
+
+Not a new mechanism — the existing FIFO dequeue (`ultimate_interrupt_queue.dequeue_next()`
+physically removes the request) plus `_processed_interrupt_request_ids`
+(marks it consumed) already guarantee this regardless of which window
+calls them. Once A1 consumes a request (successfully begun, or discarded
+as stale/invalid), it is gone from the queue and marked processed —
+window B's later check, dequeuing from the same queue with the same
+dictionary, can never see it again. No window-specific bookkeeping was
+added because none was needed.
+
+### Suspended context: not used
+
+`SuspendedBattleContext` (Block 9A skeleton) is **not** used for window
+A1, for the same reason Block 9B's window B doesn't use it: A1 is a
+boundary between phases, not a pause mid-phase. At the instant A1's check
+runs, the enemy turn has been declared but nothing about the attack
+(movement, damage, animation) has started — there is no mid-action state
+to snapshot, pause, or later resume. Resuming after A1 means only
+"restore `state` and call `_enemy_attack()`," which needs no captured
+context. If a future block ever attempts window A2/A3 (interrupting
+genuinely mid-movement or mid-damage), *that* is where
+`SuspendedBattleContext` would first become load-bearing — Block 9F does
+not touch it.
+
+### Tests
+
+New: `tests/battle/test_window_a1_ultimate_interrupt.gd` (+ `.tscn`), 9
+functions, all passing against the Lesser Abyss encounter: a request made
+immediately at enemy turn start enters the queue with no side effects; a
+confirmed A1 Ultimate deals its damage to the enemy strictly before the
+enemy's own attack touches the player (the central Block 9F guarantee);
+commit/execution/resolution signals each fire exactly once; a cancelled
+A1 Ultimate lets the enemy's attack proceed normally afterward; a
+non-lethal confirmed A1 Ultimate also lets the enemy's attack proceed; a
+lethal confirmed A1 Ultimate wins the battle with the enemy never getting
+to attack; an A1-processed request never reappears at window B; a request
+made after A1's check has already run is held and only processed at
+window B; a request made after the enemy has already dealt damage is
+likewise held for window B.
+
+Three pre-existing suites needed a small, mechanical timing fix rather
+than a logic change: `test_command_ux_no_panel.gd`,
+`test_ultimate_off_turn_interrupt.gd`, and `test_interrupt_state_cleanup.gd`
+each had tests that requested off-turn Ultimate one frame after
+`_begin_enemy_turn()` — timing that, before Block 9F, always landed at
+window B (A1 didn't exist), but now deterministically lands at A1
+instead, since one frame (~16ms) is far less than the 0.6s pre-attack
+delay A1 waits for. These tests were specifically about window B's
+gesture/lifecycle behavior (their names and comments say so), not A1
+timing, so each gained the same small helper,
+`_wait_past_window_a1(manager, timeout)`, which waits until
+`enemy_action_in_progress` becomes true (proof A1's check already ran and
+found nothing) before requesting — deliberately routing the request to
+window B, preserving each test's original intent exactly. No assertions
+were weakened or removed; 32 tests across these three files still pass
+unmodified in substance.
+
+All other pre-existing suites re-run clean with zero modifications
+required: `test_production_basic/skill/ultimate_command_flow`,
+`test_ultimate_interrupt_queue`, `test_enemy_attack_guard_chain`,
+`test_battle_command_debug_scene`, `test_bandit_battle_startup`. Startup
+smoke continues to cover Login, Prologue, and the production battle scene
+with `--quit-after`.
+
+### Visual QA
+
+Not captured this session. `tests/battle/capture_window_a1_ultimate_interrupt.gd`
+(+ `.tscn`, new this block) was written to capture the A1-survive
+sequence (queued indicator, A1 ready idle without panel, target selected,
+cut-in, damage, enemy attack resuming afterward), the A1-lethal sequence
+(victory before the enemy ever attacks), and the late-request-held-until-B
+fallback, at both resolutions, but hit the same persistent
+`texture_2d_get: Parameter "t" is null` / dummy-rendering-backend failure
+documented in Block 9C/9D/9E's known limitations. All non-visual
+verification (9 new A1 tests, 3 fixed pre-existing suites, full
+regression across 12 scenes plus startup smoke) passed cleanly.
+
+### Known limitations
+
+1. Window A2 (interrupting during enemy movement) and A3 (interrupting
+   during enemy damage resolution) are not implemented — A1 is the only
+   sub-window built this block, deliberately the safest one.
+2. At most one queued request is processed per safe window (A1 or B) —
+   unchanged constraint from Block 9B, still not reachable today (only
+   Takashi has Ultimate; duplicate requests per actor are rejected).
+3. `SuspendedBattleContext` remains an unused skeleton; A1, like B,
+   never needed it.
+4. Visual QA for Block 9C, 9D, 9E, and now 9F could not be captured this
+   session, for the same confirmed-environmental reason each time.
+
+### Technical debt
+
+None new. The confirm/cancel panel removal noted as technical debt in
+Block 9E is unaffected and unchanged by this block.
+
+### Recommendation
+
+With window A1 in place, off-turn Ultimate now has meaningfully improved
+combat feel: a well-timed request can save the player from an incoming
+hit entirely, not just retaliate after the fact. Recommended next steps
+are combat feel tuning (does A1 change encounter difficulty in a way that
+needs rebalancing — explicitly out of this block's scope to touch) or
+multi-enemy encounter targeting, rather than window A2/A3, which would
+require the enemy-attack guard chain to support genuine mid-action pause/
+resume — a substantially larger, separately-scoped undertaking.
+
 ## Responsibility model
 
 Four independent state domains are required:

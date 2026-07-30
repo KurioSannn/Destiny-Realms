@@ -49,7 +49,7 @@ func _test_confirm_clears_active_interrupt_request() -> void:
 	manager.ultimate_energy = BattleManager.MAX_ULTIMATE_ENERGY
 	manager.call("_refresh_energy_ui")
 	manager.call("_begin_enemy_turn")
-	await _idle_frames(1)
+	await _wait_past_window_a1(manager, 5.0)
 	manager.request_off_turn_ultimate(manager.player)
 
 	_check(
@@ -78,7 +78,7 @@ func _test_cancel_clears_active_interrupt_request() -> void:
 	manager.ultimate_energy = BattleManager.MAX_ULTIMATE_ENERGY
 	manager.call("_refresh_energy_ui")
 	manager.call("_begin_enemy_turn")
-	await _idle_frames(1)
+	await _wait_past_window_a1(manager, 5.0)
 	manager.request_off_turn_ultimate(manager.player)
 
 	_check(
@@ -215,7 +215,7 @@ func _test_victory_from_queued_ultimate_does_not_also_resume_player_turn() -> vo
 	manager.enemy.current_hp = mini(manager.enemy.current_hp, BattleManager.ULTIMATE_DAMAGE)
 
 	manager.call("_begin_enemy_turn")
-	await _idle_frames(1)
+	await _wait_past_window_a1(manager, 5.0)
 	manager.request_off_turn_ultimate(manager.player)
 
 	_check(
@@ -276,7 +276,7 @@ func _test_external_request_during_interrupt_processing_rejected() -> void:
 	manager.ultimate_energy = BattleManager.MAX_ULTIMATE_ENERGY
 	manager.call("_refresh_energy_ui")
 	manager.call("_begin_enemy_turn")
-	await _idle_frames(1)
+	await _wait_past_window_a1(manager, 5.0)
 	manager.request_off_turn_ultimate(manager.player)
 
 	_check(
@@ -386,6 +386,25 @@ func _free_battle(battle: Node) -> void:
 func _idle_frames(count: int) -> void:
 	for _index in range(count):
 		await get_tree().process_frame
+
+
+## Block 9F: requesting immediately after _begin_enemy_turn() (1 frame
+## later) now lands before safe window A1's check (see
+## docs/battle_system_spec.md, "Block 9F implementation status"), so it
+## would be processed there instead of at window B. This suite's requests
+## are deliberately about window B specifically (see
+## test_window_a1_ultimate_interrupt.gd for A1-specific timing), so they
+## wait until enemy_action_in_progress is true (meaning A1 already ran,
+## found nothing, and _enemy_attack() has now genuinely started) before
+## requesting, guaranteeing the request is only picked up later at
+## window B.
+func _wait_past_window_a1(manager: BattleManager, timeout_seconds: float) -> void:
+	var elapsed := 0.0
+	while elapsed < timeout_seconds:
+		if not is_instance_valid(manager) or manager.enemy_action_in_progress:
+			return
+		await get_tree().process_frame
+		elapsed += 1.0 / 60.0
 
 
 func _wait_for_pending_ultimate(manager: BattleManager, timeout_seconds: float) -> bool:

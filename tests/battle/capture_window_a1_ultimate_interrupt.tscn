@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://tests/battle/capture_window_a1_ultimate_interrupt.gd" id="1_capture"]
+
+[node name="CaptureWindowA1UltimateInterrupt" type="Node"]
+script = ExtResource("1_capture")

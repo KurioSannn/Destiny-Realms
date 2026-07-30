@@ -61,6 +61,14 @@ commits, and pressing a different command only cancels the pending one
 8.5 fast flow, off-turn queued Ultimate's Block 9B/9D resume policy, and
 window A's disabled status are all unaffected.
 
+Block 9F builds the first slice of window A: safe window A1 ("before
+enemy commit"), letting a queued off-turn Ultimate resolve before the
+enemy's own attack starts, not only after it finishes (window B). Window
+A2 (mid-movement) and A3 (mid-damage) remain unimplemented; A1 is
+deliberately the one sub-window where nothing is ever mid-flight,
+requiring no suspended context and no changes to the enemy attack guard
+chain (Block 9C) beyond reusing its existing guards.
+
 Run the isolated scene with F6:
 
 `res://scenes/battle/debug/battle_command_flow_debug.tscn`
@@ -1283,3 +1291,155 @@ confirm-gesture changed); does not rewrite `battle_manager.gd`. Next
 step: Block 10 UI polish can build on this consistent "press to act,
 press again or click to commit, press elsewhere to cancel" pattern across
 all three commands.
+
+## Block 9F: window A1 ultimate interrupt (before enemy commit)
+
+Block 9F adds the first slice of window A: a queued off-turn Ultimate may
+now resolve *before* the enemy's own attack starts (window A1), not only
+after it finishes (window B, Block 9B/9D). See
+`docs/battle_system_spec.md`, "Block 9F implementation status" for the
+full design writeup (Window A1 definition, A1 vs. B comparison table,
+resume policy dispatch, guard-reuse rationale, `SuspendedBattleContext`
+decision). This section covers only what changed in code and how to
+verify it.
+
+**Files changed:**
+
+- `scripts/battle/battle_manager.gd` — new field
+  (`active_interrupt_window: StringName`); `_begin_enemy_turn()` gained
+  the A1 hook right after the pre-attack delay and before `_enemy_attack()`
+  is ever called; `_process_interrupt_queue_at_safe_window()` now accepts
+  `&"before_enemy_commit"` alongside the existing `&"after_enemy_recovery"`,
+  sharing every existing guard unchanged; `_begin_queued_ultimate()` gained
+  a `window_id` parameter, stored into `active_interrupt_window`; new
+  functions `_resume_after_interrupt()` (resume-policy dispatch) and
+  `_resume_enemy_action_after_a1()` (restores `state = ENEMY_TURN` and
+  calls `_enemy_attack()`); `_finish_interrupt_ultimate_action()`, the
+  interrupt branches of `_on_ultimate_command_cancelled()`/
+  `_on_ultimate_command_failed()`, and `_begin_queued_ultimate()`'s
+  defensive fallback all now call `_resume_after_interrupt()` instead of
+  calling `_begin_player_turn()` directly; `_reset_ultimate_interrupt_queue()`
+  gained one line clearing `active_interrupt_window`.
+
+No changes to `battle_command_flow.gd`, any command adapter,
+`pending_battle_command.gd`, `suspended_battle_context.gd`,
+`ultimate_interrupt_queue.gd`, `ultimate_interrupt_request.gd`,
+`battle_ui.gd`, damage formulas, enemy damage/balance, AI, encounter
+data, story, `WorldProgress`, `MusicDirector`, or `SceneTransition`. The
+queued Ultimate execution path (ready idle, no-panel commit via
+same-command-press or target-click, cut-in, execution, recovery) is
+100% reused from Block 9B/9E with zero new code — only what happens
+*after* it resolves is window-dependent now.
+
+### Block 9F Verification
+
+Automated tests (all pre-existing suites re-run, three with a small
+timing fix noted below, plus one new suite):
+
+`godot --headless --disable-crash-handler --log-file godot-production-basic.log --path . --scene res://tests/battle/test_production_basic_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-production-skill.log --path . --scene res://tests/battle/test_production_skill_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-production-ultimate.log --path . --scene res://tests/battle/test_production_ultimate_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-interrupt-queue.log --path . --scene res://tests/battle/test_ultimate_interrupt_queue.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-interrupt-integration.log --path . --scene res://tests/battle/test_ultimate_off_turn_interrupt.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-enemy-guard.log --path . --scene res://tests/battle/test_enemy_attack_guard_chain.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-interrupt-cleanup.log --path . --scene res://tests/battle/test_interrupt_state_cleanup.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-command-ux.log --path . --scene res://tests/battle/test_command_ux_no_panel.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-debug-scene.log --path . --scene res://tests/battle/test_battle_command_debug_scene.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-bandit-startup.log --path . --scene res://tests/battle/test_bandit_battle_startup.tscn`
+
+New in Block 9F:
+
+`godot --headless --disable-crash-handler --log-file godot-window-a1.log --path . --scene res://tests/battle/test_window_a1_ultimate_interrupt.tscn`
+
+`test_window_a1_ultimate_interrupt.gd` covers 9 scenarios: a request made
+immediately at enemy turn start enters the queue without side effects; a
+confirmed A1 Ultimate deals damage to the enemy strictly before the
+enemy's own attack touches the player; commit/execution/resolution
+signals fire exactly once; a cancelled A1 Ultimate lets the enemy's
+attack proceed; a non-lethal confirmed A1 Ultimate also lets the enemy's
+attack proceed; a lethal confirmed A1 Ultimate wins with the enemy never
+attacking; an A1-processed request never reappears at window B; a
+request arriving after A1's check has already run is held for window B;
+a request arriving after enemy damage has already landed is likewise
+held for window B.
+
+**Timing fix required in three pre-existing files:**
+`test_command_ux_no_panel.gd` (Block 9E), `test_ultimate_off_turn_interrupt.gd`
+(Block 9B/9D), and `test_interrupt_state_cleanup.gd` (Block 9D) each had
+tests requesting off-turn Ultimate exactly one frame after
+`_begin_enemy_turn()`. Before Block 9F this timing always landed at
+window B (A1 didn't exist yet); after Block 9F, one frame (~16ms) is far
+less than the 0.6s pre-attack delay A1 waits for, so the same code now
+deterministically lands the request at A1 instead — breaking these
+tests' original, still-valid intent of exercising window B specifically.
+Each file gained the same small helper:
+
+```gdscript
+func _wait_past_window_a1(manager: BattleManager, timeout_seconds: float) -> void:
+    var elapsed := 0.0
+    while elapsed < timeout_seconds:
+        if not is_instance_valid(manager) or manager.enemy_action_in_progress:
+            return
+        await get_tree().process_frame
+        elapsed += 1.0 / 60.0
+```
+
+replacing `await _idle_frames(1)` before the request call — waiting until
+`enemy_action_in_progress` becomes true (proof A1's one-time check
+already ran and found nothing) deterministically routes the request to
+window B. No assertions were weakened, removed, or had their meaning
+changed; 32 tests across the three files still validate exactly what
+they validated before, just with request timing that reliably targets
+the window they were written to test.
+
+Startup smoke tests continue to cover Login, Prologue, and the production
+battle scene with `--quit-after`.
+
+Visual QA capture script (new):
+`tests/battle/capture_window_a1_ultimate_interrupt.gd` (+ `.tscn`),
+intended to capture the A1-survive sequence (queued indicator, A1 ready
+idle without panel, target selected, cut-in, damage, enemy attack
+resuming afterward), the A1-lethal sequence (victory before the enemy
+ever attacks), and the late-request-held-until-B fallback, at both
+resolutions, to
+`docs/images/battle_command_flow/window_a1_ultimate_interrupt/{1280x720,1920x1080}/`.
+**Could not be captured this session** — hit the identical
+`texture_2d_get: Parameter "t" is null` / dummy-rendering-backend failure
+documented in Block 9C/9D/9E, confirmed still present (not a Block 9F
+regression) by retrying once.
+
+`godot --headless --disable-crash-handler --log-file godot-capture-window-a1.log --path . --scene res://tests/battle/capture_window_a1_ultimate_interrupt.tscn -- --capture-size=1280x720`
+
+`godot --headless --disable-crash-handler --log-file godot-capture-window-a1.log --path . --scene res://tests/battle/capture_window_a1_ultimate_interrupt.tscn -- --capture-size=1920x1080`
+
+Known Block 9F limitations:
+
+- Window A2 (mid-movement) and A3 (mid-damage) are not implemented — A1
+  is deliberately the only sub-window built, chosen because it is the one
+  place nothing is ever mid-flight.
+- At most one queued request is processed per safe window (A1 or B),
+  unchanged from Block 9B, still not reachable today.
+- `SuspendedBattleContext` remains an unused skeleton; A1 doesn't need it
+  for the same reason B doesn't.
+- Visual QA for Block 9C, 9D, 9E, and now 9F could not be captured this
+  session, for the same confirmed-environmental reason each time.
+
+Block 9F does not change Basic, Skill, or on-turn Ultimate flow; does not
+change Block 9E's command UX; does not implement window A2/A3; does not
+implement mid-action suspend/resume; does not change damage formulas,
+enemy damage, SP/Energy balance, AI, encounter data, story,
+`WorldProgress`, `MusicDirector`, or `SceneTransition`; does not overhaul
+battle UI; does not rewrite `battle_manager.gd`. Next step: combat feel
+tuning or multi-enemy encounter targeting are reasonable next blocks;
+window A2/A3 would require the enemy attack guard chain to support
+genuine mid-action pause/resume, a substantially larger, separately
+scoped undertaking.

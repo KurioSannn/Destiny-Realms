@@ -266,6 +266,10 @@ var ultimate_hit_tokens: Dictionary = {}
 var ultimate_interrupt_queue: UltimateInterruptQueue
 var is_processing_interrupt_queue: bool = false
 var active_interrupt_request: UltimateInterruptRequest = null
+## Block 9F: which safe window (&"before_enemy_commit" / A1, or
+## &"after_enemy_recovery" / B) is currently processing active_interrupt_request.
+## This *is* the resume policy selector -- see _resume_after_interrupt().
+var active_interrupt_window: StringName = &""
 var interrupt_resume_token: int = 0
 var _consumed_interrupt_resume_tokens: Dictionary = {}
 var _processed_interrupt_request_ids: Dictionary = {}
@@ -1609,6 +1613,7 @@ func _reset_ultimate_interrupt_queue() -> void:
 		ultimate_interrupt_queue.clear()
 	is_processing_interrupt_queue = false
 	active_interrupt_request = null
+	active_interrupt_window = &""
 	_processed_interrupt_request_ids.clear()
 	_consumed_interrupt_resume_tokens.clear()
 
@@ -1691,23 +1696,33 @@ func _interrupt_request_failure_message(reason: StringName) -> String:
 	return "Cannot use Ultimate now."
 
 
-## Safe window B hook: called once, right after enemy action recovery, and
-## nowhere else. Returns true if a queued Ultimate was actually begun (in
-## which case its own cancel/fail/finish handlers are responsible for
-## eventually calling _begin_player_turn() exactly once) or false if there
-## was nothing safe/valid to process (in which case the caller must call
-## _begin_player_turn() itself). Never processes more than one request per
-## call, per docs/battle_system_spec.md's Block 9B recommendation.
+## Safe window hook, called from exactly two places and nowhere else:
+## - &"before_enemy_commit" (Window A1, Block 9F): once from
+##   _begin_enemy_turn(), after the pre-attack delay but before
+##   _enemy_attack() is ever called -- resume policy
+##   AFTER_INTERRUPT_CONTINUE_ENEMY_ACTION.
+## - &"after_enemy_recovery" (Window B, Block 9B/9D): once from
+##   _resume_after_enemy_action(), after _enemy_attack() has fully
+##   finished -- resume policy AFTER_INTERRUPT_CONTINUE_TO_PLAYER_TURN.
+## Returns true if a queued Ultimate was actually begun (in which case its
+## own cancel/fail/finish handlers are responsible for eventually calling
+## _resume_after_interrupt() exactly once) or false if there was nothing
+## safe/valid to process (in which case the caller proceeds with its own
+## normal continuation -- _enemy_attack() for A1, _begin_player_turn() for
+## B). Never processes more than one request per call.
 ##
-## Block 9D hardening: `enemy_action_in_progress` and
-## `active_enemy_attack_token != 0` are each independently sufficient to
-## block processing and are not reachable simultaneously as true today
-## (this function's only caller, _resume_after_enemy_action(), only runs
-## after _enemy_attack() has already cleared both) -- kept as two explicit
-## conditions rather than one, so the invariant is documented in code, not
-## only in comments.
+## Block 9F: both windows share every guard below unchanged from Block
+## 9B/9D. This is deliberate, not an oversight -- `enemy_action_in_progress`
+## and `active_enemy_attack_token != 0` are false at A1's call site for the
+## same reason they are false at B's: neither call site runs while
+## _enemy_attack() is actually mid-flight (A1 runs strictly before it
+## starts; B runs strictly after it finishes). If either guard is ever
+## true when this function runs, that already means something is
+## unsafe, regardless of which window asked -- so one guard chain serves
+## both correctly, with the window_id argument only selecting the resume
+## policy on completion, not which checks apply.
 func _process_interrupt_queue_at_safe_window(window_id: StringName) -> bool:
-	if window_id != &"after_enemy_recovery":
+	if window_id != &"after_enemy_recovery" and window_id != &"before_enemy_commit":
 		return false
 	if not is_inside_tree() or _is_battle_over():
 		return false
@@ -1740,7 +1755,7 @@ func _process_interrupt_queue_at_safe_window(window_id: StringName) -> bool:
 		if not reason.is_empty():
 			_processed_interrupt_request_ids[request.unique_request_id] = true
 			continue
-		return _begin_queued_ultimate(request)
+		return _begin_queued_ultimate(request, window_id)
 
 	return false
 
@@ -1752,9 +1767,11 @@ func _process_interrupt_queue_at_safe_window(window_id: StringName) -> bool:
 ## only. `state` is set to PLAYER_TURN first because every existing
 ## Ultimate validation function (_validate_ultimate_command,
 ## _begin_ultimate_command's own guard) already requires
-## `state == PLAYER_TURN`; this is genuinely accurate here too, since safe
-## window B is, by construction, a moment where nothing else is active and
-## it is safe for the player to act.
+## `state == PLAYER_TURN`; this is genuinely accurate here too, since both
+## safe windows are, by construction, a moment where nothing else is
+## active and it is safe for the player to act -- window A1 (Block 9F)
+## sits strictly before _enemy_attack() starts, window B (Block 9B) sits
+## strictly after it finishes.
 ##
 ## Block 9D audit (see docs/battle_system_spec.md, "Block 9D implementation
 ## status" for the full write-up): this `state = PLAYER_TURN` assignment is
@@ -1774,10 +1791,11 @@ func _process_interrupt_queue_at_safe_window(window_id: StringName) -> bool:
 ## documented technical debt: state == PLAYER_TURN during this window does
 ## NOT mean a normal player turn is active -- always check
 ## is_processing_interrupt_queue first if that distinction matters.
-func _begin_queued_ultimate(request: UltimateInterruptRequest) -> bool:
+func _begin_queued_ultimate(request: UltimateInterruptRequest, window_id: StringName) -> bool:
 	_processed_interrupt_request_ids[request.unique_request_id] = true
 	is_processing_interrupt_queue = true
 	active_interrupt_request = request
+	active_interrupt_window = window_id
 	interrupt_resume_token += 1
 	var resume_token := interrupt_resume_token
 
@@ -1797,16 +1815,51 @@ func _begin_queued_ultimate(request: UltimateInterruptRequest) -> bool:
 	# begin_ultimate() failed before (or without) creating a pending command.
 	# _on_ultimate_command_failed already ran synchronously above as part of
 	# that call and, for an interrupt-sourced command, already reset the
-	# flags above and resumed player turn itself. This block only fires as a
-	# defensive fallback for the rare case its own guard could not identify
-	# the failure as interrupt-sourced (e.g. a foreign pending command
-	# already existed) — so the battle can never get stuck waiting on a
-	# request that never actually started.
+	# flags above and resumed via _resume_after_interrupt() itself. This
+	# block only fires as a defensive fallback for the rare case its own
+	# guard could not identify the failure as interrupt-sourced (e.g. a
+	# foreign pending command already existed) — so the battle can never
+	# get stuck waiting on a request that never actually started.
 	if is_processing_interrupt_queue and _consume_interrupt_resume_token(resume_token):
 		is_processing_interrupt_queue = false
 		active_interrupt_request = null
-		_begin_player_turn()
+		_resume_after_interrupt()
 	return false
+
+
+## Block 9F: resume policy dispatch shared by both safe windows. Reads and
+## clears active_interrupt_window (set by _begin_queued_ultimate()) to
+## decide whether resuming means returning to a normal player turn
+## (window B, Block 9B/9D, AFTER_INTERRUPT_CONTINUE_TO_PLAYER_TURN) or
+## continuing the enemy's own attack (window A1, Block 9F,
+## AFTER_INTERRUPT_CONTINUE_ENEMY_ACTION). The two policies are never
+## mixed: exactly one of them runs per call, chosen solely by which window
+## actually began this request. `log_text` defaults to
+## _begin_player_turn()'s own default so omitting it here behaves
+## identically to the pre-Block-9F direct call.
+func _resume_after_interrupt(log_text: String = "Your turn. Choose an action.") -> void:
+	var window := active_interrupt_window
+	active_interrupt_window = &""
+	if window == &"before_enemy_commit":
+		_resume_enemy_action_after_a1()
+		return
+	_begin_player_turn(log_text)
+
+
+## AFTER_INTERRUPT_CONTINUE_ENEMY_ACTION (Block 9F). Window A1 fires
+## before _enemy_attack() has ever run for this enemy turn, so there is no
+## suspended mid-action state to restore -- resuming means restoring
+## `state` to ENEMY_TURN (the bridge in _begin_queued_ultimate() moved it
+## to PLAYER_TURN for the Ultimate's own validation) and letting
+## _enemy_attack() run exactly as _begin_enemy_turn() would have called it
+## directly. Damage value, movement, and timing are untouched; a fresh
+## enemy attack token is generated by _enemy_attack() itself the normal
+## way — this function does not touch enemy guard tokens.
+func _resume_enemy_action_after_a1() -> void:
+	if _is_battle_over() or not is_inside_tree():
+		return
+	state = BattleState.ENEMY_TURN
+	_enemy_attack()
 
 
 ## Resume policy for Block 9B: AFTER_INTERRUPT_CONTINUE_TO_PLAYER_TURN.
@@ -1814,12 +1867,20 @@ func _begin_queued_ultimate(request: UltimateInterruptRequest) -> bool:
 ## there is no suspended mid-action state to restore — resuming means
 ## exactly one call to _begin_player_turn(). See
 ## docs/battle_system_spec.md, "Block 9B implementation status" for why a
-## full SuspendedBattleContext is not instantiated here.
+## full SuspendedBattleContext is not instantiated here (Block 9F's window
+## A1 makes the same "no mid-action state to preserve" call, for the
+## mirror-image reason: A1 sits strictly before the enemy action starts).
 ##
 ## Block 9D: guarded by _consume_interrupt_resume_token() as a second,
 ## independent layer against ever resolving/resuming the same queued
 ## Ultimate twice, on top of BattleCommandFlow's own commit-token
 ## consumption.
+##
+## Block 9F: routes through _resume_after_interrupt() so a lethal confirm
+## at window A1 still wins the battle exactly as it does at window B
+## (the enemy.is_defeated() check below is window-agnostic), while a
+## non-lethal confirm resumes whichever window actually began this
+## request.
 func _finish_interrupt_ultimate_action(log_text: String) -> void:
 	if not _consume_interrupt_resume_token(interrupt_resume_token):
 		return
@@ -1829,9 +1890,10 @@ func _finish_interrupt_ultimate_action(log_text: String) -> void:
 	is_processing_interrupt_queue = false
 	active_interrupt_request = null
 	if enemy.is_defeated():
+		active_interrupt_window = &""
 		_win("Enemy defeated. You win!")
 		return
-	_begin_player_turn(log_text)
+	_resume_after_interrupt(log_text)
 
 
 func _begin_ultimate_command() -> bool:
@@ -1918,7 +1980,7 @@ func _on_ultimate_command_cancelled(command: PendingBattleCommand) -> void:
 			return
 		is_processing_interrupt_queue = false
 		active_interrupt_request = null
-		_begin_player_turn("Octagram Fragment cancelled.")
+		_resume_after_interrupt("Octagram Fragment cancelled.")
 		return
 	ui.set_battle_input_enabled(true)
 	ui.set_turn_text("Player Turn")
@@ -1950,7 +2012,7 @@ func _on_ultimate_command_failed(
 			return
 		is_processing_interrupt_queue = false
 		active_interrupt_request = null
-		_begin_player_turn(_ultimate_command_failure_message(reason))
+		_resume_after_interrupt(_ultimate_command_failure_message(reason))
 		return
 	state = BattleState.PLAYER_TURN
 	ui.set_battle_input_enabled(true)
@@ -2448,6 +2510,15 @@ func _begin_player_turn(log_text: String = "Your turn. Choose an action.") -> vo
 	_update_action_buttons(true)
 
 
+## Block 9F: safe window A1 opens right after the pre-attack delay below,
+## before _enemy_attack() is ever called for this enemy turn — the exact
+## point docs/battle_system_spec.md's Block 9A audit identified as "safe
+## in principle, but there is no hook today." _process_interrupt_queue_at_safe_window()
+## processes at most one queued Ultimate here; if it does, that Ultimate's
+## own cancel/fail/finish handlers (via _resume_after_interrupt() ->
+## _resume_enemy_action_after_a1()) are responsible for calling
+## _enemy_attack() afterward, not this function. If nothing was processed,
+## _enemy_attack() is called directly below exactly as before Block 9F.
 func _begin_enemy_turn(log_text: String = "Enemy is preparing to attack.") -> void:
 	if _is_battle_over():
 		return
@@ -2461,7 +2532,12 @@ func _begin_enemy_turn(log_text: String = "Enemy is preparing to attack.") -> vo
 	_update_action_buttons(false)
 
 	await get_tree().create_timer(TURN_DELAY_SECONDS).timeout
-	if state == BattleState.ENEMY_TURN:
+	if state != BattleState.ENEMY_TURN:
+		return
+	var processed_at_a1: bool = await _process_interrupt_queue_at_safe_window(&"before_enemy_commit")
+	if _is_battle_over() or not is_inside_tree():
+		return
+	if not processed_at_a1 and state == BattleState.ENEMY_TURN:
 		_enemy_attack()
 
 
