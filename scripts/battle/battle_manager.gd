@@ -166,8 +166,12 @@ const ULTIMATE_AUDIO_VOLUME_DB: float = 5.0
 const BasicAttackAdapter := preload(
 	"res://scripts/battle/command/basic_attack_command_adapter.gd"
 )
+const SkillCommandAdapterScript := preload(
+	"res://scripts/battle/command/skill_command_adapter.gd"
+)
 
 @export var use_new_basic_command_flow: bool = true
+@export var use_new_skill_command_flow: bool = true
 
 @onready var player: Combatant = $"../Player"
 @onready var enemy: Combatant = $"../Enemy"
@@ -235,6 +239,19 @@ var basic_cancel_button: Button
 var active_basic_command_token: int = 0
 var basic_recovery_tokens: Dictionary = {}
 var basic_turn_completion_tokens: Dictionary = {}
+var skill_command_adapter
+var skill_target_highlight: Line2D
+var skill_command_panel: Panel
+var skill_ready_label: Label
+var skill_target_label: Label
+var skill_cost_label: Label
+var skill_confirm_button: Button
+var skill_cancel_button: Button
+var active_skill_command_token: int = 0
+var skill_recovery_tokens: Dictionary = {}
+var skill_turn_completion_tokens: Dictionary = {}
+var skill_hit_tokens: Dictionary = {}
+var skill_animation_looping: bool = false
 var encounter_enemy_name: String = "Lesser Abyss"
 var encounter_enemy_max_hp: int = ENEMY_MAX_HP
 var encounter_enemy_damage: int = ENEMY_BASE_DAMAGE
@@ -280,6 +297,7 @@ func _ready() -> void:
 	_setup_battle_effects()
 	_apply_runtime_layout()
 	_setup_basic_command_runtime()
+	_setup_skill_command_runtime()
 	restart_battle()
 	_play_battle_intro_effect()
 
@@ -290,37 +308,57 @@ func _process(delta: float) -> void:
 	_advance_player_skill_animation(delta)
 	_advance_takashi_ultimate_fvx(delta)
 	_sync_basic_target_highlight()
+	_sync_skill_target_highlight()
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if not _uses_new_basic_command_flow():
-		return
-	if not _has_pending_basic_command():
+	if _uses_new_basic_command_flow() and _has_pending_basic_command():
+		if event.is_action_pressed("ui_cancel"):
+			if _cancel_basic_attack_command():
+				get_viewport().set_input_as_handled()
+		elif event.is_action_pressed("ui_left"):
+			if _cycle_basic_target(-1):
+				get_viewport().set_input_as_handled()
+		elif event.is_action_pressed("ui_right"):
+			if _cycle_basic_target(1):
+				get_viewport().set_input_as_handled()
+		elif event is InputEventMouseButton:
+			var mouse_event := event as InputEventMouseButton
+			if (
+				mouse_event.button_index == MOUSE_BUTTON_LEFT
+				and mouse_event.pressed
+				and _select_basic_target_at_position(mouse_event.position)
+			):
+				get_viewport().set_input_as_handled()
 		return
 
-	if event.is_action_pressed("ui_cancel"):
-		if _cancel_basic_attack_command():
-			get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("ui_left"):
-		if _cycle_basic_target(-1):
-			get_viewport().set_input_as_handled()
-	elif event.is_action_pressed("ui_right"):
-		if _cycle_basic_target(1):
-			get_viewport().set_input_as_handled()
-	elif event is InputEventMouseButton:
-		var mouse_event := event as InputEventMouseButton
-		if (
-			mouse_event.button_index == MOUSE_BUTTON_LEFT
-			and mouse_event.pressed
-			and _select_basic_target_at_position(mouse_event.position)
-		):
-			get_viewport().set_input_as_handled()
+	if _uses_new_skill_command_flow() and _has_pending_skill_command():
+		if event.is_action_pressed("ui_cancel"):
+			if _cancel_skill_command():
+				get_viewport().set_input_as_handled()
+		elif event.is_action_pressed("ui_left"):
+			if _cycle_skill_target(-1):
+				get_viewport().set_input_as_handled()
+		elif event.is_action_pressed("ui_right"):
+			if _cycle_skill_target(1):
+				get_viewport().set_input_as_handled()
+		elif event is InputEventMouseButton:
+			var mouse_event := event as InputEventMouseButton
+			if (
+				mouse_event.button_index == MOUSE_BUTTON_LEFT
+				and mouse_event.pressed
+				and _select_skill_target_at_position(mouse_event.position)
+			):
+				get_viewport().set_input_as_handled()
 
 
 func _exit_tree() -> void:
 	active_basic_command_token = 0
 	if basic_command_adapter != null:
 		basic_command_adapter.reset()
+	active_skill_command_token = 0
+	if skill_command_adapter != null:
+		skill_command_adapter.reset()
 
 
 func restart_battle() -> void:
@@ -385,6 +423,7 @@ func _reset_battle_values() -> void:
 	_reset_camera()
 	_hide_takashi_ultimate_glow_effect()
 	_reset_basic_command_runtime()
+	_reset_skill_command_runtime()
 	timing_bar.cancel_window()
 	ui.set_timing_mode(false)
 	ui.set_restart_visible(false)
@@ -528,7 +567,7 @@ func _begin_basic_attack_command() -> bool:
 		return false
 	if state != BattleState.PLAYER_TURN or _is_battle_over():
 		return false
-	if _has_pending_basic_command():
+	if _has_pending_basic_command() or _has_pending_skill_command():
 		return false
 	return basic_command_adapter.begin_basic()
 
@@ -683,7 +722,7 @@ func _validate_basic_attack_command(command: PendingBattleCommand) -> String:
 		return "battle_already_finished"
 	if state != BattleState.PLAYER_TURN:
 		return "battle_state_not_player_turn"
-	if active_basic_command_token != 0:
+	if active_basic_command_token != 0 or active_skill_command_token != 0:
 		return "action_execution_already_active"
 	if not is_instance_valid(player) or player.is_defeated():
 		return "actor_invalid"
@@ -1003,6 +1042,577 @@ func _update_basic_command_panel(command: PendingBattleCommand) -> void:
 	basic_target_label.text = "Target: %s" % target_name
 
 
+func _setup_skill_command_runtime() -> void:
+	_setup_skill_command_adapter()
+	_create_skill_target_highlight()
+	_create_skill_command_panel()
+
+
+func _setup_skill_command_adapter() -> void:
+	if skill_command_adapter != null:
+		return
+	skill_command_adapter = SkillCommandAdapterScript.new()
+	skill_command_adapter.name = "SkillCommandAdapter"
+	add_child(skill_command_adapter)
+	skill_command_adapter.configure(
+		player,
+		_get_skill_candidate_targets,
+		_validate_skill_command,
+		_commit_skill_command_resources
+	)
+	skill_command_adapter.skill_ready.connect(_on_skill_command_ready)
+	skill_command_adapter.target_changed.connect(_on_skill_command_target_changed)
+	skill_command_adapter.skill_cancelled.connect(_on_skill_command_cancelled)
+	skill_command_adapter.skill_committed.connect(_on_skill_command_committed)
+	skill_command_adapter.skill_failed.connect(_on_skill_command_failed)
+
+
+func _reset_skill_command_runtime() -> void:
+	active_skill_command_token = 0
+	skill_recovery_tokens.clear()
+	skill_turn_completion_tokens.clear()
+	skill_hit_tokens.clear()
+	if skill_command_adapter != null:
+		skill_command_adapter.reset()
+	_hide_skill_target_highlight()
+	_set_skill_command_panel_visible(false)
+	skill_animation_looping = false
+
+
+func _uses_new_skill_command_flow() -> bool:
+	return use_new_skill_command_flow and skill_command_adapter != null
+
+
+func _begin_skill_command() -> bool:
+	if not _uses_new_skill_command_flow():
+		return false
+	if state != BattleState.PLAYER_TURN or _is_battle_over():
+		return false
+	if _has_pending_basic_command() or _has_pending_skill_command():
+		return false
+	if skill_points < SKILL_POINT_COST_SKILL:
+		ui.set_battle_log("Triangle Rift needs %d Skill Point." % SKILL_POINT_COST_SKILL)
+		return false
+	return skill_command_adapter.begin_skill(
+		&"triangle_rift",
+		PendingBattleCommand.TargetRule.SINGLE_ENEMY,
+		SKILL_POINT_COST_SKILL
+	)
+
+
+func _confirm_skill_command() -> bool:
+	if not _has_pending_skill_command():
+		return false
+	_repair_skill_pending_target()
+	return skill_command_adapter.confirm_skill()
+
+
+func _cancel_skill_command() -> bool:
+	if not _has_pending_skill_command():
+		return false
+	return skill_command_adapter.cancel_skill()
+
+
+func _has_pending_skill_command() -> bool:
+	return (
+		skill_command_adapter != null
+		and skill_command_adapter.has_pending_skill()
+	)
+
+
+func _on_skill_command_ready(command: PendingBattleCommand) -> void:
+	_start_skill_ready_idle()
+	_update_action_buttons(false)
+	ui.set_battle_input_enabled(true)
+	ui.set_turn_text("Triangle Rift")
+	ui.set_battle_log("Triangle Rift ready. Choose a target or confirm.")
+	_update_skill_command_panel(command)
+	_set_skill_command_panel_visible(true)
+
+
+func _on_skill_command_target_changed(
+	command: PendingBattleCommand,
+	_targets: Array
+) -> void:
+	_update_skill_command_panel(command)
+	_show_skill_target_highlight(command)
+
+
+func _on_skill_command_cancelled(_command: PendingBattleCommand) -> void:
+	active_skill_command_token = 0
+	_stop_player_skill_animation()
+	_start_player_idle_animation()
+	_hide_skill_target_highlight()
+	_set_skill_command_panel_visible(false)
+	ui.set_battle_input_enabled(true)
+	ui.set_turn_text("Player Turn")
+	ui.set_battle_log("Triangle Rift cancelled.")
+	_update_action_buttons(true)
+
+
+func _on_skill_command_committed(command: PendingBattleCommand) -> void:
+	_hide_skill_target_highlight()
+	_set_skill_command_panel_visible(false)
+	_update_action_buttons(false)
+	ui.set_battle_input_enabled(false)
+	call_deferred("_execute_committed_skill", command)
+
+
+func _on_skill_command_failed(
+	_command: PendingBattleCommand,
+	reason: StringName
+) -> void:
+	active_skill_command_token = 0
+	_stop_player_skill_animation()
+	_start_player_idle_animation()
+	_hide_skill_target_highlight()
+	_set_skill_command_panel_visible(false)
+	if _is_battle_over():
+		return
+	state = BattleState.PLAYER_TURN
+	ui.set_battle_input_enabled(true)
+	ui.set_turn_text("Player Turn")
+	ui.set_battle_log(_skill_command_failure_message(reason))
+	_update_action_buttons(true)
+
+
+func _start_skill_ready_idle() -> void:
+	_start_player_skill_animation(true)
+	if takashi_skill_frames.is_empty():
+		_play_screen_flash(Color(0.42, 0.95, 1.0, 0.12), 0.08)
+
+
+func _execute_committed_skill(command: PendingBattleCommand) -> void:
+	if not _uses_new_skill_command_flow():
+		return
+	if not _is_committed_skill_command(command):
+		return
+	if not skill_command_adapter.execute_committed_command():
+		return
+
+	var target := _selected_skill_target(command)
+	if target == null:
+		_abort_committed_skill_command(command, &"target_missing_during_execution")
+		return
+
+	active_skill_command_token = command.commit_token
+	state = BattleState.ACTION_RESOLUTION
+	_set_player_action_texture(TAKASHI_SKILL_TEXTURE)
+	_play_skill_sfx()
+	_update_action_buttons(false)
+	ui.set_turn_text("Triangle Rift")
+	ui.set_battle_log("Triangle Rift charging...")
+	await _execute_triangle_rift(target, command)
+
+
+func _finish_skill_command_resolution(
+	command: PendingBattleCommand,
+	log_text: String
+) -> void:
+	if not _is_committed_skill_command(command):
+		return
+	if not skill_command_adapter.resolve_committed_command(command):
+		return
+	if not skill_command_adapter.begin_recovery(command):
+		return
+
+	var token := command.commit_token
+	if skill_recovery_tokens.has(token):
+		return
+	skill_recovery_tokens[token] = true
+	_start_player_idle_animation()
+	_hide_skill_target_highlight()
+	if not _skill_recovery_guard(command):
+		return
+	if not skill_command_adapter.complete_recovery(command):
+		return
+	if skill_turn_completion_tokens.has(token):
+		return
+	skill_turn_completion_tokens[token] = true
+	active_skill_command_token = 0
+	_finish_player_action(log_text)
+
+
+func _abort_committed_skill_command(
+	command: PendingBattleCommand,
+	reason: StringName
+) -> void:
+	active_skill_command_token = 0
+	if skill_command_adapter != null:
+		skill_command_adapter.fail_skill(command, reason)
+		skill_command_adapter.reset()
+
+
+func _validate_skill_command(command: PendingBattleCommand) -> String:
+	if command == null:
+		return "missing_command"
+	if command.command_type != PendingBattleCommand.CommandType.SKILL:
+		return "unsupported_command"
+	if command.action_id != &"triangle_rift":
+		return "unsupported_skill"
+	if _is_battle_over():
+		return "battle_already_finished"
+	if state != BattleState.PLAYER_TURN:
+		return "battle_state_not_player_turn"
+	if active_basic_command_token != 0 or active_skill_command_token != 0:
+		return "action_execution_already_active"
+	if not is_instance_valid(player) or player.is_defeated():
+		return "actor_invalid"
+	if skill_points < command.skill_point_cost:
+		return "not_enough_skill_points"
+	if not command.has_required_targets():
+		return "target_invalid"
+	if _selected_skill_target(command) == null:
+		return "target_not_targetable"
+	return ""
+
+
+func _commit_skill_command_resources(
+	command: PendingBattleCommand
+) -> bool:
+	if not _validate_skill_command(command).is_empty():
+		return false
+	if command.skill_point_cost > 0:
+		_spend_skill_points(command.skill_point_cost)
+	return true
+
+
+func _get_skill_candidate_targets() -> Array[Node]:
+	var targets: Array[Node] = []
+	if battle_scene == null:
+		return targets
+	for child in battle_scene.get_children():
+		if _is_skill_targetable(child):
+			targets.append(child)
+	return targets
+
+
+func _is_skill_targetable(target: Node) -> bool:
+	return (
+		target is Combatant
+		and target != player
+		and is_instance_valid(target)
+		and not (target as Combatant).is_defeated()
+	)
+
+
+func _selected_skill_target(command: PendingBattleCommand) -> Combatant:
+	if command == null or command.selected_targets.is_empty():
+		return null
+	var target := command.selected_targets[0] as Combatant
+	if target == null or not _is_skill_targetable(target):
+		return null
+	return target
+
+
+func _repair_skill_pending_target() -> bool:
+	var command: PendingBattleCommand = skill_command_adapter.get_pending_command()
+	if command == null:
+		return false
+
+	command.candidate_targets.assign(_get_skill_candidate_targets())
+	command.refresh_candidates()
+	if _selected_skill_target(command) != null:
+		return true
+	if command.candidate_targets.is_empty():
+		return false
+	return skill_command_adapter.select_target(command.candidate_targets[0])
+
+
+func _cycle_skill_target(direction: int) -> bool:
+	if not _has_pending_skill_command():
+		return false
+	var command: PendingBattleCommand = skill_command_adapter.get_pending_command()
+	command.candidate_targets.assign(_get_skill_candidate_targets())
+	command.refresh_candidates()
+	if command.candidate_targets.size() < 2:
+		return false
+
+	var current_index := 0
+	if not command.selected_targets.is_empty():
+		current_index = command.candidate_targets.find(command.selected_targets[0])
+	if current_index < 0:
+		current_index = 0
+	var next_index := wrapi(
+		current_index + direction,
+		0,
+		command.candidate_targets.size()
+	)
+	return skill_command_adapter.select_target(command.candidate_targets[next_index])
+
+
+func _select_skill_target_at_position(screen_position: Vector2) -> bool:
+	if not _has_pending_skill_command():
+		return false
+	var command: PendingBattleCommand = skill_command_adapter.get_pending_command()
+	command.candidate_targets.assign(_get_skill_candidate_targets())
+	command.refresh_candidates()
+	var closest_target: Combatant
+	var closest_distance := INF
+	for candidate in command.candidate_targets:
+		var combatant := candidate as Combatant
+		if combatant == null:
+			continue
+		var distance := screen_position.distance_to(combatant.global_position)
+		if distance < closest_distance:
+			closest_distance = distance
+			closest_target = combatant
+	if closest_target == null or closest_distance > 170.0:
+		return false
+	return skill_command_adapter.select_target(closest_target)
+
+
+func _skill_execution_guard(
+	command: PendingBattleCommand,
+	target: Combatant,
+	require_live_target: bool = true
+) -> bool:
+	if (
+		not is_inside_tree()
+		or state != BattleState.ACTION_RESOLUTION
+		or _is_battle_over()
+		or not is_instance_valid(player)
+		or player.is_defeated()
+		or target == null
+		or not is_instance_valid(target)
+		or (require_live_target and target.is_defeated())
+	):
+		return false
+	if command == null:
+		return true
+	return (
+		skill_command_adapter != null
+		and command == skill_command_adapter.get_pending_command()
+		and command.is_committed
+		and active_skill_command_token == command.commit_token
+		and skill_command_adapter.is_token_active(command.commit_token)
+	)
+
+
+func _skill_impact_guard(
+	command: PendingBattleCommand,
+	target: Node2D
+) -> bool:
+	if command == null:
+		return state == BattleState.ACTION_RESOLUTION and is_inside_tree()
+	var combatant := target as Combatant
+	if combatant == null:
+		return false
+	return _skill_execution_guard(command, combatant, false)
+
+
+func _skill_recovery_guard(command: PendingBattleCommand) -> bool:
+	return (
+		is_inside_tree()
+		and state == BattleState.ACTION_RESOLUTION
+		and not _is_battle_over()
+		and skill_command_adapter != null
+		and command == skill_command_adapter.get_pending_command()
+		and command.is_committed
+		and command.is_resolved
+		and active_skill_command_token == command.commit_token
+	)
+
+
+func _is_committed_skill_command(command: PendingBattleCommand) -> bool:
+	return (
+		command != null
+		and command.command_type == PendingBattleCommand.CommandType.SKILL
+		and command.is_committed
+		and command.commit_token > 0
+	)
+
+
+func _consume_skill_hit(
+	command: PendingBattleCommand,
+	hit_index: int
+) -> bool:
+	if command == null:
+		return true
+	var key := "%d:%d" % [command.commit_token, hit_index]
+	if skill_hit_tokens.has(key):
+		return false
+	skill_hit_tokens[key] = true
+	return true
+
+
+func _skill_command_failure_message(reason: StringName) -> String:
+	match reason:
+		&"not_enough_skill_points":
+			return "Triangle Rift needs %d Skill Point." % SKILL_POINT_COST_SKILL
+		&"target_invalid_before_confirm", &"target_not_targetable":
+			return "Triangle Rift target is no longer valid."
+		&"no_valid_targets", &"target_missing_during_execution":
+			return "Triangle Rift has no valid target."
+		&"battle_state_not_player_turn", &"action_execution_already_active":
+			return "Triangle Rift is not available right now."
+	return "Triangle Rift was cancelled safely."
+
+
+func _create_skill_target_highlight() -> void:
+	if skill_target_highlight != null or battle_scene == null:
+		return
+	skill_target_highlight = Line2D.new()
+	skill_target_highlight.name = "SkillTargetHighlight"
+	skill_target_highlight.width = 4.0
+	skill_target_highlight.default_color = Color(0.42, 0.96, 1.0, 0.98)
+	skill_target_highlight.closed = true
+	skill_target_highlight.z_index = 31
+	for index in range(36):
+		var angle := TAU * float(index) / 36.0
+		skill_target_highlight.add_point(
+			Vector2(cos(angle) * 70.0, sin(angle) * 86.0)
+		)
+	battle_scene.add_child(skill_target_highlight)
+	skill_target_highlight.visible = false
+
+
+func _show_skill_target_highlight(command: PendingBattleCommand) -> void:
+	if skill_target_highlight == null:
+		return
+	skill_target_highlight.visible = _selected_skill_target(command) != null
+	_sync_skill_target_highlight()
+
+
+func _hide_skill_target_highlight() -> void:
+	if skill_target_highlight != null:
+		skill_target_highlight.visible = false
+
+
+func _sync_skill_target_highlight() -> void:
+	if skill_target_highlight == null or not skill_target_highlight.visible:
+		return
+	if not _has_pending_skill_command():
+		skill_target_highlight.visible = false
+		return
+	var target := _selected_skill_target(skill_command_adapter.get_pending_command())
+	if target == null:
+		skill_target_highlight.visible = false
+		return
+	skill_target_highlight.global_position = target.global_position + Vector2(0.0, -76.0)
+	skill_target_highlight.rotation -= 0.01
+
+
+func _create_skill_command_panel() -> void:
+	if skill_command_panel != null or canvas_layer == null:
+		return
+
+	skill_command_panel = Panel.new()
+	skill_command_panel.name = "SkillCommandPanel"
+	skill_command_panel.visible = false
+	skill_command_panel.anchor_left = 0.5
+	skill_command_panel.anchor_right = 0.5
+	skill_command_panel.anchor_top = 1.0
+	skill_command_panel.anchor_bottom = 1.0
+	skill_command_panel.offset_left = -170.0
+	skill_command_panel.offset_right = 170.0
+	skill_command_panel.offset_top = -254.0
+	skill_command_panel.offset_bottom = -116.0
+	skill_command_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	skill_command_panel.add_theme_stylebox_override(
+		"panel",
+		_make_skill_command_panel_style()
+	)
+	canvas_layer.add_child(skill_command_panel)
+
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 14)
+	margin.add_theme_constant_override("margin_top", 10)
+	margin.add_theme_constant_override("margin_right", 14)
+	margin.add_theme_constant_override("margin_bottom", 10)
+	skill_command_panel.add_child(margin)
+
+	var rows := VBoxContainer.new()
+	rows.add_theme_constant_override("separation", 5)
+	margin.add_child(rows)
+
+	skill_ready_label = Label.new()
+	skill_ready_label.text = "Triangle Rift Ready"
+	skill_ready_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	skill_ready_label.add_theme_font_size_override("font_size", 15)
+	skill_ready_label.add_theme_color_override(
+		"font_color",
+		Color(0.72, 0.98, 1.0, 1.0)
+	)
+	rows.add_child(skill_ready_label)
+
+	skill_cost_label = Label.new()
+	skill_cost_label.text = "Cost: -"
+	skill_cost_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	skill_cost_label.add_theme_font_size_override("font_size", 12)
+	skill_cost_label.add_theme_color_override(
+		"font_color",
+		Color(0.98, 0.92, 0.74, 1.0)
+	)
+	rows.add_child(skill_cost_label)
+
+	skill_target_label = Label.new()
+	skill_target_label.text = "Target: -"
+	skill_target_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	skill_target_label.add_theme_font_size_override("font_size", 13)
+	skill_target_label.add_theme_color_override(
+		"font_color",
+		Color(0.84, 0.92, 1.0, 1.0)
+	)
+	rows.add_child(skill_target_label)
+
+	var buttons := HBoxContainer.new()
+	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+	buttons.add_theme_constant_override("separation", 8)
+	rows.add_child(buttons)
+
+	skill_confirm_button = Button.new()
+	skill_confirm_button.text = "Confirm"
+	skill_confirm_button.custom_minimum_size = Vector2(104.0, 32.0)
+	skill_confirm_button.pressed.connect(_confirm_skill_command)
+	buttons.add_child(skill_confirm_button)
+
+	skill_cancel_button = Button.new()
+	skill_cancel_button.text = "Cancel"
+	skill_cancel_button.custom_minimum_size = Vector2(104.0, 32.0)
+	skill_cancel_button.pressed.connect(_cancel_skill_command)
+	buttons.add_child(skill_cancel_button)
+
+
+func _make_skill_command_panel_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.012, 0.04, 0.058, 0.94)
+	style.border_color = Color(0.42, 0.96, 1.0, 0.92)
+	style.border_width_left = 1
+	style.border_width_top = 1
+	style.border_width_right = 1
+	style.border_width_bottom = 1
+	style.corner_radius_top_left = 6
+	style.corner_radius_top_right = 6
+	style.corner_radius_bottom_right = 6
+	style.corner_radius_bottom_left = 6
+	return style
+
+
+func _set_skill_command_panel_visible(is_visible: bool) -> void:
+	if skill_command_panel != null:
+		skill_command_panel.visible = is_visible
+
+
+func _update_skill_command_panel(command: PendingBattleCommand) -> void:
+	if skill_target_label == null:
+		return
+	var target_name := "-"
+	var target := _selected_skill_target(command)
+	if target != null:
+		target_name = target.combatant_name
+	skill_target_label.text = "Target: %s" % target_name
+	if skill_cost_label != null and command != null:
+		skill_cost_label.text = "Cost: %d SP | SP %d/%d" % [
+			command.skill_point_cost,
+			skill_points,
+			MAX_SKILL_POINTS
+		]
+	if skill_confirm_button != null:
+		skill_confirm_button.disabled = target == null
+
+
 func _play_battle_intro_effect() -> void:
 	if battle_intro_overlay == null:
 		return
@@ -1085,6 +1695,8 @@ func _enemy_attack() -> void:
 func _on_attack_pressed() -> void:
 	if state != BattleState.PLAYER_TURN:
 		return
+	if _has_pending_skill_command() and not _cancel_skill_command():
+		return
 
 	if _uses_new_basic_command_flow():
 		_begin_basic_attack_command()
@@ -1158,6 +1770,9 @@ func _on_confirm_pressed() -> void:
 	if _uses_new_basic_command_flow() and _has_pending_basic_command():
 		_confirm_basic_attack_command()
 		return
+	if _uses_new_skill_command_flow() and _has_pending_skill_command():
+		_confirm_skill_command()
+		return
 	if state == BattleState.PLAYER_TURN:
 		await _on_attack_pressed()
 
@@ -1165,36 +1780,32 @@ func _on_confirm_pressed() -> void:
 func _on_skill_pressed() -> void:
 	if _has_pending_basic_command() and not _cancel_basic_attack_command():
 		return
-	if state != BattleState.PLAYER_TURN or skill_points < SKILL_POINT_COST_SKILL:
+	if state != BattleState.PLAYER_TURN:
 		return
 
+	if _uses_new_skill_command_flow():
+		_begin_skill_command()
+		return
+
+	if skill_points < SKILL_POINT_COST_SKILL:
+		return
+	await _start_legacy_skill()
+
+
+func _start_legacy_skill() -> void:
 	state = BattleState.ACTION_RESOLUTION
 	_set_player_action_texture(TAKASHI_SKILL_TEXTURE)
 	_play_skill_sfx()
 	_update_action_buttons(false)
 	ui.set_turn_text("Triangle Rift")
 	ui.set_battle_log("Triangle Rift charging...")
-	_spend_skill_points(SKILL_POINT_COST_SKILL)
-	_spawn_skill_charge_effect(player)
-	await ui.play_skill_cast_feedback()
-	if state != BattleState.ACTION_RESOLUTION:
-		return
-
-	ui.set_battle_log("Triangle Rift spends %d Skill Point and generates %d energy." % [SKILL_POINT_COST_SKILL, SKILL_ENERGY])
-	await player.play_skill_movement(enemy)
-	if state != BattleState.ACTION_RESOLUTION:
-		return
-
-	await _resolve_triangle_rift_damage()
-	if state != BattleState.ACTION_RESOLUTION:
-		return
-
-	_add_ultimate_energy(SKILL_ENERGY)
-	_finish_player_action("Triangle Rift deals %d damage." % SKILL_DAMAGE)
+	await _execute_triangle_rift(enemy, null, true)
 
 
 func _on_ultimate_pressed() -> void:
 	if _has_pending_basic_command() and not _cancel_basic_attack_command():
+		return
+	if _has_pending_skill_command() and not _cancel_skill_command():
 		return
 	if state != BattleState.PLAYER_TURN or ultimate_energy < MAX_ULTIMATE_ENERGY:
 		return
@@ -2036,25 +2647,68 @@ func _spawn_triangle_rift_effect(target: Node2D, large: bool) -> void:
 		tween.tween_callback(particle.queue_free)
 
 
-func _resolve_triangle_rift_damage() -> void:
-	if state != BattleState.ACTION_RESOLUTION:
+func _execute_triangle_rift(
+	target: Combatant = null,
+	command: PendingBattleCommand = null,
+	spend_cost_before_cast: bool = false
+) -> void:
+	if target == null:
+		target = enemy
+	if not _skill_execution_guard(command, target):
+		return
+
+	if spend_cost_before_cast:
+		_spend_skill_points(SKILL_POINT_COST_SKILL)
+	_spawn_skill_charge_effect(player)
+	await ui.play_skill_cast_feedback()
+	if not _skill_execution_guard(command, target):
+		return
+
+	ui.set_battle_log("Triangle Rift spends %d Skill Point and generates %d energy." % [SKILL_POINT_COST_SKILL, SKILL_ENERGY])
+	await player.play_skill_movement(target)
+	if not _skill_execution_guard(command, target):
+		return
+
+	await _resolve_triangle_rift_damage(target, command)
+	if not _skill_execution_guard(command, target, false):
+		return
+
+	_add_ultimate_energy(SKILL_ENERGY)
+	var log_text := "Triangle Rift deals %d damage." % SKILL_DAMAGE
+	if command != null:
+		_finish_skill_command_resolution(command, log_text)
+	else:
+		_finish_player_action(log_text)
+
+
+func _resolve_triangle_rift_damage(
+	target: Combatant = null,
+	command: PendingBattleCommand = null
+) -> void:
+	if target == null:
+		target = enemy
+	if not _skill_execution_guard(command, target):
 		return
 
 	_play_skill_release_sfx()
-	_spawn_triangle_rift_projectile(player, enemy)
+	_spawn_triangle_rift_projectile(player, target)
 
 	await get_tree().create_timer(SKILL_RIFT_PROJECTILE_DURATION).timeout
-	if state != BattleState.ACTION_RESOLUTION:
+	if not _skill_execution_guard(command, target):
+		return
+	if command != null and not skill_command_adapter.begin_resolution(command):
 		return
 
-	enemy.take_damage(SKILL_DAMAGE)
-	_show_floating_damage(enemy, SKILL_DAMAGE)
+	if not _consume_skill_hit(command, 0):
+		return
+	target.take_damage(SKILL_DAMAGE)
+	_show_floating_damage(target, SKILL_DAMAGE)
 
-	await _play_triangle_rift_impact(enemy)
-	if state != BattleState.ACTION_RESOLUTION:
+	await _play_triangle_rift_impact(target, command)
+	if not _skill_execution_guard(command, target, false):
 		return
 
-	await enemy.play_hit_feedback()
+	await target.play_hit_feedback()
 
 
 func _spawn_triangle_rift_projectile(origin: Node2D, target: Node2D) -> void:
@@ -2083,7 +2737,10 @@ func _spawn_triangle_rift_projectile(origin: Node2D, target: Node2D) -> void:
 	tween.tween_callback(projectile.queue_free)
 
 
-func _play_triangle_rift_impact(target: Node2D) -> void:
+func _play_triangle_rift_impact(
+	target: Node2D,
+	command: PendingBattleCommand = null
+) -> void:
 	if effect_layer == null or target == null:
 		return
 
@@ -2097,7 +2754,7 @@ func _play_triangle_rift_impact(target: Node2D) -> void:
 	await _shake_target_once(target, SKILL_RIFT_TARGET_SHAKE, 0.055)
 
 	for pulse_index in range(SKILL_RIFT_IMPACT_PULSE_COUNT):
-		if state != BattleState.ACTION_RESOLUTION:
+		if not _skill_impact_guard(command, target):
 			return
 
 		_play_rift_crack_sfx()
@@ -2363,10 +3020,15 @@ func _on_restart_pressed() -> void:
 func _win(log_text: String) -> void:
 	state = BattleState.WIN
 	active_basic_command_token = 0
+	active_skill_command_token = 0
 	if basic_command_adapter != null:
 		basic_command_adapter.lock_for_outcome(true)
+	if skill_command_adapter != null:
+		skill_command_adapter.lock_for_outcome(true)
 	_hide_basic_target_highlight()
 	_set_basic_command_panel_visible(false)
+	_hide_skill_target_highlight()
+	_set_skill_command_panel_visible(false)
 	timing_bar.cancel_window()
 	ui.set_battle_input_enabled(false)
 	ui.set_turn_text("Victory")
@@ -2386,10 +3048,15 @@ func _win(log_text: String) -> void:
 func _lose(log_text: String) -> void:
 	state = BattleState.LOSE
 	active_basic_command_token = 0
+	active_skill_command_token = 0
 	if basic_command_adapter != null:
 		basic_command_adapter.lock_for_outcome(false)
+	if skill_command_adapter != null:
+		skill_command_adapter.lock_for_outcome(false)
 	_hide_basic_target_highlight()
 	_set_basic_command_panel_visible(false)
+	_hide_skill_target_highlight()
+	_set_skill_command_panel_visible(false)
 	timing_bar.cancel_window()
 	ui.set_battle_input_enabled(false)
 	ui.set_turn_text("Defeat")
@@ -2624,12 +3291,13 @@ func _stop_player_basic_animation() -> void:
 	basic_animation_playing = false
 
 
-func _start_player_skill_animation() -> void:
+func _start_player_skill_animation(loop_animation: bool = false) -> void:
 	if player_action_sprite == null:
 		return
 
 	_stop_player_idle_animation()
 	_stop_player_basic_animation()
+	skill_animation_looping = loop_animation
 	if takashi_skill_frames.is_empty():
 		_set_player_action_frame(TAKASHI_SKILL_TEXTURE)
 		return
@@ -2642,9 +3310,11 @@ func _start_player_skill_animation() -> void:
 
 func _stop_player_skill_animation() -> void:
 	if not skill_animation_playing:
+		skill_animation_looping = false
 		return
 
 	skill_animation_playing = false
+	skill_animation_looping = false
 
 
 func _advance_player_idle_animation(delta: float) -> void:
@@ -2680,6 +3350,10 @@ func _advance_player_skill_animation(delta: float) -> void:
 	while skill_frame_elapsed >= frame_duration:
 		skill_frame_elapsed -= frame_duration
 		if skill_frame_index >= takashi_skill_frames.size() - 1:
+			if skill_animation_looping:
+				skill_frame_index = 0
+				_set_player_action_frame(takashi_skill_frames[skill_frame_index])
+				continue
 			skill_animation_playing = false
 			return
 

@@ -166,7 +166,7 @@ func _test_legacy_basic_fallback_still_works() -> void:
 
 
 func _test_legacy_skill_still_works() -> void:
-	var fixture := await _make_battle(false, true)
+	var fixture := await _make_battle(false, true, false)
 	var battle := fixture["battle"] as Node
 	var manager := fixture["manager"] as BattleManager
 	var initial_hp := manager.enemy.current_hp
@@ -217,7 +217,8 @@ func _test_bandit_basic_victory_updates_world_progress() -> void:
 
 func _make_battle(
 	bandit: bool,
-	use_flow: bool
+	use_flow: bool,
+	use_skill_flow: bool = true
 ) -> Dictionary:
 	WorldProgress.reset_story()
 	if bandit:
@@ -225,6 +226,7 @@ func _make_battle(
 	var battle := BATTLE_SCENE.instantiate()
 	var manager := battle.get_node("BattleManager") as BattleManager
 	manager.use_new_basic_command_flow = use_flow
+	manager.use_new_skill_command_flow = use_skill_flow
 	get_tree().root.add_child(battle)
 	await _idle_frames(8)
 	return {

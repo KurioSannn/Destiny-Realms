@@ -6,7 +6,9 @@ This document defines the target battle contract. Block 5 implements the normal
 turn command slice in an isolated debug scene without refactoring
 `battle_manager.gd`, altering damage, changing enemy AI, rebalancing turns, or
 implementing the Ultimate interrupt queue. Block 6 migrates only production
-Basic Attack to that command contract behind a feature flag.
+Basic Attack to that command contract behind a feature flag. Block 7 migrates
+production Skill to the same contract behind its own feature flag while keeping
+Ultimate legacy.
 
 ## Block 5 implementation status
 
@@ -50,9 +52,42 @@ Implemented in production `BattleManager` for Basic Attack only:
   cancels Basic safely first, then continues the legacy command if its existing
   checks pass.
 
+## Block 7 implementation status
+
+Implemented in production `BattleManager` for Skill only:
+
+- Runtime `SkillCommandAdapter` composes `BattleCommandFlow` without rewriting
+  `battle_manager.gd`.
+- `use_new_skill_command_flow` enables the new Skill path by default; disabling
+  it restores the legacy immediate Skill fallback.
+- Pressing Skill creates a pending `SKILL` command for `triangle_rift`, enters
+  Takashi Skill ready idle using existing Skill frames, preselects a live enemy
+  target, shows Skill target highlight and production confirm/cancel UI, and
+  does not spend SP, deal damage, play impact VFX/SFX, move Takashi, progress
+  the turn, or trigger enemy AI.
+- Cancel clears pending Skill, target highlight, and confirm/cancel UI,
+  restores battle idle, keeps player turn ownership, and produces no damage,
+  status, resource mutation, camera action, or turn progression.
+- Confirm validates battle state, actor, live target, active Basic/Skill token,
+  targetability, action id, and current SP before commit.
+- Commit spends `SKILL_POINT_COST_SKILL` exactly once. Select, ready idle,
+  target selection, cancel, and failed pre-commit validation spend nothing.
+- Existing Triangle Rift execution remains authoritative for cast feedback,
+  movement, projectile, VFX, SFX, one `SKILL_DAMAGE` hit, hit feedback, camera
+  shake, `SKILL_ENERGY` gain, recovery, victory, enemy turn, return scene, and
+  `WorldProgress`.
+- Triangle Rift is currently characterized as a single-target, single-hit Skill
+  with no status effect. The new path records hit index `0` per command token
+  so duplicate callbacks cannot resolve the same hit twice.
+- Basic and Skill use separate feature flags, adapters, active tokens, panels,
+  and target highlights. Selecting either command while the other is pending
+  cancels the old pending command first, then starts the new one.
+- Ultimate remains legacy. Selecting Ultimate while Skill is pending cancels
+  Skill first, then runs the existing Ultimate path if Energy is full. Ultimate
+  Energy timing is unchanged.
+
 Still not implemented:
 
-- Production Skill command flow.
 - Production Ultimate command flow.
 - Off-turn Ultimate request, FIFO queue, suspended context, or resume.
 
@@ -324,7 +359,7 @@ Findings:
 | --- | --- | --- |
 | Flow state | Five states: player, resolution, enemy, win, lose | Command, target, recovery, and interrupt phases are collapsed |
 | Basic | Button immediately enters resolution and starts movement | No pending command, ready idle, target, cancel, or explicit confirm |
-| Skill | Button enters resolution and spends SP before cast feedback | Cost is paid before a confirmation boundary |
+| Skill | Production path now uses pending/confirm/commit; legacy fallback still spends SP before cast feedback | Ultimate and later multi-skill data still need the same boundary |
 | Ultimate | Player-turn only; Energy resets immediately on press | No off-turn request, queue, target, cancel, or safe interrupt |
 | Confirm | Confirm during player turn calls Basic Attack | It is a shortcut, not command confirmation |
 | Targeting | Player actions use the single `enemy` node directly | No independent target-selection state or policy |

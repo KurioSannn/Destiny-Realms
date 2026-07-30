@@ -9,6 +9,10 @@ scene on the existing `BattleManager` behavior.
 Block 6 integrates the new command flow into production only for Basic Attack.
 Skill and Ultimate remain on the legacy `BattleManager` path.
 
+Block 7 integrates production Skill (`Triangle Rift`) through the same command
+boundary. Ultimate remains legacy; no off-turn request, interrupt queue, or
+suspended context is implemented.
+
 Run the isolated scene with F6:
 
 `res://scenes/battle/debug/battle_command_flow_debug.tscn`
@@ -20,6 +24,7 @@ Run the isolated scene with F6:
 | `scripts/battle/command/pending_battle_command.gd` | Immutable command identity plus mutable pending/commit lifecycle data |
 | `scripts/battle/command/battle_command_flow.gd` | Battle, animation, and UI state transitions; validation and commit boundary |
 | `scripts/battle/command/basic_attack_command_adapter.gd` | Production Basic Attack bridge from `BattleManager` to `BattleCommandFlow` |
+| `scripts/battle/command/skill_command_adapter.gd` | Production Skill bridge from `BattleManager` to `BattleCommandFlow` |
 | `scripts/battle/debug/battle_command_flow_debug.gd` | Adapter to existing combatants, resources, VFX, audio, damage, and enemy turn |
 | `scripts/battle/debug/battle_command_debug_panel.gd` | F6-only state readout and debug controls |
 | `scenes/battle/debug/battle_command_flow_debug.tscn` | Isolated inherited battle scene; production scene is unchanged |
@@ -120,10 +125,45 @@ the battle scene except the player. Lesser Abyss and Bandit Captain each expose
 one live target today, so target switching is future-ready but has no alternate
 production target until an encounter adds more live enemy combatants.
 
-Skill and Ultimate remain legacy in Block 6. If Skill or Ultimate is selected
-while Basic is pending, Basic is cancelled safely first, then the legacy command
-continues if its existing resource check passes. No Skill ready idle, Ultimate
-ready idle, Ultimate queue, off-turn Ultimate, or suspended context exists yet.
+Block 7 adds `SkillCommandAdapter` and `use_new_skill_command_flow`. The flag
+defaults to true and is read through `_uses_new_skill_command_flow()`. Setting
+it false keeps the legacy Skill fallback, including the old timing where Skill
+Point is spent before cast feedback.
+
+Production Skill flow is:
+
+`PLAYER_TURN -> COMMAND_SELECT -> SKILL_READY_IDLE -> TARGET_SELECT -> CONFIRM/CANCEL -> RESOURCE_REVALIDATION -> COMMIT/SPEND_SP -> ACTION_EXECUTION -> DAMAGE_AND_EFFECT_RESOLUTION -> ACTION_RECOVERY -> legacy turn completion`
+
+Pressing Skill now creates one pending `SKILL` command for `triangle_rift` with
+`SINGLE_ENEMY` targeting and the existing `SKILL_POINT_COST_SKILL`. Select,
+ready idle, target selection, and cancel do not spend Skill Point, deal damage,
+play impact VFX/SFX, move Takashi, move the turn, or trigger enemy AI. Confirm
+revalidates battle state, actor liveness, target liveness, active Basic/Skill
+tokens, and current SP before commit.
+
+The commit callback is the only new-flow place that mutates Skill Point. It
+spends the quoted cost exactly once, then locks confirm/cancel input. Existing
+Triangle Rift execution remains authoritative for Skill cast feedback, Takashi
+movement, projectile, release/impact SFX, rift VFX, camera shake, one
+`SKILL_DAMAGE` hit, hit feedback, `SKILL_ENERGY` gain, victory, enemy turn,
+return scene, and `WorldProgress`.
+
+Triangle Rift is single-hit today and applies no status effect. The production
+Skill path still records hit index `0` against the command token so duplicate
+callbacks cannot apply the same hit twice. The model remains compatible with
+future multi-hit/status actions by adding more hit indexes without changing the
+commit boundary.
+
+Command switching uses the same rule for normal commands: choosing Basic while
+Skill is pending cancels Skill first, then starts Basic; choosing Skill while
+Basic is pending cancels Basic first, then starts Skill. Only one pending player
+command and one active committed command are allowed.
+
+Ultimate is still legacy in Block 7. Choosing Ultimate while Skill is pending
+cancels Skill first, then starts the existing Ultimate path if Energy is full.
+Energy timing, Ultimate animation, Ultimate damage, and Ultimate scene behavior
+are unchanged. There is still no Ultimate ready idle, off-turn Ultimate request,
+FIFO interrupt queue, or suspended battle context.
 
 ## Block 6 Verification
 
@@ -165,7 +205,51 @@ Known limitations:
   switching remains adapter-ready but not visually demonstrated by encounter
   data.
 
-Next migration step: characterize Skill resource timing and presentation in
-production, then migrate Skill through the same adapter boundary without
-changing damage, SP cost, Energy gain, enemy AI, story, `WorldProgress`,
-`MusicDirector`, or `SceneTransition`.
+Block 6 migration target is complete in Block 7: production Skill now uses the
+same adapter boundary without changing damage, SP cost, Energy gain, enemy AI,
+story, `WorldProgress`, `MusicDirector`, or `SceneTransition`.
+
+## Block 7 Verification
+
+Automated tests:
+
+`godot --headless --disable-crash-handler --log-file godot-command-flow.log --path . --script res://tests/battle/test_battle_command_flow.gd`
+
+`godot --headless --disable-crash-handler --log-file godot-production-basic.log --path . --scene res://tests/battle/test_production_basic_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-production-skill.log --path . --scene res://tests/battle/test_production_skill_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-debug-scene.log --path . --scene res://tests/battle/test_battle_command_debug_scene.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-bandit-startup.log --path . --scene res://tests/battle/test_bandit_battle_startup.tscn`
+
+Startup smoke tests should continue to cover Login, Prologue, Lesser Abyss, and
+Bandit Captain startup with `--quit-after`.
+
+Visual capture runner:
+
+`godot --disable-crash-handler --log-file godot-skill-capture-1280.log --resolution 1280x720 --windowed --path . --scene res://tests/battle/capture_production_skill_command_flow.tscn -- --capture-size=1280x720`
+
+`godot --disable-crash-handler --log-file godot-skill-capture-1920.log --resolution 1920x1080 --windowed --path . --scene res://tests/battle/capture_production_skill_command_flow.tscn -- --capture-size=1920x1080`
+
+Production Skill screenshots are stored under
+`docs/images/battle_command_flow/production_skill/1280x720` and `1920x1080`.
+They cover Lesser Abyss command select, Skill ready, target select,
+confirm/cancel, cancelled, action execution, damage resolution, recovery, Bandit
+Skill target selection, and Bandit victory.
+
+Known Block 7 limitations:
+
+- Production Skill currently has one live target in Lesser Abyss and Bandit
+  Captain, so target cycling is covered by the adapter but not visually
+  differentiated by encounter data.
+- Triangle Rift is characterized as single-hit with no status effect. The hit
+  guard is ready for additional hit indexes but no multi-hit/status migration is
+  needed yet.
+- Ultimate remains the highest-risk migration because it owns camera,
+  full-screen cinematic state, Energy spend timing, and return-to-battle UI
+  restoration in one await chain.
+
+Next migration step: Block 8 should add broader characterization around the
+legacy on-turn Ultimate path, then migrate only on-turn Ultimate to the command
+boundary before considering any off-turn interrupt queue.
