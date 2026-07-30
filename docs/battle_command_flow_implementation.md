@@ -17,6 +17,10 @@ Block 8 integrates production on-turn Ultimate (`Octagram Fragment`) through
 the same command boundary. Off-turn Ultimate request, interrupt queue, and
 suspended context are still not implemented.
 
+Block 8.5 revises production Basic Attack into a fast command with no ready
+idle and no confirm/cancel step, while Skill and Ultimate keep their ready
+idle and confirm/cancel steps unchanged.
+
 Run the isolated scene with F6:
 
 `res://scenes/battle/debug/battle_command_flow_debug.tscn`
@@ -106,24 +110,31 @@ when `use_new_basic_command_flow` is enabled. The flag defaults to true and is
 read through one helper in `battle_manager.gd`; setting it false keeps the
 legacy immediate Basic Attack fallback.
 
-The adapter owns only Basic pending/confirm/cancel/commit. It provides the
-actor, target candidates, final validation, and no-cost commit callback to
+The adapter owns only Basic pending/commit. It provides the actor, target
+candidates, final validation, and no-cost commit callback to
 `BattleCommandFlow`. `BattleManager` still owns all authoritative Basic
 execution: movement, frame animation, VFX, SFX, damage, hit feedback, camera
 shake, SP reward, Energy gain, recovery, enemy turn, victory, return scene, and
 `WorldProgress`.
 
-Production Basic flow is:
+> As of Block 8.5, production Basic flow no longer has a ready idle or
+> confirm/cancel step. See "Block 8.5 adds a fast Basic Attack flow" below for
+> the current flow; the paragraphs immediately below this note describe the
+> Block 6 behavior for historical context only.
+
+Block 6 production Basic flow was:
 
 `PLAYER_TURN -> COMMAND_SELECT -> BASIC_READY_IDLE -> TARGET_SELECT -> CONFIRM/CANCEL -> ACTION_EXECUTION -> DAMAGE_AND_EFFECT_RESOLUTION -> ACTION_RECOVERY -> legacy turn completion`
 
-Cancel clears the pending command, target highlight, and confirm/cancel panel;
-it restores Takashi idle and does not deal damage, grant SP, spend resources,
-play impact effects, move the turn, or trigger enemy AI. Confirm validates the
+Cancel cleared the pending command, target highlight, and confirm/cancel panel;
+it restored Takashi idle and did not deal damage, grant SP, spend resources,
+play impact effects, move the turn, or trigger enemy AI. Confirm validated the
 actor, target, battle state, active action token, and target liveness before
-commit. Execution and resolution use the controller commit token plus local
+commit. Execution and resolution used the controller commit token plus local
 recovery/turn-completion token dictionaries to reject duplicate confirm,
-execution, damage, recovery, and turn completion.
+execution, damage, recovery, and turn completion. All of this except the
+ready-idle/confirm-panel presentation is still true after Block 8.5 — see
+below.
 
 Target selection currently uses every live production `Combatant` child under
 the battle scene except the player. Lesser Abyss and Bandit Captain each expose
@@ -225,6 +236,84 @@ not implement any off-turn Ultimate request, FIFO interrupt queue, or
 suspended battle context; `UltimateCommandAdapter.begin_ultimate()` accepts an
 explicit `request_source` parameter (defaulting to `TURN_COMMAND`) purely so
 Block 9 can add an off-turn caller without changing the command model.
+
+## Block 8.5 adds a fast Basic Attack flow
+
+`BattleCommandFlow.begin_command()` gained three optional trailing
+parameters: `requires_ready_idle`, `requires_confirm`, and
+`auto_commit_on_target_selected` (defaults `true`, `true`, `false`). They are
+copied onto the `PendingBattleCommand` instance itself, so the rest of the
+controller reads a per-command pacing rule instead of branching on command
+type anywhere else. `BasicAttackCommandAdapter.begin_basic()` is the only
+call site that passes `false, false, true`; `SkillCommandAdapter` and
+`UltimateCommandAdapter` pass no extra arguments and are unaffected.
+
+Inside `begin_command()`:
+
+- `COMMAND_READY_IDLE` is entered (and `command_ready` emitted) only when
+  `requires_ready_idle` is true. Basic Attack skips straight from
+  `command_started` to target handling.
+- After a `SINGLE_ENEMY`/`SINGLE_ALLY` command auto-preselects its first
+  candidate and enters `TARGET_SELECT`, if `auto_commit_on_target_selected`
+  is true and there is at most one live candidate, `begin_command()` calls
+  `confirm_pending_command()` itself before returning — this is the single
+  live enemy path, fully synchronous with the button press.
+- `set_pending_target()` and `set_pending_targets()` each call
+  `confirm_pending_command()` immediately after a successful selection when
+  `auto_commit_on_target_selected` is true — this is what makes multi-enemy
+  target selection commit the instant a target is chosen, whether selection
+  came from a mouse click, the existing keyboard target-cycle helpers, or the
+  shared confirm/interact key.
+
+This keeps the "when does Basic commit" decision in exactly two places inside
+`battle_command_flow.gd`, rather than special-casing Basic anywhere in
+`battle_manager.gd`. Every existing Basic target-selection call site
+(`_cycle_basic_target`, `_select_basic_target_at_position`,
+`_repair_basic_pending_target`) needed zero changes — they already called
+`basic_command_adapter.select_target(...)`, which now auto-commits
+transparently.
+
+`battle_manager.gd` changes for Basic:
+
+- Removed: the Basic ready-idle texture switch (`_start_basic_ready_idle`),
+  its signal handler (`_on_basic_command_ready`, and the now-unreachable
+  `basic_ready` signal connection), and the entire Basic confirm/cancel panel
+  — construction, style, visibility toggle, and label/target-text update
+  functions, plus their four `Control` node variables
+  (`basic_command_panel`, `basic_ready_label`, `basic_target_label`,
+  `basic_confirm_button`, `basic_cancel_button`).
+- Unchanged: `basic_target_highlight` and its create/show/hide/sync
+  functions, now used only for the multi-enemy target-selection window;
+  `_confirm_basic_attack_command()` and `_cancel_basic_attack_command()`,
+  which remain reachable through the shared `_on_confirm_pressed()` router
+  and `ui_cancel` input respectively — the former now only matters as a
+  keyboard/interact shortcut to commit the currently-cycled target during
+  multi-enemy selection, since there is no confirm panel to click.
+- `_on_basic_command_target_changed` now only shows the target highlight and
+  a `"Select target"` battle-log line when `command.candidate_targets.size()
+  > 1`; for a single live enemy it is a no-op, since the command has already
+  committed by the time the signal fires.
+- `_execute_committed_basic_attack` and the entire authoritative Basic
+  execution path (`_resolve_basic_attack` and everything it calls) are
+  unchanged: movement, VFX, SFX, damage, hit feedback, camera shake, SP
+  reward, recovery, victory, enemy turn, return scene, and `WorldProgress`.
+
+Command switching rules are unchanged in wording (selecting any command
+while another is pending cancels the old pending command first, then starts
+the new one) — Block 8.5 required no new code for this, because a committed
+Basic command already fails `cancel_pending_command()`'s state guard
+(`battle_state` is `ACTION_EXECUTION`, not one of the cancellable states),
+and the existing `_has_pending_basic_command() and not
+_cancel_basic_attack_command(): return` guards in `_on_skill_pressed()` and
+`_on_ultimate_pressed()` already handle "Basic already committed, block the
+switch" correctly. The only place Basic's pending window is long enough to
+switch away from is multi-enemy target selection.
+
+Lesser Abyss and Bandit Captain each still expose exactly one live enemy, so
+the multi-enemy path is covered by `BasicAttackCommandAdapter`/
+`BattleCommandFlow` logic and a test-only mock second `Combatant` (spawned by
+the automated tests and the visual-capture script), not by live production
+encounter data.
 
 ## Block 6 Verification
 
@@ -419,3 +508,83 @@ suspended battle context. `INTERRUPT_REQUEST` continues to be rejected with
 the safe-interrupt-window detection and FIFO queue described in
 `docs/battle_system_spec.md`, using the `request_source` parameter already
 threaded through all three command adapters.
+
+## Block 8.5 Verification
+
+Automated tests:
+
+`godot --headless --disable-crash-handler --log-file godot-command-flow.log --path . --script res://tests/battle/test_battle_command_flow.gd`
+
+`godot --headless --disable-crash-handler --log-file godot-production-basic.log --path . --scene res://tests/battle/test_production_basic_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-production-skill.log --path . --scene res://tests/battle/test_production_skill_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-production-ultimate.log --path . --scene res://tests/battle/test_production_ultimate_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-debug-scene.log --path . --scene res://tests/battle/test_battle_command_debug_scene.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-bandit-startup.log --path . --scene res://tests/battle/test_bandit_battle_startup.tscn`
+
+Startup smoke tests continue to cover Login, Prologue, and Lesser Abyss
+startup with `--quit-after`.
+
+`test_production_basic_command_flow.gd` now covers: single-enemy auto-target
+commits with no ready idle/confirm wait, a committed single-enemy Basic
+cannot be cancelled, no-valid-target fails safely, spamming Basic/Skill/
+Ultimate presses in a row still deals exactly one hit, a mocked two-enemy
+scene enters target selection and shows a highlight, selecting one of the two
+targets commits immediately and only damages that target, and cancel before
+a target is chosen clears the pending command cleanly. The legacy fallback,
+Skill regression, and Ultimate regression tests from Block 8 are unchanged.
+`test_production_skill_command_flow.gd`'s and
+`test_production_ultimate_command_flow.gd`'s Basic-switching tests were
+updated to spawn the same mocked second enemy, since a single-enemy Basic
+command now commits before there is anything to switch away from.
+
+Visual capture runner:
+
+`godot --disable-crash-handler --log-file godot-basic-capture-1280.log --resolution 1280x720 --windowed --path . --scene res://tests/battle/capture_production_basic_command_flow.tscn -- --capture-size=1280x720`
+
+`godot --disable-crash-handler --log-file godot-basic-capture-1920.log --resolution 1920x1080 --windowed --path . --scene res://tests/battle/capture_production_basic_command_flow.tscn -- --capture-size=1920x1080`
+
+Production Basic screenshots are stored under
+`docs/images/battle_command_flow/production_basic_fast/1280x720` and
+`1920x1080` (the Block 6 `production_basic/` screenshots are left in place as
+a historical record of the pre-Block-8.5 ready-idle/confirm UI). They cover
+Lesser Abyss command select, the frame immediately after pressing Basic
+(already executing, no dialog), mid-execution, damage resolution, recovery,
+Bandit command select, Bandit execution, Bandit victory, and a mocked
+two-enemy scene's command select / target-select-with-highlight / target-
+selected-immediate-execution frames. The mock second enemy uses a simple
+colored placeholder polygon (no new character art) purely so the capture is
+legible; it is not used by the automated test assertions, which only need
+`Combatant.setup()`/`take_damage()`/`is_defeated()`.
+
+Known Block 8.5 limitations:
+
+- Basic Attack's multi-enemy target-selection path has no live production
+  encounter to exercise it; it is verified only through adapter/flow logic,
+  automated tests, and visual capture against a mocked second `Combatant`,
+  matching the same limitation already noted for Basic/Skill/Ultimate target
+  cycling in Blocks 6-8.
+- Any target selection during multi-enemy Basic selection — mouse click,
+  keyboard cycle, or the shared confirm/interact key — commits immediately.
+  There is no "browse without committing" mode for keyboard cycling; each
+  cycle step attacks the newly highlighted target. This was a deliberate
+  reading of "Basic harus terasa cepat dan langsung" over building a second,
+  separate confirm-only-for-keyboard path, which would have reintroduced the
+  confirm step Basic is meant to no longer have.
+- `_begin_basic_attack_command()` and `_begin_skill_command()` still only
+  check `_has_pending_basic_command() or _has_pending_skill_command()`
+  before starting (not Ultimate); this is unchanged from Block 8 and is
+  harmless in practice because the router-level guards in `_on_attack_pressed()`
+  and `_on_skill_pressed()` already cancel any pending Ultimate before
+  reaching these functions. Not fixed here since fixing it would also touch
+  `_begin_skill_command()`, and Block 8.5 must not change Skill.
+
+Block 8.5 does not touch Skill or Ultimate flow, off-turn Ultimate interrupt,
+damage formulas, SP/Energy cost or gain, AI, encounter data, story,
+`WorldProgress`, `MusicDirector`, or `SceneTransition`. Next migration step:
+Block 9 should design the safe-interrupt-window detection and FIFO queue
+described in `docs/battle_system_spec.md`, using the `request_source`
+parameter already threaded through all three command adapters.

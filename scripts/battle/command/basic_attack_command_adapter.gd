@@ -57,7 +57,10 @@ func begin_basic(source_turn: int = 0) -> bool:
 		0,
 		source_turn,
 		CommandFlow.BattleFlowState.COMMAND_SELECT,
-		PendingCommand.RequestSource.TURN_COMMAND
+		PendingCommand.RequestSource.TURN_COMMAND,
+		false,
+		false,
+		true
 	)
 
 

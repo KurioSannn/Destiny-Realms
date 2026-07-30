@@ -9,8 +9,11 @@ implementing the Ultimate interrupt queue. Block 6 migrates only production
 Basic Attack to that command contract behind a feature flag. Block 7 migrates
 production Skill to the same contract behind its own feature flag while keeping
 Ultimate legacy. Block 8 migrates production on-turn Ultimate to the same
-command contract behind its own feature flag. Off-turn Ultimate interrupt,
-the FIFO queue, and suspended battle context remain unimplemented.
+command contract behind its own feature flag. Block 8.5 revises production
+Basic Attack to a fast command with no ready idle and no confirm/cancel step,
+while Skill and Ultimate keep their ready idle and confirm/cancel steps. Off-
+turn Ultimate interrupt, the FIFO queue, and suspended battle context remain
+unimplemented.
 
 ## Block 5 implementation status
 
@@ -25,6 +28,12 @@ Implemented in `scenes/battle/debug/battle_command_flow_debug.tscn`:
 - F6 debug controls for target cycling, Energy fill, and target invalidation.
 
 ## Block 6 implementation status
+
+> Superseded by Block 8.5 for Basic Attack's player-facing UX: Basic no
+> longer has a ready idle or confirm/cancel step. The pending-command
+> architecture, adapter, feature flag, and legacy fallback described below
+> are still accurate; only the ready-idle/confirm-panel behavior changed.
+> See "Block 8.5 implementation status" below for the current flow.
 
 Implemented in production `BattleManager` for Basic Attack only:
 
@@ -150,6 +159,72 @@ Still not implemented:
 See `docs/battle_command_flow_implementation.md` for file ownership, test
 commands, screenshots, feature flag, fallback, and known limitations.
 
+## Block 8.5 implementation status
+
+Revises production Basic Attack to a fast command. Skill and Ultimate are
+unchanged: both still use ready idle, target selection, confirm/cancel,
+commit, and (for Ultimate) cut-in.
+
+`BattleCommandFlow.begin_command()` gained three optional parameters —
+`requires_ready_idle`, `requires_confirm`, and `auto_commit_on_target_selected`
+(all default `true`/`true`/`false`, preserving prior behavior for any caller
+that does not pass them) — stored on the `PendingBattleCommand` instance
+itself so the rest of the flow controller can read a single command's own
+pacing rules instead of branching on command type. `BasicAttackCommandAdapter`
+is the only caller that opts in to `requires_ready_idle = false`,
+`requires_confirm = false`, `auto_commit_on_target_selected = true`; Skill and
+Ultimate adapters pass no extra arguments and keep the original ready
+idle/confirm contract.
+
+New Basic Attack flow:
+
+- One live enemy: `COMMAND_SELECT -> BASIC_SELECTED -> AUTO_TARGET -> COMMIT -> BASIC_EXECUTION -> DAMAGE_RESOLUTION -> RECOVERY -> TURN_COMPLETE`.
+- Multiple live enemies: `COMMAND_SELECT -> BASIC_SELECTED -> TARGET_SELECT -> PLAYER_SELECT_TARGET -> AUTO_COMMIT -> BASIC_EXECUTION -> DAMAGE_RESOLUTION -> RECOVERY -> TURN_COMPLETE`.
+
+Behavior:
+
+- Pressing Basic with one live enemy target auto-selects it and commits in
+  the same call, with no ready idle, no confirm panel, and no wait — the
+  attack is already executing by the time the button-press handler returns.
+- Pressing Basic with two or more live enemies enters target selection (no
+  ready idle) and shows a target highlight; selecting a target — by click,
+  keyboard cycle, or the shared confirm/interact key — commits immediately
+  with no separate confirm panel.
+- Cancel is only available before a target is chosen (multi-enemy target
+  selection). A committed Basic command — which for a single live enemy
+  happens instantly — cannot be cancelled or replaced.
+- Command switching is unchanged in rule (selecting any command while another
+  is pending cancels the old pending command first) but Basic's pending
+  window is usually too short to observe with a single live enemy; the
+  window is only meaningfully observable during multi-enemy target
+  selection.
+- Commit boundary, resource validation (actor/target liveness, battle state,
+  token, no concurrent execution), duplicate-commit/execution/resolution/
+  recovery/turn-completion guards, damage formula, and SP gain timing (after
+  hit resolves, exactly once) are all unchanged from Block 6/8.
+- Existing Basic execution remains authoritative for movement, animation,
+  VFX, SFX, damage, hit feedback, camera shake, Energy gain, SP reward,
+  recovery, victory, enemy turn, return scene, and `WorldProgress`.
+- `use_new_basic_command_flow = false` still restores the pre-Block-6 legacy
+  immediate Basic fallback, unchanged.
+
+Removed from `battle_manager.gd`: the Basic ready-idle texture switch
+(`_start_basic_ready_idle`), the Basic confirm/cancel panel and its
+construction/style/visibility/update functions, and their four associated
+`Control` node variables. `basic_target_highlight` and the Basic target
+cycle/click selection helpers are unchanged and now double as the multi-enemy
+target-selection UI.
+
+Still not implemented:
+
+- Off-turn Ultimate request, FIFO queue, suspended context, or resume.
+- A production encounter with two or more live enemies (Basic's multi-target
+  path is covered by adapter-level logic and a test-only mock second enemy,
+  not by live encounter data).
+
+See `docs/battle_command_flow_implementation.md` for file ownership, test
+commands, screenshots, feature flag, fallback, and known limitations.
+
 ## Responsibility model
 
 Four independent state domains are required:
@@ -166,7 +241,9 @@ code must not directly decide damage or advance the turn.
 
 ## Normal command flow
 
-Basic Attack and Skill use the same commit boundary:
+Skill and Ultimate use the full ready-idle/confirm commit boundary. Basic
+Attack (as of Block 8.5) shares the same underlying commit boundary and
+validation but skips `COMMAND_READY_IDLE` and `COMMAND_CONFIRM`:
 
 ```mermaid
 flowchart LR
@@ -185,13 +262,44 @@ flowchart LR
 
 Rules:
 
-- A command button creates a pending action; it does not deal damage.
-- Costs are validated while selecting but committed only after confirmation.
+- A command button creates a pending action; it does not deal damage before
+  its commit boundary, even when that boundary is reached in the same call
+  (Basic Attack with a single live enemy).
+- Costs are validated while selecting but committed only after confirmation
+  (Skill, Ultimate) or immediately at auto-commit (Basic Attack).
 - Input is locked during execution, effect resolution, and unsafe recovery.
 - Damage and status events run once from a committed action.
 - Recovery returns the actor to battle idle before the next turn begins.
 
+## Basic Attack fast flow
+
+Basic Attack skips `COMMAND_READY_IDLE` and `COMMAND_CONFIRM` entirely. A
+single live enemy is auto-targeted and auto-committed in the same step;
+multiple live enemies require a target choice, which itself commits:
+
+```mermaid
+flowchart LR
+    A[COMMAND_SELECT] --> B[BASIC_SELECTED]
+    B -->|one live enemy| C[AUTO_TARGET]
+    C --> D[COMMIT]
+    B -->|multiple live enemies| E[TARGET_SELECT]
+    E -->|player selects target| F[AUTO_COMMIT]
+    E -->|cancel before selecting| A
+    F --> D
+    D --> G[BASIC_EXECUTION]
+    G --> H[DAMAGE_RESOLUTION]
+    H --> I[RECOVERY]
+    I --> J[TURN_COMPLETE]
+```
+
+Once `COMMIT` is reached, Basic Attack follows the same commit-token,
+duplicate-prevention, and authoritative-execution rules as Skill and
+Ultimate; only the pre-commit UX (no ready idle, no confirm panel) differs.
+
 ## Skill ready idle
+
+Applies to Skill and Ultimate. Basic Attack does not use this diagram; see
+"Basic Attack fast flow" above.
 
 ```mermaid
 stateDiagram-v2
@@ -414,7 +522,7 @@ Findings:
 | Area | Current behavior | Gap against target |
 | --- | --- | --- |
 | Flow state | Five states: player, resolution, enemy, win, lose | Command, target, recovery, and interrupt phases are collapsed |
-| Basic | Button immediately enters resolution and starts movement | No pending command, ready idle, target, cancel, or explicit confirm |
+| Basic | Production path uses pending command, commit token, and auto-commit (no ready idle/confirm by design, Block 8.5); legacy fallback still enters resolution immediately | Multi-enemy target-select path has no live production encounter to exercise it |
 | Skill | Production path now uses pending/confirm/commit; legacy fallback still spends SP before cast feedback | Later multi-skill data still needs the same boundary |
 | Ultimate | Production on-turn path now uses pending/confirm/commit; legacy fallback still zeroes Energy on press | No off-turn request, queue, or safe interrupt |
 | Confirm | Confirm during player turn calls Basic Attack | It is a shortcut, not command confirmation |

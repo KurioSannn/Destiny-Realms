@@ -41,6 +41,9 @@ var execution_started: bool = false
 var commit_token: int = 0
 var sequence_index: int = 0
 var created_at_msec: int = 0
+var requires_ready_idle: bool = true
+var requires_confirm: bool = true
+var auto_commit_on_target_selected: bool = false
 
 
 func _init(

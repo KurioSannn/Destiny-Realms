@@ -2,6 +2,9 @@ extends Control
 class_name LoginScene
 
 const PROLOGUE_SCENE_PATH: String = "res://scenes/prologue/prologue_scene.tscn"
+const BUMPER_FRAME_COUNT: int = 209
+const BUMPER_FRAME_RATE: float = 15.0
+const BUMPER_FRAME_PATH_FORMAT: String = "res://public/login_bumper/frame_%03d.jpg"
 
 @onready var splash_layer: Control = $SplashLayer
 @onready var splash_logo: TextureRect = $SplashLayer/DestinyLogo
@@ -14,12 +17,50 @@ const PROLOGUE_SCENE_PATH: String = "res://scenes/prologue/prologue_scene.tscn"
 @onready var guest_button: Button = $LoginLayer/GuestButton
 @onready var error_label: Label = $LoginLayer/ErrorLabel
 @onready var login_bgm: AudioStreamPlayer = $LoginBgm
+@onready var login_bumper: TextureRect = $LoginBumper
+
+var bumper_frames: Array[Texture2D] = []
+var bumper_frame_index: int = 0
+var bumper_frame_elapsed: float = 0.0
 
 
 func _ready() -> void:
 	start_button.pressed.connect(_start_game)
 	guest_button.pressed.connect(_start_game)
+	login_bgm.finished.connect(_on_login_bgm_finished)
+	_load_bumper_frames()
 	await _play_intro_sequence()
+
+
+func _on_login_bgm_finished() -> void:
+	login_bgm.play()
+
+
+func _process(delta: float) -> void:
+	_advance_bumper_frame(delta)
+
+
+func _load_bumper_frames() -> void:
+	bumper_frames.clear()
+	for frame_index in range(1, BUMPER_FRAME_COUNT + 1):
+		var frame_path: String = BUMPER_FRAME_PATH_FORMAT % frame_index
+		var frame_texture: Texture2D = load(frame_path) as Texture2D
+		if frame_texture != null:
+			bumper_frames.append(frame_texture)
+	if not bumper_frames.is_empty():
+		login_bumper.texture = bumper_frames[0]
+
+
+func _advance_bumper_frame(delta: float) -> void:
+	if bumper_frames.size() < 2:
+		return
+	bumper_frame_elapsed += delta
+	var frame_duration: float = 1.0 / BUMPER_FRAME_RATE
+	if bumper_frame_elapsed < frame_duration:
+		return
+	bumper_frame_elapsed -= frame_duration
+	bumper_frame_index = wrapi(bumper_frame_index + 1, 0, bumper_frames.size())
+	login_bumper.texture = bumper_frames[bumper_frame_index]
 
 
 func _unhandled_input(event: InputEvent) -> void:

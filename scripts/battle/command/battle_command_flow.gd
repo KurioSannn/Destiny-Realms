@@ -76,7 +76,10 @@ func begin_command(
 	energy_cost: int = 0,
 	source_turn: int = 0,
 	source_state: int = BattleFlowState.COMMAND_SELECT,
-	request_source: int = PendingBattleCommand.RequestSource.TURN_COMMAND
+	request_source: int = PendingBattleCommand.RequestSource.TURN_COMMAND,
+	requires_ready_idle: bool = true,
+	requires_confirm: bool = true,
+	auto_commit_on_target_selected: bool = false
 ) -> bool:
 	if request_source == PendingBattleCommand.RequestSource.INTERRUPT_REQUEST:
 		_fail(null, &"off_turn_interrupt_not_available")
@@ -103,6 +106,9 @@ func begin_command(
 		request_source,
 		_sequence_index
 	)
+	pending_command.requires_ready_idle = requires_ready_idle
+	pending_command.requires_confirm = requires_confirm
+	pending_command.auto_commit_on_target_selected = auto_commit_on_target_selected
 	pending_command.refresh_candidates()
 	pending_command.finalize_automatic_targets()
 	if not pending_command.has_valid_actor():
@@ -113,12 +119,13 @@ func begin_command(
 		return false
 
 	command_started.emit(pending_command)
-	_set_states(
-		BattleFlowState.COMMAND_READY_IDLE,
-		_ready_animation_for(command_type),
-		UiInteractionState.CONFIRM_CANCEL_ACTIVE
-	)
-	command_ready.emit(pending_command)
+	if pending_command.requires_ready_idle:
+		_set_states(
+			BattleFlowState.COMMAND_READY_IDLE,
+			_ready_animation_for(command_type),
+			UiInteractionState.CONFIRM_CANCEL_ACTIVE
+		)
+		command_ready.emit(pending_command)
 
 	if pending_command.requires_target():
 		if pending_command.target_rule in [
@@ -136,6 +143,13 @@ func begin_command(
 			pending_command,
 			pending_command.selected_targets.duplicate()
 		)
+		if (
+			pending_command.auto_commit_on_target_selected
+			and pending_command.candidate_targets.size() <= 1
+		):
+			return confirm_pending_command()
+	elif not pending_command.requires_confirm:
+		return confirm_pending_command()
 	return true
 
 
@@ -149,6 +163,8 @@ func set_pending_target(target: Node) -> bool:
 		pending_command,
 		pending_command.selected_targets.duplicate()
 	)
+	if pending_command.auto_commit_on_target_selected:
+		confirm_pending_command()
 	return true
 
 
@@ -162,6 +178,8 @@ func set_pending_targets(targets: Array[Node]) -> bool:
 		pending_command,
 		pending_command.selected_targets.duplicate()
 	)
+	if pending_command.auto_commit_on_target_selected:
+		confirm_pending_command()
 	return true
 
 

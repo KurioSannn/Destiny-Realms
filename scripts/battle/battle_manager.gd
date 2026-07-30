@@ -235,11 +235,6 @@ var enemy_impact_fvx_sprite: Sprite2D
 var enemy_impact_fvx_glow_sprite: Sprite2D
 var basic_command_adapter
 var basic_target_highlight: Line2D
-var basic_command_panel: Panel
-var basic_ready_label: Label
-var basic_target_label: Label
-var basic_confirm_button: Button
-var basic_cancel_button: Button
 var active_basic_command_token: int = 0
 var basic_recovery_tokens: Dictionary = {}
 var basic_turn_completion_tokens: Dictionary = {}
@@ -568,7 +563,6 @@ func _apply_player_action_sprite_grounding() -> void:
 func _setup_basic_command_runtime() -> void:
 	_setup_basic_command_adapter()
 	_create_basic_target_highlight()
-	_create_basic_command_panel()
 
 
 func _setup_basic_command_adapter() -> void:
@@ -583,7 +577,6 @@ func _setup_basic_command_adapter() -> void:
 		_validate_basic_attack_command,
 		_commit_basic_attack_command_resources
 	)
-	basic_command_adapter.basic_ready.connect(_on_basic_command_ready)
 	basic_command_adapter.target_changed.connect(_on_basic_command_target_changed)
 	basic_command_adapter.basic_cancelled.connect(_on_basic_command_cancelled)
 	basic_command_adapter.basic_committed.connect(_on_basic_command_committed)
@@ -597,7 +590,6 @@ func _reset_basic_command_runtime() -> void:
 	if basic_command_adapter != null:
 		basic_command_adapter.reset()
 	_hide_basic_target_highlight()
-	_set_basic_command_panel_visible(false)
 
 
 func _uses_new_basic_command_flow() -> bool:
@@ -634,30 +626,19 @@ func _has_pending_basic_command() -> bool:
 	)
 
 
-func _on_basic_command_ready(command: PendingBattleCommand) -> void:
-	_start_basic_ready_idle()
-	_update_action_buttons(false)
-	ui.set_battle_input_enabled(true)
-	ui.set_turn_text("Void Strike")
-	ui.set_battle_log("Void Strike ready. Choose a target or confirm.")
-	_update_basic_command_panel(command)
-	_set_basic_command_panel_visible(true)
-
-
 func _on_basic_command_target_changed(
 	command: PendingBattleCommand,
 	_targets: Array
 ) -> void:
-	_update_basic_command_panel(command)
+	if command.candidate_targets.size() <= 1:
+		return
 	_show_basic_target_highlight(command)
+	ui.set_battle_log("Select target")
 
 
 func _on_basic_command_cancelled(_command: PendingBattleCommand) -> void:
 	active_basic_command_token = 0
-	_stop_player_basic_animation()
-	_start_player_idle_animation()
 	_hide_basic_target_highlight()
-	_set_basic_command_panel_visible(false)
 	ui.set_battle_input_enabled(true)
 	ui.set_turn_text("Player Turn")
 	ui.set_battle_log("Void Strike cancelled.")
@@ -666,7 +647,6 @@ func _on_basic_command_cancelled(_command: PendingBattleCommand) -> void:
 
 func _on_basic_command_committed(command: PendingBattleCommand) -> void:
 	_hide_basic_target_highlight()
-	_set_basic_command_panel_visible(false)
 	_update_action_buttons(false)
 	ui.set_battle_input_enabled(false)
 	call_deferred("_execute_committed_basic_attack", command)
@@ -677,10 +657,7 @@ func _on_basic_command_failed(
 	reason: StringName
 ) -> void:
 	active_basic_command_token = 0
-	_stop_player_basic_animation()
-	_start_player_idle_animation()
 	_hide_basic_target_highlight()
-	_set_basic_command_panel_visible(false)
 	if _is_battle_over():
 		return
 	state = BattleState.PLAYER_TURN
@@ -688,12 +665,6 @@ func _on_basic_command_failed(
 	ui.set_turn_text("Player Turn")
 	ui.set_battle_log(_basic_command_failure_message(reason))
 	_update_action_buttons(true)
-
-
-func _start_basic_ready_idle() -> void:
-	_set_player_action_texture(TAKASHI_BASIC_TEXTURE)
-	if takashi_basic_frames.is_empty():
-		_play_screen_flash(Color(0.72, 0.95, 1.0, 0.12), 0.08)
 
 
 func _execute_committed_basic_attack(command: PendingBattleCommand) -> void:
@@ -980,108 +951,6 @@ func _sync_basic_target_highlight() -> void:
 		return
 	basic_target_highlight.global_position = target.global_position + Vector2(0.0, -72.0)
 	basic_target_highlight.rotation += 0.008
-
-
-func _create_basic_command_panel() -> void:
-	if basic_command_panel != null or canvas_layer == null:
-		return
-
-	basic_command_panel = Panel.new()
-	basic_command_panel.name = "BasicCommandPanel"
-	basic_command_panel.visible = false
-	basic_command_panel.anchor_left = 0.5
-	basic_command_panel.anchor_right = 0.5
-	basic_command_panel.anchor_top = 1.0
-	basic_command_panel.anchor_bottom = 1.0
-	basic_command_panel.offset_left = -210.0
-	basic_command_panel.offset_right = 210.0
-	basic_command_panel.offset_top = -224.0
-	basic_command_panel.offset_bottom = -120.0
-	basic_command_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	basic_command_panel.add_theme_stylebox_override(
-		"panel",
-		_make_basic_command_panel_style()
-	)
-	canvas_layer.add_child(basic_command_panel)
-
-	var margin := MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 14)
-	margin.add_theme_constant_override("margin_top", 10)
-	margin.add_theme_constant_override("margin_right", 14)
-	margin.add_theme_constant_override("margin_bottom", 10)
-	basic_command_panel.add_child(margin)
-
-	var rows := VBoxContainer.new()
-	rows.add_theme_constant_override("separation", 6)
-	margin.add_child(rows)
-
-	basic_ready_label = Label.new()
-	basic_ready_label.text = "Void Strike Ready"
-	basic_ready_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	basic_ready_label.add_theme_font_size_override("font_size", 15)
-	basic_ready_label.add_theme_color_override(
-		"font_color",
-		Color(1.0, 0.88, 0.36, 1.0)
-	)
-	rows.add_child(basic_ready_label)
-
-	basic_target_label = Label.new()
-	basic_target_label.text = "Target: -"
-	basic_target_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	basic_target_label.add_theme_font_size_override("font_size", 13)
-	basic_target_label.add_theme_color_override(
-		"font_color",
-		Color(0.84, 0.92, 1.0, 1.0)
-	)
-	rows.add_child(basic_target_label)
-
-	var buttons := HBoxContainer.new()
-	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
-	buttons.add_theme_constant_override("separation", 8)
-	rows.add_child(buttons)
-
-	basic_confirm_button = Button.new()
-	basic_confirm_button.text = "Confirm"
-	basic_confirm_button.custom_minimum_size = Vector2(104.0, 32.0)
-	basic_confirm_button.pressed.connect(_confirm_basic_attack_command)
-	buttons.add_child(basic_confirm_button)
-
-	basic_cancel_button = Button.new()
-	basic_cancel_button.text = "Cancel"
-	basic_cancel_button.custom_minimum_size = Vector2(104.0, 32.0)
-	basic_cancel_button.pressed.connect(_cancel_basic_attack_command)
-	buttons.add_child(basic_cancel_button)
-
-
-func _make_basic_command_panel_style() -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.018, 0.032, 0.055, 0.94)
-	style.border_color = Color(0.98, 0.78, 0.28, 0.92)
-	style.border_width_left = 1
-	style.border_width_top = 1
-	style.border_width_right = 1
-	style.border_width_bottom = 1
-	style.corner_radius_top_left = 6
-	style.corner_radius_top_right = 6
-	style.corner_radius_bottom_right = 6
-	style.corner_radius_bottom_left = 6
-	return style
-
-
-func _set_basic_command_panel_visible(is_visible: bool) -> void:
-	if basic_command_panel != null:
-		basic_command_panel.visible = is_visible
-
-
-func _update_basic_command_panel(command: PendingBattleCommand) -> void:
-	if basic_target_label == null:
-		return
-	var target_name := "-"
-	var target := _selected_basic_target(command)
-	if target != null:
-		target_name = target.combatant_name
-	basic_target_label.text = "Target: %s" % target_name
 
 
 func _setup_skill_command_runtime() -> void:
@@ -3673,7 +3542,6 @@ func _win(log_text: String) -> void:
 	if ultimate_command_adapter != null:
 		ultimate_command_adapter.lock_for_outcome(true)
 	_hide_basic_target_highlight()
-	_set_basic_command_panel_visible(false)
 	_hide_skill_target_highlight()
 	_set_skill_command_panel_visible(false)
 	_hide_ultimate_target_highlight()
@@ -3706,7 +3574,6 @@ func _lose(log_text: String) -> void:
 	if ultimate_command_adapter != null:
 		ultimate_command_adapter.lock_for_outcome(false)
 	_hide_basic_target_highlight()
-	_set_basic_command_panel_visible(false)
 	_hide_skill_target_highlight()
 	_set_skill_command_panel_visible(false)
 	_hide_ultimate_target_highlight()

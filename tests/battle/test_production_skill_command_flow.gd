@@ -187,9 +187,13 @@ func _test_skill_invalid_actor_revalidates_before_commit() -> void:
 
 
 func _test_skill_switching_with_basic() -> void:
+	# Basic Attack is fast-flow as of Block 8.5 (no ready idle/confirm panel);
+	# a second live enemy is mocked here so Basic has a genuine pre-commit
+	# pending state (target selection) to switch away from/into.
 	var fixture := await _make_battle(false, true, true)
 	var battle := fixture["battle"] as Node
 	var manager := fixture["manager"] as BattleManager
+	var second_enemy := _spawn_mock_enemy(battle, manager)
 
 	manager.call("_on_skill_pressed")
 	await _idle_frames(3)
@@ -199,7 +203,12 @@ func _test_skill_switching_with_basic() -> void:
 	_check(not manager.skill_command_adapter.has_pending_skill(), "Basic selection cancels pending Skill")
 	_check(manager.basic_command_adapter.has_pending_basic(), "Basic starts after Skill cancel")
 	_check(not manager.skill_command_panel.visible, "Skill panel hides after switching to Basic")
-	_check(manager.basic_command_panel.visible, "Basic panel shows after switching from Skill")
+	var basic_pending: PendingBattleCommand = manager.basic_command_adapter.get_pending_command()
+	_check(
+		basic_pending != null and not basic_pending.is_committed,
+		"Basic waits for a target choice (multiple live enemies) instead of a confirm panel"
+	)
+	_check(manager.basic_target_highlight.visible, "Basic shows target selection after switching from Skill")
 
 	manager.call("_cancel_basic_attack_command")
 	await _idle_frames(3)
@@ -208,9 +217,9 @@ func _test_skill_switching_with_basic() -> void:
 	manager.call("_on_skill_pressed")
 	await _idle_frames(3)
 
-	_check(not manager.basic_command_adapter.has_pending_basic(), "Skill selection cancels pending Basic")
+	_check(not manager.basic_command_adapter.has_pending_basic(), "Skill selection cancels pending Basic target selection")
 	_check(manager.skill_command_adapter.has_pending_skill(), "Skill starts after Basic cancel")
-	_check(not manager.basic_command_panel.visible, "Basic panel hides after switching to Skill")
+	_check(not manager.basic_target_highlight.visible, "Basic target highlight hides after switching to Skill")
 	_check(manager.skill_command_panel.visible, "Skill panel shows after switching from Basic")
 
 	await _free_battle(battle)
@@ -313,6 +322,15 @@ func _test_bandit_skill_victory_updates_world_progress() -> void:
 	_check(await _wait_for_state(manager, BattleManager.BattleState.WIN, 6.0), "bandit Skill can win encounter")
 	_check(WorldProgress.bandit_defeated, "bandit Skill victory updates WorldProgress")
 	_check(WorldProgress.active_battle_id == &"", "bandit Skill victory clears active encounter")
+
+
+func _spawn_mock_enemy(battle: Node, manager: BattleManager) -> Combatant:
+	var mock_enemy := Combatant.new()
+	mock_enemy.name = "MockSecondEnemy"
+	battle.add_child(mock_enemy)
+	mock_enemy.setup("Mock Enemy B", 50, 5)
+	mock_enemy.global_position = manager.enemy.global_position + Vector2(140.0, 0.0)
+	return mock_enemy
 
 
 func _make_battle(

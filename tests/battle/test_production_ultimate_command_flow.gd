@@ -160,9 +160,13 @@ func _test_ultimate_energy_drop_revalidates_before_commit() -> void:
 
 
 func _test_ultimate_switching_with_basic_and_skill() -> void:
+	# Basic Attack is fast-flow as of Block 8.5 (no ready idle/confirm panel);
+	# a second live enemy is mocked here so Basic has a genuine pre-commit
+	# pending state (target selection) to switch away from.
 	var fixture := await _make_battle(false)
 	var battle := fixture["battle"] as Node
 	var manager := fixture["manager"] as BattleManager
+	var second_enemy := _spawn_mock_enemy(battle, manager)
 
 	manager.ultimate_energy = BattleManager.MAX_ULTIMATE_ENERGY
 	manager.call("_refresh_energy_ui")
@@ -172,9 +176,9 @@ func _test_ultimate_switching_with_basic_and_skill() -> void:
 	manager.call("_on_ultimate_pressed")
 	await _idle_frames(3)
 
-	_check(not manager.basic_command_adapter.has_pending_basic(), "Ultimate selection cancels pending Basic")
+	_check(not manager.basic_command_adapter.has_pending_basic(), "Ultimate selection cancels pending Basic target selection")
 	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "Ultimate starts after Basic cancel")
-	_check(not manager.basic_command_panel.visible, "Basic panel hides after switching to Ultimate")
+	_check(not manager.basic_target_highlight.visible, "Basic target highlight hides after switching to Ultimate")
 	_check(manager.ultimate_command_panel.visible, "Ultimate panel shows after switching from Basic")
 
 	manager.call("_cancel_ultimate_command")
@@ -324,6 +328,15 @@ func _test_bandit_ultimate_victory_updates_world_progress() -> void:
 	_check(WorldProgress.active_battle_id == &"", "bandit Ultimate victory clears active encounter")
 
 	await _free_battle(battle)
+
+
+func _spawn_mock_enemy(battle: Node, manager: BattleManager) -> Combatant:
+	var mock_enemy := Combatant.new()
+	mock_enemy.name = "MockSecondEnemy"
+	battle.add_child(mock_enemy)
+	mock_enemy.setup("Mock Enemy B", 50, 5)
+	mock_enemy.global_position = manager.enemy.global_position + Vector2(140.0, 0.0)
+	return mock_enemy
 
 
 func _make_battle(bandit: bool) -> Dictionary:
