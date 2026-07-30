@@ -43,6 +43,16 @@ func reset() -> void:
 	flow.reset_to_command_select()
 
 
+## Block 9E: ready idle + target selection are kept (requires_ready_idle =
+## true), but there is no confirm/cancel panel step in production anymore
+## (requires_confirm = false — moot here since Ultimate always requires a
+## target, but set for clarity). auto_commit_on_target_selected = true
+## makes clicking a valid target commit immediately; auto_commit_on_begin
+## = false stops begin_command() from also auto-committing the instant
+## ready idle opens against a single live enemy, so ready idle is always
+## visible (both on-turn and queued/off-turn) and committing always needs
+## one more explicit input (pressing Ultimate again, or clicking the
+## target) — see BattleManager._on_ultimate_pressed().
 func begin_ultimate(
 	action_id: StringName,
 	target_rule: int,
@@ -66,9 +76,10 @@ func begin_ultimate(
 		CommandFlow.BattleFlowState.COMMAND_SELECT,
 		request_source,
 		true,
-		true,
 		false,
-		interrupt_authorized
+		true,
+		interrupt_authorized,
+		false
 	)
 
 

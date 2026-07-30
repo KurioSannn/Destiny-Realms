@@ -1260,6 +1260,255 @@ existing safe-window-B feature set. Window A remains available as a
 future **Block 9E R&D spike**, scoped separately and explicitly, per the
 user's own framing — not a default next step.
 
+## Block 9E implementation status
+
+Block 9E is a command-UX revision, not a new capability or a visual
+overhaul: Skill and Ultimate keep ready idle and target selection, but no
+longer show a confirm/cancel panel in production. Commit now happens by
+pressing the same command again or clicking a valid target; pressing a
+*different* command only cancels the pending one and returns to default
+select — it never also begins the new command in the same click. Basic
+Attack's Block 8.5 fast flow is unchanged. Window A and mid-action
+suspend remain fully disabled.
+
+### Final command UX rules
+
+**Basic Attack** (unchanged from Block 8.5): pressing Basic with one live
+enemy auto-targets and auto-commits immediately; with multiple live
+enemies it opens target selection, and clicking a target commits
+immediately. Pressing Basic while a *different* command (Skill/Ultimate)
+is pending cancels that command and returns to default select — Basic
+does not also execute in that click.
+
+**Skill / Ultimate on-turn** (revised): pressing the command the first
+time opens ready idle with a target already auto-selected (SP/Energy
+unchanged, no damage/cut-in). From ready idle/target-select:
+- pressing the *same* command again commits to the active target;
+- clicking a valid target commits to that target;
+- pressing a *different* command cancels the pending one and returns to
+  default select, without starting the new command;
+- Escape/Back cancels and returns to default select.
+Commit deducts SP/Energy exactly once and runs execution/recovery exactly
+once, regardless of how many times commit is attempted afterward.
+
+**Ultimate off-turn queued** (Block 9B/9D resume policy unchanged):
+requesting during `ENEMY_TURN` queues with zero side effects. At safe
+window B, the queued Ultimate opens the identical ready idle/target
+selection described above — no confirm/cancel panel here either. Pressing
+Ultimate again or clicking the target commits (Energy deducted once,
+cut-in runs once); pressing Basic/Skill/Escape cancels and resumes a
+normal player turn; confirming through to resolution also resumes a
+normal player turn afterward (or wins, if lethal) — the queued Ultimate
+never takes the player's next turn.
+
+### Why this was a small change, not a rebuild
+
+`BattleCommandFlow.confirm_pending_command()` already *was* the commit
+function — the old "Confirm" button just called it directly. No new
+commit path was built; `_confirm_skill_command()`/`_confirm_ultimate_command()`
+(unchanged since Block 7/8) are what a same-command press now calls, and
+target-click commit already existed as `auto_commit_on_target_selected`
+(`set_pending_target()`), previously unused by Skill/Ultimate. The one
+real gap: that same flag also controlled an *immediate* single-candidate
+auto-commit inside `begin_command()` (Basic's fast-flow trick) — turning
+it on for Skill/Ultimate without separating the two would have collapsed
+ready idle to zero frames whenever exactly one enemy is alive, which is
+the common case in this game. A new `auto_commit_on_begin` parameter
+(default `true`, preserving Basic's exact behavior) decouples them: Skill/
+Ultimate pass `auto_commit_on_begin = false` so ready idle always shows,
+while `auto_commit_on_target_selected = true` still makes target-click
+commit work.
+
+### Confirm/cancel panel: kept as legacy fallback, hidden in production
+
+`skill_command_panel`/`ultimate_command_panel` and their Confirm/Cancel
+buttons are still constructed (`_create_skill_command_panel()`/
+`_create_ultimate_command_panel()`) and their buttons are still wired to
+the same `_confirm_*`/`_cancel_*` functions — removing them was judged
+riskier than leaving them inert, per the block's own allowance. The only
+change: `_on_skill_command_ready()`/`_on_ultimate_command_ready()` no
+longer call `_set_skill_command_panel_visible(true)`/
+`_set_ultimate_command_panel_visible(true)`, so the panels — `visible =
+false` at construction — are never shown by any production path. They
+remain fully functional as an unused fallback (a test or future block can
+still drive them directly), documented here as the technical debt this
+represents.
+
+### Button interactability during ready idle
+
+A necessary companion fix, not a visual change: before this block,
+`_on_skill_command_ready()`/`_on_ultimate_command_ready()` called
+`_update_action_buttons(false)`, disabling Basic/Skill/Ultimate's main
+buttons for the whole ready-idle window — which would have made
+cross-command cancellation (pressing a *different* button to cancel)
+unreachable through real clicks, since a disabled `Button` never emits
+`pressed`. Both handlers now call `_update_action_buttons(true)` instead,
+matching how Basic's own multi-target pending state already left buttons
+enabled since Block 8.5. Buttons still correctly disable once a command
+is actually committed (`_on_skill_command_committed()`/
+`_on_ultimate_command_committed()` are unchanged).
+
+### BattleCommandFlow changes
+
+One additive parameter on `begin_command()`:
+`auto_commit_on_begin: bool = true`, appended after `interrupt_authorized`
+so no existing positional call site (Basic, Ultimate off-turn interrupt
+rejection test, the debug scene, the contract test) is affected by
+default. It gates only the immediate single-candidate auto-commit inside
+`begin_command()` itself; `auto_commit_on_target_selected` (unchanged)
+still separately controls commit-on-target-click in
+`set_pending_target()`/`set_pending_targets()`. Final flag values:
+
+| Command | `requires_ready_idle` | `requires_confirm` | `auto_commit_on_target_selected` | `auto_commit_on_begin` |
+| --- | --- | --- | --- | --- |
+| Basic | `false` | `false` | `true` | `true` (default, unchanged) |
+| Skill | `true` | `false` | `true` | `false` |
+| Ultimate (on-turn and queued) | `true` | `false` | `true` | `false` |
+
+`requires_confirm` is set to `false` for Skill/Ultimate for clarity, but
+is moot in practice — both always require a target (`SINGLE_ENEMY`), and
+`begin_command()`'s `requires_confirm` branch only ever fires for
+targetless commands.
+
+### Same-command commit
+
+Implemented via the existing `_confirm_skill_command()`/
+`_confirm_ultimate_command()` functions, now also called from
+`_on_skill_pressed()`/`_on_ultimate_pressed()` when that same command is
+already pending — no new commit logic was written.
+`_repair_skill_pending_target()`/`_repair_ultimate_pending_target()`
+(unchanged) re-select a valid target if the auto-selected one became
+invalid. The "many candidates, no target selected yet" edge case the
+block's instructions describe does not occur in this game: both Skill and
+Ultimate use `SINGLE_ENEMY`, and `begin_command()` already auto-selects
+`candidate_targets[0]` the instant ready idle opens — there is always a
+selected target by the time a commit is attempted.
+
+### Target-click commit
+
+Unchanged mechanism, newly enabled for Skill/Ultimate:
+`_select_skill_target_at_position()`/`_select_ultimate_target_at_position()`
+(mouse click handlers, unchanged) call `select_target()` →
+`flow.set_pending_target()`, which already commits when
+`auto_commit_on_target_selected` is true. `ALL_ENEMIES`/`SELF`/`NO_TARGET`
+target rules are not used by any Skill/Ultimate action in this game today
+(only `octagram_fragment`/`triangle_rift`, both `SINGLE_ENEMY`) — the
+block's guidance for those rules is recorded here for a future action
+that might use them, not implemented against anything reachable now.
+
+### Command switching
+
+`_on_attack_pressed()`/`_on_skill_pressed()`/`_on_ultimate_pressed()` each
+now check "is a *different* command pending" and, if so, cancel it and
+`return` immediately — the branch that used to fall through to beginning
+the newly-pressed command was removed. A committed command (token != 0)
+is never cancelled by this path; it was already unreachable during
+commit/execution/recovery via the button-disabled state
+`_on_*_command_committed()` sets.
+
+### Escape / Back
+
+Unchanged — `_unhandled_input()`'s `ui_cancel` handling (Escape/Back)
+already called `_cancel_skill_command()`/`_cancel_ultimate_command()`/
+`_cancel_basic_attack_command()` before this block and needed no changes;
+it already matched the required behavior.
+
+### Resource timing
+
+Unchanged. SP/Energy are still deducted exactly once, inside
+`commit_pending_command()`'s existing commit boundary — same-command
+press and target-click both route through `confirm_pending_command()` →
+`commit_pending_command()`, the identical path the old Confirm button
+used. No new mutation point was added.
+
+### Off-turn Ultimate compatibility
+
+Confirmed unchanged, not rebuilt: `_begin_queued_ultimate()`,
+`_process_interrupt_queue_at_safe_window()`, the resume-token guard, and
+the `AFTER_INTERRUPT_CONTINUE_TO_PLAYER_TURN` policy (Block 9B/9D) are
+untouched. Because a queued Ultimate is just a pending `ULTIMATE` command
+underneath, `_on_ultimate_pressed()`'s "is Ultimate already pending, then
+commit" check is checked *before* the off-turn-request branch, so pressing
+Ultimate again during safe window B correctly commits the queued Ultimate
+through the exact same `confirm_pending_command()` path as on-turn.
+
+### Tests
+
+New: `tests/battle/test_command_ux_no_panel.gd` (+ `.tscn`), 12 functions,
+all passing: Skill/Ultimate second-press commit; Skill/Ultimate
+target-click commit; Skill/Ultimate Escape cancel (via a real synthetic
+`ui_cancel` `InputEventAction` through `_unhandled_input()`, not just the
+underlying cancel function); queued Ultimate ready idle shows no panel;
+queued Ultimate second-press commit; queued Ultimate target-click commit;
+queued Ultimate cancelled via Basic press, Skill press, and Escape, each
+resuming a normal player turn.
+
+Updated in place (not rewritten): `test_production_skill_command_flow.gd`
+and `test_production_ultimate_command_flow.gd` — panel-visibility
+assertions flipped from "shows after ready" to "stays hidden," and the
+command-switching tests (`_test_skill_switching_with_basic`,
+`_test_ultimate_switching_with_basic_and_skill`,
+`_test_ultimate_cancels_skill_pending_and_stays_legacy`,
+`_test_new_ultimate_cancels_skill_pending`) each gained a second
+press-the-new-command step, since a single press now only cancels. The
+spam-commit tests
+(`_test_lesser_skill_confirm_is_single_execution`/
+`_test_ultimate_confirm_is_single_execution`) gained a same-command-press
+call alongside the existing direct-function-call spam, proving neither
+entry point can double-commit.
+
+All other pre-existing suites re-run clean with zero modifications
+required: `test_production_basic_command_flow`, `test_ultimate_interrupt_queue`,
+`test_ultimate_off_turn_interrupt` (all 10 functions), `test_enemy_attack_guard_chain`
+(all 8), `test_interrupt_state_cleanup` (all 13), `test_battle_command_debug_scene`,
+`test_bandit_battle_startup`. Startup smoke continues to cover Login,
+Prologue, and the production battle scene with `--quit-after`.
+
+### Visual QA
+
+Not captured this session. `tests/battle/capture_command_ux_no_panel.gd`
+(+ `.tscn`, new this block) was written to capture the Skill sequence
+(default select, ready idle with no panel, target selected, execution,
+recovery), the Ultimate sequence (ready idle with no panel, target
+selected, cut-in, recovery), and the queued Ultimate sequence (queued
+indicator, ready idle with no panel, commit/cut-in, resume) at both
+resolutions, but hit the same persistent `texture_2d_get: Parameter "t"
+is null` / dummy-rendering-backend failure documented in Block 9C/9D's
+known limitations — confirmed still present (not a Block 9E regression)
+by retrying once. All non-visual verification (12 new tests, 2 updated
+production suites, full pre-existing regression) passed cleanly both
+before and after this failure was encountered.
+
+### Known limitations
+
+1. Confirm/cancel panel widgets remain in the scene tree, permanently
+   hidden, as documented legacy fallback — not deleted, per the block's
+   own risk-avoidance guidance.
+2. `ALL_ENEMIES`/`SELF`/`NO_TARGET` target-click/same-command-commit
+   behavior is undesigned-but-inert: no current Skill/Ultimate action
+   uses those rules, so the block's guidance for them is recorded but
+   unexercised.
+3. Visual QA for Block 9C, 9D, and 9E could not be captured this session,
+   for the same confirmed-environmental reason each time.
+4. The `state = PLAYER_TURN` bridge (Block 9B, audited and kept in Block
+   9D) is unaffected by and unrelated to this block's changes.
+
+### Technical debt
+
+The hidden confirm/cancel panel construction code
+(`_create_skill_command_panel()`/`_create_ultimate_command_panel()`, the
+panel/label/button fields, and their signal wiring) is now dead weight in
+the production path. A future block that is confident no test or
+debug/legacy path still needs it may remove it outright; until then it is
+explicitly documented here as removable, not accidental leftover.
+
+### Recommendation
+
+Command UX is now consistent across Basic/Skill/Ultimate (all "press to
+act, press again or click to commit, press elsewhere to cancel") and
+ready for Block 10 visual UI polish on top of it. Window A remains a
+separately-scoped future decision, unaffected by this block.
+
 ## Responsibility model
 
 Four independent state domains are required:
@@ -1335,6 +1584,16 @@ Ultimate; only the pre-commit UX (no ready idle, no confirm panel) differs.
 
 Applies to Skill and Ultimate. Basic Attack does not use this diagram; see
 "Basic Attack fast flow" above.
+
+> Block 9E note: `COMMAND_CONFIRM` below is a `BattleCommandFlow` state
+> transition, not a visible panel — as of Block 9E there is no
+> confirm/cancel panel in production for Skill or Ultimate. The player
+> reaches `COMMAND_CONFIRM` by pressing the same command again or
+> clicking a valid target while `COMMAND_READY_IDLE`/`TARGET_SELECT` is
+> active; both immediately commit (no separate confirm step is shown).
+> "Cancel command" is reached by pressing a *different* command or
+> Escape/Back, never by a Cancel button. See "Block 9E implementation
+> status" below for the full design.
 
 ```mermaid
 stateDiagram-v2

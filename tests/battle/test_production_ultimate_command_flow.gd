@@ -53,7 +53,7 @@ func _test_lesser_ultimate_select_ready_and_cancel() -> void:
 		"ultimate select starts ready idle pose"
 	)
 	_check(manager.ultimate_target_highlight.visible, "ultimate select shows target highlight")
-	_check(manager.ultimate_command_panel.visible, "ultimate select shows confirm/cancel panel")
+	_check(not manager.ultimate_command_panel.visible, "Block 9E: ultimate ready idle does not show a confirm/cancel panel")
 
 	manager.call("_cancel_ultimate_command")
 	await _idle_frames(3)
@@ -63,7 +63,7 @@ func _test_lesser_ultimate_select_ready_and_cancel() -> void:
 	_check(manager.ultimate_energy == initial_energy, "ultimate cancel preserves energy")
 	_check(not manager.ultimate_command_adapter.has_pending_ultimate(), "ultimate cancel clears pending command")
 	_check(not manager.ultimate_target_highlight.visible, "ultimate cancel hides target highlight")
-	_check(not manager.ultimate_command_panel.visible, "ultimate cancel hides confirm/cancel panel")
+	_check(not manager.ultimate_command_panel.visible, "ultimate cancel leaves confirm/cancel panel hidden")
 
 	await _free_battle(battle)
 
@@ -159,6 +159,10 @@ func _test_ultimate_energy_drop_revalidates_before_commit() -> void:
 	await _free_battle(battle)
 
 
+## Block 9E: pressing a different command while one is pending only
+## cancels the pending one and returns to default select -- it never also
+## begins the new command in that same click. A second press of the new
+## command is required to actually start it.
 func _test_ultimate_switching_with_basic_and_skill() -> void:
 	# Basic Attack is fast-flow as of Block 8.5 (no ready idle/confirm panel);
 	# a second live enemy is mocked here so Basic has a genuine pre-commit
@@ -176,10 +180,15 @@ func _test_ultimate_switching_with_basic_and_skill() -> void:
 	manager.call("_on_ultimate_pressed")
 	await _idle_frames(3)
 
-	_check(not manager.basic_command_adapter.has_pending_basic(), "Ultimate selection cancels pending Basic target selection")
-	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "Ultimate starts after Basic cancel")
+	_check(not manager.basic_command_adapter.has_pending_basic(), "Ultimate press cancels pending Basic target selection")
+	_check(not manager.ultimate_command_adapter.has_pending_ultimate(), "Ultimate does not start in the same click that cancelled Basic")
 	_check(not manager.basic_target_highlight.visible, "Basic target highlight hides after switching to Ultimate")
-	_check(manager.ultimate_command_panel.visible, "Ultimate panel shows after switching from Basic")
+	_check(not manager.ultimate_command_panel.visible, "Ultimate ready idle after switching from Basic still shows no confirm/cancel panel")
+
+	manager.call("_on_ultimate_pressed")
+	await _idle_frames(3)
+
+	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "a second Ultimate press (nothing pending now) starts Ultimate")
 
 	manager.call("_cancel_ultimate_command")
 	await _idle_frames(3)
@@ -188,18 +197,22 @@ func _test_ultimate_switching_with_basic_and_skill() -> void:
 	manager.call("_on_ultimate_pressed")
 	await _idle_frames(3)
 
-	_check(not manager.skill_command_adapter.has_pending_skill(), "Ultimate selection cancels pending Skill")
-	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "Ultimate starts after Skill cancel")
-	_check(not manager.skill_command_panel.visible, "Skill panel hides after switching to Ultimate")
-	_check(manager.ultimate_command_panel.visible, "Ultimate panel shows after switching from Skill")
+	_check(not manager.skill_command_adapter.has_pending_skill(), "Ultimate press cancels pending Skill")
+	_check(not manager.ultimate_command_adapter.has_pending_ultimate(), "Ultimate does not start in the same click that cancelled Skill")
+	_check(not manager.skill_command_panel.visible, "Skill panel stays hidden after switching to Ultimate")
+
+	manager.call("_on_ultimate_pressed")
+	await _idle_frames(3)
+
+	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "a second Ultimate press (nothing pending now) starts Ultimate")
 
 	manager.call("_cancel_ultimate_command")
 	await _idle_frames(3)
 	manager.call("_on_attack_pressed")
 	await _idle_frames(3)
 
-	_check(not manager.ultimate_command_adapter.has_pending_ultimate(), "Basic selection cancels pending Ultimate")
-	_check(manager.basic_command_adapter.has_pending_basic(), "Basic starts after Ultimate cancel")
+	_check(not manager.ultimate_command_adapter.has_pending_ultimate(), "no Ultimate is pending, so a Basic press just begins Basic")
+	_check(manager.basic_command_adapter.has_pending_basic(), "Basic starts")
 
 	await _free_battle(battle)
 
@@ -270,7 +283,11 @@ func _test_ultimate_confirm_is_single_execution() -> void:
 
 	manager.call("_on_ultimate_pressed")
 	await _idle_frames(3)
-	manager.call("_confirm_ultimate_command")
+	# Block 9E: pressing Ultimate again while Ultimate is pending is the
+	# production commit gesture now (see _on_ultimate_pressed()). Spam it
+	# alongside the legacy _confirm_ultimate_command()/_on_confirm_pressed()
+	# entry points to prove none of them can double-commit.
+	manager.call("_on_ultimate_pressed")
 	manager.call("_confirm_ultimate_command")
 	manager.call("_on_confirm_pressed")
 
@@ -280,10 +297,10 @@ func _test_ultimate_confirm_is_single_execution() -> void:
 	_check(int(counts["execution"]) == 1, "ultimate confirm executes once")
 	_check(int(counts["resolution"]) == 1, "ultimate confirm resolves once")
 	_check(int(counts["recovery"]) == 1, "ultimate confirm enters recovery once")
-	_check(manager.enemy.current_hp == expected_hp, "spam confirm does not duplicate ultimate damage")
+	_check(manager.enemy.current_hp == expected_hp, "spam commit does not duplicate ultimate damage")
 	_check(manager.ultimate_energy == 0, "ultimate energy is spent exactly once at commit")
 	_check(not manager.ultimate_target_highlight.visible, "ultimate resolution clears target highlight")
-	_check(not manager.ultimate_command_panel.visible, "ultimate resolution clears confirm/cancel panel")
+	_check(not manager.ultimate_command_panel.visible, "ultimate resolution leaves confirm/cancel panel hidden")
 	_check(manager.state != BattleManager.BattleState.ACTION_RESOLUTION, "ultimate turn leaves execution state")
 
 	await _free_battle(battle)

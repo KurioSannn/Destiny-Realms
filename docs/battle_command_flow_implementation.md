@@ -53,6 +53,14 @@ stale doc comment on the Block 9A stub methods, and locks Block 9's
 feature boundary as production-ready for safe window B only. Window A
 remains fully disabled.
 
+Block 9E revises Skill and Ultimate's command UX: ready idle and target
+selection are kept, but the confirm/cancel panel is no longer shown in
+production — pressing the same command again or clicking the target
+commits, and pressing a different command only cancels the pending one
+(never also starts the new one in the same click). Basic Attack's Block
+8.5 fast flow, off-turn queued Ultimate's Block 9B/9D resume policy, and
+window A's disabled status are all unaffected.
+
 Run the isolated scene with F6:
 
 `res://scenes/battle/debug/battle_command_flow_debug.tscn`
@@ -1131,3 +1139,147 @@ mid-action suspend/resume; does not change damage formulas, enemy
 damage/balance, AI, encounter data, story, `WorldProgress`,
 `MusicDirector`, or `SceneTransition`; does not overhaul battle UI; does
 not rewrite `battle_manager.gd`.
+
+## Block 9E: command UX revision -- no confirm/cancel panel
+
+Block 9E changes how Skill and Ultimate are committed, not what they do:
+ready idle and target selection are unchanged in substance, but the
+confirm/cancel panel is no longer part of the production path. See
+`docs/battle_system_spec.md`, "Block 9E implementation status" for the
+full design writeup (final UX rules per command, why this was a small
+change built on existing machinery, the button-interactability fix, and
+the flag table). This section covers only what changed in code and how to
+verify it.
+
+**Files changed:**
+
+- `scripts/battle/command/battle_command_flow.gd` — `begin_command()`
+  gained one additive parameter, `auto_commit_on_begin: bool = true`
+  (appended after `interrupt_authorized`, so every existing positional
+  call site is unaffected by default). It decouples the pre-existing
+  single-candidate auto-commit shortcut (now gated by
+  `auto_commit_on_target_selected and auto_commit_on_begin`) from
+  target-click commit (still gated by `auto_commit_on_target_selected`
+  alone, unchanged in `set_pending_target()`/`set_pending_targets()`).
+- `scripts/battle/command/skill_command_adapter.gd` — `begin_skill()` now
+  passes `requires_confirm = false, auto_commit_on_target_selected =
+  true, auto_commit_on_begin = false` instead of the prior all-default
+  call.
+- `scripts/battle/command/ultimate_command_adapter.gd` — `begin_ultimate()`
+  now passes `requires_confirm = false` (was `true`),
+  `auto_commit_on_target_selected = true` (was `false`), and the new
+  `auto_commit_on_begin = false`.
+- `scripts/battle/battle_manager.gd` — `_on_attack_pressed()`,
+  `_on_skill_pressed()`, `_on_ultimate_pressed()` each rewritten to: (1)
+  commit if the same command is already pending, (2) cancel-and-return if
+  a *different* command is pending, (3) begin the command otherwise —
+  replacing the old cancel-then-fall-through-to-begin shape.
+  `_on_skill_command_ready()`/`_on_ultimate_command_ready()` no longer
+  call `_set_skill_command_panel_visible(true)`/
+  `_set_ultimate_command_panel_visible(true)`, and now call
+  `_update_action_buttons(true)` instead of `(false)` so Basic/Skill/
+  Ultimate buttons stay clickable during ready idle (required for
+  cross-command cancellation to be reachable through real button clicks,
+  not just direct function calls). No changes to
+  `_unhandled_input()` (Escape/Back already worked), the target-click
+  handlers, `_repair_skill_pending_target()`/
+  `_repair_ultimate_pending_target()`, `_confirm_skill_command()`/
+  `_confirm_ultimate_command()`, or any off-turn interrupt queue logic.
+
+No changes to `basic_attack_command_adapter.gd`, `pending_battle_command.gd`,
+`ultimate_interrupt_queue.gd`, `ultimate_interrupt_request.gd`,
+`suspended_battle_context.gd`, damage formulas, SP/Energy cost or
+balance, AI, encounter data, story, `WorldProgress`, `MusicDirector`, or
+`SceneTransition`. `battle_manager.gd` was not rewritten — every change
+above is either an additive parameter, a rewritten but same-sized
+function body, or a one-argument-value change in an existing call.
+
+### Block 9E Verification
+
+Automated tests (all pre-existing suites re-run with zero modifications
+required except the two production suites noted below, plus one new
+suite):
+
+`godot --headless --disable-crash-handler --log-file godot-production-basic.log --path . --scene res://tests/battle/test_production_basic_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-production-skill.log --path . --scene res://tests/battle/test_production_skill_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-production-ultimate.log --path . --scene res://tests/battle/test_production_ultimate_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-interrupt-queue.log --path . --scene res://tests/battle/test_ultimate_interrupt_queue.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-interrupt-integration.log --path . --scene res://tests/battle/test_ultimate_off_turn_interrupt.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-enemy-guard.log --path . --scene res://tests/battle/test_enemy_attack_guard_chain.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-interrupt-cleanup.log --path . --scene res://tests/battle/test_interrupt_state_cleanup.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-debug-scene.log --path . --scene res://tests/battle/test_battle_command_debug_scene.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-bandit-startup.log --path . --scene res://tests/battle/test_bandit_battle_startup.tscn`
+
+New in Block 9E:
+
+`godot --headless --disable-crash-handler --log-file godot-command-ux.log --path . --scene res://tests/battle/test_command_ux_no_panel.tscn`
+
+`test_command_ux_no_panel.gd` covers 12 scenarios: Skill and Ultimate
+second-command-press commit; Skill and Ultimate target-click commit;
+Skill and Ultimate Escape/Back cancel (via a real synthetic `ui_cancel`
+`InputEventAction` dispatched through `_unhandled_input()`, exercising the
+actual input path rather than calling the cancel function directly);
+queued/off-turn Ultimate ready idle shows no panel; queued Ultimate
+second-press commit; queued Ultimate target-click commit; queued Ultimate
+cancelled via a Basic press, a Skill press, and Escape, each correctly
+resuming a normal player turn afterward.
+
+Updated (not rewritten) in `test_production_skill_command_flow.gd` and
+`test_production_ultimate_command_flow.gd`: panel-visibility assertions
+flipped ("shows after ready" → "stays hidden"); the four
+command-switching tests each gained a second press-the-new-command step
+(a single press now only cancels, matching the new rule); the two
+spam-commit tests each gained a same-command-press call alongside the
+existing direct-function-call spam.
+
+Startup smoke tests continue to cover Login, Prologue, and the production
+battle scene with `--quit-after`.
+
+Visual QA capture script (new):
+`tests/battle/capture_command_ux_no_panel.gd` (+ `.tscn`), intended to
+capture the Skill sequence (default select, ready idle without panel,
+target selected, execution, recovery), the Ultimate sequence (ready idle
+without panel, target selected, cut-in, recovery), and the queued
+Ultimate sequence (queued indicator, ready idle without panel,
+commit/cut-in, resume) at both resolutions, to
+`docs/images/battle_command_flow/command_ux_no_panel/{1280x720,1920x1080}/`.
+**Could not be captured this session** — hit the identical
+`texture_2d_get: Parameter "t" is null` / dummy-rendering-backend failure
+documented in Block 9C/9D, confirmed still present (not a Block 9E
+regression) by retrying once.
+
+`godot --headless --disable-crash-handler --log-file godot-capture-command-ux.log --path . --scene res://tests/battle/capture_command_ux_no_panel.tscn -- --capture-size=1280x720`
+
+`godot --headless --disable-crash-handler --log-file godot-capture-command-ux.log --path . --scene res://tests/battle/capture_command_ux_no_panel.tscn -- --capture-size=1920x1080`
+
+Known Block 9E limitations:
+
+- The confirm/cancel panel widgets and their button wiring remain in the
+  scene tree (permanently hidden) as documented legacy fallback rather
+  than being deleted — recorded as removable technical debt, not
+  accidental leftover, in `docs/battle_system_spec.md`.
+- `ALL_ENEMIES`/`SELF`/`NO_TARGET` target rules have no Skill/Ultimate
+  action using them in this game today, so the block's guidance for
+  those cases is documented but unexercised by any test.
+- Visual QA for Block 9C, 9D, and 9E could not be captured this session,
+  for the same confirmed-environmental reason each time.
+
+Block 9E does not change Basic Attack's fast flow; does not change
+off-turn queued Ultimate's resume policy or safe-window-B mechanics
+(Block 9B/9D); does not implement window A; does not implement
+mid-action suspend/resume; does not change damage formulas, SP/Energy
+cost or balance, AI, encounter data, story, `WorldProgress`,
+`MusicDirector`, or `SceneTransition`; does not overhaul battle UI (same
+buttons, same layout — only their enabled/disabled state and the
+confirm-gesture changed); does not rewrite `battle_manager.gd`. Next
+step: Block 10 UI polish can build on this consistent "press to act,
+press again or click to commit, press elsewhere to cancel" pattern across
+all three commands.

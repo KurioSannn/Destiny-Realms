@@ -43,8 +43,10 @@ conversation and choices. Transitions must make the change of context legible.
 - Basic Attack is a fast command: it executes immediately after an automatic
   or player-chosen target, with no ready idle or confirm step.
 - Skill and Ultimate are deliberate commands: selecting one is not the same
-  as executing it. Target selection and confirmation happen before damage
-  and resource spending.
+  as executing it. Ready idle and target selection happen before damage
+  and resource spending — committing (pressing the command again or
+  clicking the target) is a distinct, deliberate second input, but as of
+  Block 9E that commit is not gated behind a separate confirm/cancel panel.
 - Animation state, UI state, battle flow, and effect resolution are separate
   responsibilities.
 - Existing damage values, enemy behavior, encounter outcomes, and cinematic
@@ -55,37 +57,44 @@ conversation and choices. Transitions must make the change of context legible.
 Not every command earns the same ceremony. Basic Attack is the action players
 reach for every turn, so it must feel instant and keep battle moving. Skill
 and Ultimate are heavier, more strategic choices with a real resource cost, so
-they earn a ready idle and an explicit confirm/cancel step before anything
-happens. All three share the same underlying pending-command architecture
-(actor, target, commit token, resolution, recovery); only their player-facing
-pacing differs.
+they earn a ready idle and a target-selection step before anything happens.
+As of Block 9E, none of the three commands gate their commit behind a
+separate confirm/cancel panel — committing is always either an immediate
+auto-commit (Basic, single enemy), a target click, or pressing the same
+command a second time. All three share the same underlying pending-command
+architecture (actor, target, commit token, resolution, recovery); only
+their player-facing pacing differs.
 
 **Basic Attack** — fast command:
 - No ready idle.
-- No confirm/cancel step.
 - A single live enemy is targeted automatically and the attack executes
   immediately.
 - Multiple live enemies enter a brief target-select step; choosing a target
-  commits immediately, with no separate confirm.
+  commits immediately.
 
 **Skill** — deliberate command:
-- Ready idle.
-- Target selection.
-- Confirm/cancel.
-- Commits its Skill Point cost, then executes.
+- Ready idle, with a target already auto-selected.
+- Pressing Skill again, or clicking the target, commits its Skill Point
+  cost, then executes.
+- No confirm/cancel panel.
 
 **Ultimate** — deliberate command:
-- Ready idle.
-- Target selection.
-- Confirm/cancel.
-- Commits its Energy cost, then plays a cut-in, then executes.
+- Ready idle, with a target already auto-selected. Identical whether
+  reached on-turn or via an off-turn queued request resolving at safe
+  window B.
+- Pressing Ultimate again, or clicking the target, commits its Energy
+  cost, then plays a cut-in, then executes.
+- No confirm/cancel panel.
 
-For Skill and Ultimate, cancel returns the actor to battle idle and restores
-command selection without spending resources; confirm commits the action,
-locks unsafe input, and starts execution. Basic Attack has no cancel step
-once a single live enemy is targeted, since selection and commit happen in
-the same instant; with multiple live enemies, cancel is only available before
-a target is chosen.
+For Skill and Ultimate, pressing a *different* command (or Escape/Back)
+while one is pending cancels it — returning the actor to battle idle and
+default command selection without spending resources — but does **not**
+also start the newly-pressed command in that same input; the player must
+press it again. Once committed, a command cannot be cancelled and a
+different command is ignored until recovery completes. Basic Attack has no
+cancel step once a single live enemy is targeted, since selection and
+commit happen in the same instant; with multiple live enemies, cancel is
+only available before a target is chosen.
 
 ## Ultimate interrupt pillar
 
@@ -102,9 +111,10 @@ the enemy's turn is now possible from the production Ultimate button: the
 request joins the FIFO queue with no immediate effect, and is resolved
 automatically the moment the enemy's action and recovery finish — before
 the player would otherwise regain control. The queued Ultimate reuses the
-exact on-turn ready idle/target/confirm/cancel/cut-in experience Skill and
-Ultimate already have; off-turn changes *when* an Ultimate can begin, never
-what pressing it feels like once the safe window arrives.
+exact on-turn ready idle/target/commit/cut-in experience Skill and
+Ultimate already have (as of Block 9E, with no confirm/cancel panel
+either); off-turn changes *when* an Ultimate can begin, never what
+pressing it feels like once the safe window arrives.
 
 What remains player-facing intent, not yet reality: interrupting *during*
 the enemy's action itself (rather than waiting for it to finish), and true
@@ -131,6 +141,15 @@ a queued Ultimate resolves twice, leaves stray state behind, or skips the
 player's next turn. See `docs/battle_system_spec.md`, "Block 9D
 implementation status" for the audit and "Final Block 9 feature boundary"
 for the complete, current scope of this pillar.
+
+Block 9E changes something small but real here: the queued Ultimate's
+ready idle at safe window B no longer shows a confirm/cancel panel,
+matching on-turn Ultimate's revised UX exactly (see "Command pacing
+pillar" above). Pressing Ultimate again or clicking the target commits;
+pressing Basic/Skill or Escape/Back cancels and resumes a normal player
+turn. The resume policy itself (queued Ultimate never taking the next
+player turn) is unchanged from Block 9B/9D. See
+`docs/battle_system_spec.md`, "Block 9E implementation status".
 
 ## Visual character direction
 

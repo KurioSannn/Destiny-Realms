@@ -1047,14 +1047,24 @@ func _has_pending_skill_command() -> bool:
 	)
 
 
+## Block 9E: no confirm/cancel panel in production — press Skill again or
+## click the target to commit. skill_command_panel/skill_confirm_button/
+## skill_cancel_button are kept constructed (see _create_skill_command_panel())
+## as an unused legacy fallback, documented in
+## docs/battle_command_flow_implementation.md, "Block 9E"; this handler
+## deliberately no longer calls _set_skill_command_panel_visible(true).
+## Buttons stay enabled (not disabled like before Block 9E) during ready
+## idle -- committing lives with the Skill/target-click input handlers now,
+## and Basic/Ultimate must stay clickable so pressing them can cancel this
+## pending Skill and return to default select, matching how Basic's own
+## multi-target pending already left buttons enabled (Block 8.5).
 func _on_skill_command_ready(command: PendingBattleCommand) -> void:
 	_start_skill_ready_idle()
-	_update_action_buttons(false)
+	_update_action_buttons(true)
 	ui.set_battle_input_enabled(true)
 	ui.set_turn_text("Triangle Rift")
-	ui.set_battle_log("Triangle Rift ready. Choose a target or confirm.")
+	ui.set_battle_log("Triangle Rift ready. Press Skill again or choose a target.")
 	_update_skill_command_panel(command)
-	_set_skill_command_panel_visible(true)
 
 
 func _on_skill_command_target_changed(
@@ -1865,14 +1875,28 @@ func _has_pending_ultimate_command() -> bool:
 	)
 
 
+## Block 9E: no confirm/cancel panel in production — press Ultimate again
+## or click the target to commit. This fires identically for on-turn and
+## queued/off-turn (safe window B) Ultimate, since both are just a pending
+## ULTIMATE command underneath. ultimate_command_panel/ultimate_confirm_button/
+## ultimate_cancel_button are kept constructed (see
+## _create_ultimate_command_panel()) as an unused legacy fallback,
+## documented in docs/battle_command_flow_implementation.md, "Block 9E";
+## this handler deliberately no longer calls
+## _set_ultimate_command_panel_visible(true).
+## Buttons stay enabled (not disabled like before Block 9E) during ready
+## idle -- committing lives with the Ultimate/target-click input handlers
+## now, and Basic/Skill must stay clickable so pressing them can cancel
+## this pending Ultimate (on-turn or queued) and return to default
+## select/player turn, matching how Basic's own multi-target pending
+## already left buttons enabled (Block 8.5).
 func _on_ultimate_command_ready(command: PendingBattleCommand) -> void:
 	_start_ultimate_ready_idle()
-	_update_action_buttons(false)
+	_update_action_buttons(true)
 	ui.set_battle_input_enabled(true)
 	ui.set_turn_text("Octagram Fragment")
-	ui.set_battle_log("Octagram Fragment ready. Choose a target or confirm.")
+	ui.set_battle_log("Octagram Fragment ready. Press Ultimate again or choose a target.")
 	_update_ultimate_command_panel(command)
-	_set_ultimate_command_panel_visible(true)
 
 
 func _on_ultimate_command_target_changed(
@@ -2569,12 +2593,19 @@ func _resume_after_enemy_action(log_text: String) -> void:
 		_begin_player_turn(log_text)
 
 
+## Block 9E: pressing a different command while Skill/Ultimate is pending
+## only cancels that pending command and returns to default command
+## select — it never also begins Basic in the same click. The player must
+## press Attack again afterward to actually execute it. This mirrors
+## _on_skill_pressed()/_on_ultimate_pressed() below.
 func _on_attack_pressed() -> void:
 	if state != BattleState.PLAYER_TURN:
 		return
-	if _has_pending_skill_command() and not _cancel_skill_command():
+	if _has_pending_skill_command():
+		_cancel_skill_command()
 		return
-	if _has_pending_ultimate_command() and not _cancel_ultimate_command():
+	if _has_pending_ultimate_command():
+		_cancel_ultimate_command()
 		return
 
 	if _uses_new_basic_command_flow():
@@ -2659,12 +2690,24 @@ func _on_confirm_pressed() -> void:
 		await _on_attack_pressed()
 
 
+## Block 9E: no confirm/cancel panel in production. Pressing Skill while
+## Skill is already pending commits to the active target (this is the
+## replacement for the old Confirm button — see confirm_pending_command(),
+## which _confirm_skill_command() already calls). Pressing Skill while a
+## *different* command (Basic/Ultimate) is pending only cancels that
+## command and returns to default select; it does not also begin Skill in
+## the same click, matching _on_attack_pressed() above.
 func _on_skill_pressed() -> void:
-	if _has_pending_basic_command() and not _cancel_basic_attack_command():
-		return
-	if _has_pending_ultimate_command() and not _cancel_ultimate_command():
-		return
 	if state != BattleState.PLAYER_TURN:
+		return
+	if _has_pending_skill_command():
+		_confirm_skill_command()
+		return
+	if _has_pending_basic_command():
+		_cancel_basic_attack_command()
+		return
+	if _has_pending_ultimate_command():
+		_cancel_ultimate_command()
 		return
 
 	if _uses_new_skill_command_flow():
@@ -2686,7 +2729,19 @@ func _start_legacy_skill() -> void:
 	await _execute_triangle_rift(enemy, null, true)
 
 
+## Block 9E: no confirm/cancel panel in production. Pressing Ultimate while
+## an Ultimate is already pending commits to the active target — this
+## covers both on-turn ready idle and a queued/off-turn Ultimate's ready
+## idle during safe window B identically, since both are just a pending
+## ULTIMATE command underneath (_confirm_ultimate_command() already calls
+## confirm_pending_command(), which does not care whether the command was
+## on-turn or interrupt-sourced). Pressing Ultimate while a *different*
+## command (Basic/Skill) is pending only cancels that command and returns
+## to default select, matching _on_attack_pressed()/_on_skill_pressed().
 func _on_ultimate_pressed() -> void:
+	if _has_pending_ultimate_command():
+		_confirm_ultimate_command()
+		return
 	# Block 9B: off-turn requests only ever reach here when the Ultimate
 	# button was independently made interactable by
 	# _can_request_off_turn_ultimate_input() (see _update_action_buttons),
@@ -2696,9 +2751,11 @@ func _on_ultimate_pressed() -> void:
 	if state != BattleState.PLAYER_TURN:
 		request_off_turn_ultimate(player)
 		return
-	if _has_pending_basic_command() and not _cancel_basic_attack_command():
+	if _has_pending_basic_command():
+		_cancel_basic_attack_command()
 		return
-	if _has_pending_skill_command() and not _cancel_skill_command():
+	if _has_pending_skill_command():
+		_cancel_skill_command()
 		return
 
 	if _uses_new_ultimate_command_flow():

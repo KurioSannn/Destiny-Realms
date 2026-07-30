@@ -49,7 +49,7 @@ func _test_lesser_skill_select_ready_and_cancel() -> void:
 	_check(manager.skill_animation_playing, "skill select starts ready idle")
 	_check(manager.skill_animation_looping, "skill ready idle loops")
 	_check(manager.skill_target_highlight.visible, "skill select shows target highlight")
-	_check(manager.skill_command_panel.visible, "skill select shows confirm/cancel panel")
+	_check(not manager.skill_command_panel.visible, "Block 9E: skill ready idle does not show a confirm/cancel panel")
 
 	manager.call("_cancel_skill_command")
 	await _idle_frames(3)
@@ -59,7 +59,7 @@ func _test_lesser_skill_select_ready_and_cancel() -> void:
 	_check(manager.skill_points == initial_sp, "skill cancel preserves SP")
 	_check(not manager.skill_command_adapter.has_pending_skill(), "skill cancel clears pending command")
 	_check(not manager.skill_target_highlight.visible, "skill cancel hides target highlight")
-	_check(not manager.skill_command_panel.visible, "skill cancel hides confirm/cancel panel")
+	_check(not manager.skill_command_panel.visible, "skill cancel leaves confirm/cancel panel hidden")
 	_check(not manager.skill_animation_looping, "skill cancel exits ready idle")
 
 	await _free_battle(battle)
@@ -97,7 +97,11 @@ func _test_lesser_skill_confirm_is_single_execution() -> void:
 
 	manager.call("_on_skill_pressed")
 	await _idle_frames(3)
-	manager.call("_confirm_skill_command")
+	# Block 9E: pressing Skill again while Skill is pending is the
+	# production commit gesture now (see _on_skill_pressed()). Spam it
+	# alongside the legacy _confirm_skill_command()/_on_confirm_pressed()
+	# entry points to prove none of them can double-commit.
+	manager.call("_on_skill_pressed")
 	manager.call("_confirm_skill_command")
 	manager.call("_on_confirm_pressed")
 
@@ -107,11 +111,11 @@ func _test_lesser_skill_confirm_is_single_execution() -> void:
 	_check(int(counts["execution"]) == 1, "skill confirm executes once")
 	_check(int(counts["resolution"]) == 1, "skill confirm resolves once")
 	_check(int(counts["recovery"]) == 1, "skill confirm enters recovery once")
-	_check(manager.enemy.current_hp == expected_hp, "spam confirm does not duplicate skill damage")
+	_check(manager.enemy.current_hp == expected_hp, "spam commit does not duplicate skill damage")
 	_check(manager.skill_points == expected_sp, "skill SP spend occurs once at commit")
 	_check(manager.ultimate_energy == BattleManager.SKILL_ENERGY, "skill energy gain is unchanged")
 	_check(not manager.skill_target_highlight.visible, "skill resolution clears target highlight")
-	_check(not manager.skill_command_panel.visible, "skill resolution clears confirm/cancel panel")
+	_check(not manager.skill_command_panel.visible, "skill resolution leaves confirm/cancel panel hidden")
 	_check(manager.state != BattleManager.BattleState.ACTION_RESOLUTION, "skill turn leaves execution state")
 
 	await _free_battle(battle)
@@ -186,6 +190,10 @@ func _test_skill_invalid_actor_revalidates_before_commit() -> void:
 	await _free_battle(battle)
 
 
+## Block 9E: pressing a different command while one is pending only
+## cancels the pending one and returns to default select -- it never also
+## begins the new command in that same click. The player must press the
+## new command again afterward to actually start it.
 func _test_skill_switching_with_basic() -> void:
 	# Basic Attack is fast-flow as of Block 8.5 (no ready idle/confirm panel);
 	# a second live enemy is mocked here so Basic has a genuine pre-commit
@@ -200,9 +208,15 @@ func _test_skill_switching_with_basic() -> void:
 	manager.call("_on_attack_pressed")
 	await _idle_frames(3)
 
-	_check(not manager.skill_command_adapter.has_pending_skill(), "Basic selection cancels pending Skill")
-	_check(manager.basic_command_adapter.has_pending_basic(), "Basic starts after Skill cancel")
-	_check(not manager.skill_command_panel.visible, "Skill panel hides after switching to Basic")
+	_check(not manager.skill_command_adapter.has_pending_skill(), "Basic press cancels pending Skill")
+	_check(not manager.basic_command_adapter.has_pending_basic(), "Basic does not start in the same click that cancelled Skill")
+	_check(not manager.skill_command_panel.visible, "Skill panel stays hidden after switching to Basic")
+	_check(manager.state == BattleManager.BattleState.PLAYER_TURN, "cancelling Skill returns to default command select")
+
+	manager.call("_on_attack_pressed")
+	await _idle_frames(3)
+
+	_check(manager.basic_command_adapter.has_pending_basic(), "a second Basic press (nothing pending now) starts Basic")
 	var basic_pending: PendingBattleCommand = manager.basic_command_adapter.get_pending_command()
 	_check(
 		basic_pending != null and not basic_pending.is_committed,
@@ -210,17 +224,18 @@ func _test_skill_switching_with_basic() -> void:
 	)
 	_check(manager.basic_target_highlight.visible, "Basic shows target selection after switching from Skill")
 
-	manager.call("_cancel_basic_attack_command")
-	await _idle_frames(3)
-	manager.call("_on_attack_pressed")
-	await _idle_frames(3)
 	manager.call("_on_skill_pressed")
 	await _idle_frames(3)
 
-	_check(not manager.basic_command_adapter.has_pending_basic(), "Skill selection cancels pending Basic target selection")
-	_check(manager.skill_command_adapter.has_pending_skill(), "Skill starts after Basic cancel")
+	_check(not manager.basic_command_adapter.has_pending_basic(), "Skill press cancels pending Basic target selection")
+	_check(not manager.skill_command_adapter.has_pending_skill(), "Skill does not start in the same click that cancelled Basic")
 	_check(not manager.basic_target_highlight.visible, "Basic target highlight hides after switching to Skill")
-	_check(manager.skill_command_panel.visible, "Skill panel shows after switching from Basic")
+
+	manager.call("_on_skill_pressed")
+	await _idle_frames(3)
+
+	_check(manager.skill_command_adapter.has_pending_skill(), "a second Skill press (nothing pending now) starts Skill")
+	_check(not manager.skill_command_panel.visible, "Skill ready idle after switching from Basic still shows no confirm/cancel panel")
 
 	await _free_battle(battle)
 
@@ -244,6 +259,9 @@ func _test_legacy_skill_fallback_keeps_old_timing() -> void:
 	await _free_battle(battle)
 
 
+## Block 9E: the first Ultimate press only cancels the pending Skill and
+## returns to default select -- even for the legacy Ultimate fallback, it
+## takes a second press to actually start Ultimate.
 func _test_ultimate_cancels_skill_pending_and_stays_legacy() -> void:
 	var fixture := await _make_battle(false, true, true, false)
 	var battle := fixture["battle"] as Node
@@ -254,16 +272,24 @@ func _test_ultimate_cancels_skill_pending_and_stays_legacy() -> void:
 	manager.call("_on_skill_pressed")
 	await _idle_frames(3)
 	manager.call("_on_ultimate_pressed")
+	await _idle_frames(3)
+
+	_check(not manager.skill_command_adapter.has_pending_skill(), "Ultimate press cancels pending Skill")
+	_check(not manager.skill_command_panel.visible, "Skill panel stays hidden after switching to Ultimate")
+	_check(manager.state == BattleManager.BattleState.PLAYER_TURN, "cancelling Skill does not start legacy Ultimate in the same click")
+	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "cancelling Skill does not spend Energy")
+
+	manager.call("_on_ultimate_pressed")
 	await _idle_frames(5)
 
-	_check(not manager.skill_command_adapter.has_pending_skill(), "Ultimate clears pending Skill")
-	_check(not manager.skill_command_panel.visible, "Ultimate hides Skill panel")
-	_check(manager.state == BattleManager.BattleState.ACTION_RESOLUTION, "Ultimate legacy fallback remains action resolution")
+	_check(manager.state == BattleManager.BattleState.ACTION_RESOLUTION, "a second Ultimate press starts the legacy fallback")
 	_check(manager.ultimate_energy == 0, "Ultimate legacy fallback energy timing is unchanged")
 
 	await _free_battle(battle)
 
 
+## Block 9E: same two-press pattern as above, against the new Ultimate
+## command flow instead of the legacy fallback.
 func _test_new_ultimate_cancels_skill_pending() -> void:
 	var fixture := await _make_battle(false, true, true)
 	var battle := fixture["battle"] as Node
@@ -277,10 +303,16 @@ func _test_new_ultimate_cancels_skill_pending() -> void:
 	manager.call("_on_ultimate_pressed")
 	await _idle_frames(3)
 
-	_check(not manager.skill_command_adapter.has_pending_skill(), "new Ultimate clears pending Skill")
-	_check(not manager.skill_command_panel.visible, "new Ultimate hides Skill panel")
-	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "new Ultimate flow creates a pending command")
+	_check(not manager.skill_command_adapter.has_pending_skill(), "Ultimate press cancels pending Skill")
+	_check(not manager.skill_command_panel.visible, "Skill panel stays hidden after switching to Ultimate")
+	_check(not manager.ultimate_command_adapter.has_pending_ultimate(), "Ultimate does not start in the same click that cancelled Skill")
 	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "new Ultimate flow does not spend energy before commit")
+
+	manager.call("_on_ultimate_pressed")
+	await _idle_frames(3)
+
+	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "a second Ultimate press (nothing pending now) starts Ultimate")
+	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "new Ultimate flow still does not spend energy before commit")
 
 	manager.call("_confirm_ultimate_command")
 

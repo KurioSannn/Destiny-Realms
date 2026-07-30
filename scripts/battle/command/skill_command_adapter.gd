@@ -43,6 +43,15 @@ func reset() -> void:
 	flow.reset_to_command_select()
 
 
+## Block 9E: ready idle + target selection are kept (requires_ready_idle =
+## true), but there is no confirm/cancel panel step in production anymore
+## (requires_confirm = false — moot here since Skill always requires a
+## target, but set for clarity). auto_commit_on_target_selected = true
+## makes clicking a valid target commit immediately; auto_commit_on_begin
+## = false stops begin_command() from also auto-committing the instant
+## ready idle opens against a single live enemy, so ready idle is always
+## visible and committing always needs one more explicit input (pressing
+## Skill again, or clicking the target) — see BattleManager._on_skill_pressed().
 func begin_skill(
 	action_id: StringName,
 	target_rule: int,
@@ -62,7 +71,12 @@ func begin_skill(
 		0,
 		source_turn,
 		CommandFlow.BattleFlowState.COMMAND_SELECT,
-		PendingCommand.RequestSource.TURN_COMMAND
+		PendingCommand.RequestSource.TURN_COMMAND,
+		true,
+		false,
+		true,
+		false,
+		false
 	)
 
 

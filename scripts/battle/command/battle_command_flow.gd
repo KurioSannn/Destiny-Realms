@@ -80,8 +80,21 @@ func begin_command(
 	requires_ready_idle: bool = true,
 	requires_confirm: bool = true,
 	auto_commit_on_target_selected: bool = false,
-	interrupt_authorized: bool = false
+	interrupt_authorized: bool = false,
+	auto_commit_on_begin: bool = true
 ) -> bool:
+	# Block 9E: auto_commit_on_target_selected controls two previously-fused
+	# behaviors that needed to be split — (1) the immediate commit below,
+	# when begin_command() itself finds only one candidate target, and
+	# (2) commit-on-click in set_pending_target()/set_pending_targets()
+	# further down. auto_commit_on_begin gates ONLY (1); it defaults to
+	# true so every existing caller (Basic Attack fast flow) is unaffected.
+	# Skill/Ultimate (Block 9E) pass auto_commit_on_target_selected = true
+	# (so clicking a target commits) but auto_commit_on_begin = false (so
+	# ready idle is still shown even when there is only one live enemy —
+	# committing then requires a second explicit input: pressing the same
+	# command again, or clicking the target).
+	#
 	# Block 9B: INTERRUPT_REQUEST is still rejected unless the caller passes
 	# interrupt_authorized = true. No existing caller does — Basic/Skill/
 	# on-turn Ultimate, the debug scene, and the contract test all omit this
@@ -155,6 +168,7 @@ func begin_command(
 		)
 		if (
 			pending_command.auto_commit_on_target_selected
+			and auto_commit_on_begin
 			and pending_command.candidate_targets.size() <= 1
 		):
 			return confirm_pending_command()
