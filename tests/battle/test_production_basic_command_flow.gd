@@ -16,6 +16,7 @@ func _run() -> void:
 	await _test_legacy_basic_fallback_still_works()
 	await _test_legacy_skill_still_works()
 	await _test_legacy_ultimate_still_starts()
+	await _test_new_ultimate_defers_energy_until_commit()
 	await _test_bandit_basic_victory_updates_world_progress()
 
 	if failures.is_empty():
@@ -181,7 +182,7 @@ func _test_legacy_skill_still_works() -> void:
 
 
 func _test_legacy_ultimate_still_starts() -> void:
-	var fixture := await _make_battle(false, true)
+	var fixture := await _make_battle(false, true, true, false)
 	var battle := fixture["battle"] as Node
 	var manager := fixture["manager"] as BattleManager
 
@@ -190,9 +191,33 @@ func _test_legacy_ultimate_still_starts() -> void:
 	manager.call("_on_ultimate_pressed")
 	await _idle_frames(5)
 
-	_check(manager.state == BattleManager.BattleState.ACTION_RESOLUTION, "legacy ultimate enters action resolution")
-	_check(manager.ultimate_energy == 0, "legacy ultimate energy timing is unchanged")
+	_check(manager.state == BattleManager.BattleState.ACTION_RESOLUTION, "legacy ultimate fallback enters action resolution")
+	_check(manager.ultimate_energy == 0, "legacy ultimate fallback energy timing is unchanged")
 	_check(not manager.basic_command_adapter.has_pending_basic(), "legacy ultimate does not leave basic pending")
+	_check(not manager.ultimate_command_adapter.has_pending_ultimate(), "legacy ultimate fallback does not create pending command")
+
+	await _free_battle(battle)
+
+
+func _test_new_ultimate_defers_energy_until_commit() -> void:
+	var fixture := await _make_battle(false, true)
+	var battle := fixture["battle"] as Node
+	var manager := fixture["manager"] as BattleManager
+
+	manager.ultimate_energy = BattleManager.MAX_ULTIMATE_ENERGY
+	manager.call("_refresh_energy_ui")
+	manager.call("_on_ultimate_pressed")
+	await _idle_frames(3)
+
+	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "new ultimate flow creates a pending command")
+	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "new ultimate flow does not spend energy before commit")
+	_check(manager.state != BattleManager.BattleState.ACTION_RESOLUTION, "new ultimate ready idle does not enter action resolution")
+
+	manager.call("_cancel_ultimate_command")
+	await _idle_frames(3)
+
+	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "cancelled ultimate does not spend energy")
+	_check(not manager.ultimate_command_adapter.has_pending_ultimate(), "cancelled ultimate clears pending command")
 
 	await _free_battle(battle)
 
@@ -218,7 +243,8 @@ func _test_bandit_basic_victory_updates_world_progress() -> void:
 func _make_battle(
 	bandit: bool,
 	use_flow: bool,
-	use_skill_flow: bool = true
+	use_skill_flow: bool = true,
+	use_ultimate_flow: bool = true
 ) -> Dictionary:
 	WorldProgress.reset_story()
 	if bandit:
@@ -227,6 +253,7 @@ func _make_battle(
 	var manager := battle.get_node("BattleManager") as BattleManager
 	manager.use_new_basic_command_flow = use_flow
 	manager.use_new_skill_command_flow = use_skill_flow
+	manager.use_new_ultimate_command_flow = use_ultimate_flow
 	get_tree().root.add_child(battle)
 	await _idle_frames(8)
 	return {

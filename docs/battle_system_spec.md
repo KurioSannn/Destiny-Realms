@@ -8,7 +8,9 @@ turn command slice in an isolated debug scene without refactoring
 implementing the Ultimate interrupt queue. Block 6 migrates only production
 Basic Attack to that command contract behind a feature flag. Block 7 migrates
 production Skill to the same contract behind its own feature flag while keeping
-Ultimate legacy.
+Ultimate legacy. Block 8 migrates production on-turn Ultimate to the same
+command contract behind its own feature flag. Off-turn Ultimate interrupt,
+the FIFO queue, and suspended battle context remain unimplemented.
 
 ## Block 5 implementation status
 
@@ -89,6 +91,60 @@ Implemented in production `BattleManager` for Skill only:
 Still not implemented:
 
 - Production Ultimate command flow.
+- Off-turn Ultimate request, FIFO queue, suspended context, or resume.
+
+See `docs/battle_command_flow_implementation.md` for file ownership, test
+commands, screenshots, feature flag, fallback, and known limitations.
+
+## Block 8 implementation status
+
+Implemented in production `BattleManager` for on-turn Ultimate only:
+
+- Runtime `UltimateCommandAdapter` composes its own `BattleCommandFlow`
+  instance without rewriting `battle_manager.gd`, mirroring the Basic and
+  Skill adapters.
+- `use_new_ultimate_command_flow` enables the new Ultimate path by default;
+  disabling it restores the legacy immediate Ultimate fallback, including the
+  old timing where Energy is zeroed the instant the button is pressed.
+- Pressing Ultimate creates a pending `ULTIMATE` command for
+  `octagram_fragment` with `SINGLE_ENEMY` targeting and an Energy cost of
+  `MAX_ULTIMATE_ENERGY`, shows the existing Ultimate pose (`UltiTaka.png`) as a
+  ready idle, preselects a live enemy target, shows Ultimate target highlight
+  and production confirm/cancel UI, and does not spend Energy, start the
+  cut-in, run camera cinematics, deal damage, or progress the turn.
+- Cancel clears pending Ultimate, target highlight, and confirm/cancel UI,
+  restores battle idle, keeps player turn ownership, and produces no cut-in,
+  camera change, damage, status, resource mutation, or turn progression.
+- Confirm validates battle state, actor, live target, active
+  Basic/Skill/Ultimate token, targetability, action id, and current Energy
+  before commit.
+- Commit spends `MAX_ULTIMATE_ENERGY` Energy exactly once, fixing the legacy
+  bug where Energy was zeroed synchronously on button press before any
+  cut-in, camera, or animation had started. Select, ready idle, target
+  selection, cancel, and failed pre-commit validation spend nothing.
+- Existing Octagram Fragment execution remains authoritative for cut-in
+  frame playback, camera zoom/shake, Takashi pre/post animation, VFX, SFX,
+  one `ULTIMATE_DAMAGE` hit, hit feedback, recovery, victory, enemy turn,
+  return scene, and `WorldProgress`. The shared execution function now takes
+  an optional command so the same legacy sequence serves both the legacy
+  fallback (`command == null`) and the new pending-command path.
+- `PendingBattleCommand.RequestSource.INTERRUPT_REQUEST` is rejected by the
+  shared `BattleCommandFlow.begin_command()` with
+  `off_turn_interrupt_not_available` for all three command types, including
+  Ultimate. No FIFO queue or suspended battle context is implemented; the
+  adapter accepts a `request_source` parameter so Block 9 can add an
+  off-turn caller without changing the command model.
+- Octagram Fragment is currently characterized as a single-target,
+  single-hit Ultimate with no status effect. The new path records hit index
+  `0` per command token so duplicate callbacks cannot resolve the same hit
+  twice.
+- Basic, Skill, and Ultimate each use separate feature flags, adapters,
+  active tokens, panels, and target highlights. Selecting any command while
+  another is pending cancels the old pending command first, then starts the
+  new one.
+
+Still not implemented:
+
 - Off-turn Ultimate request, FIFO queue, suspended context, or resume.
 
 See `docs/battle_command_flow_implementation.md` for file ownership, test
@@ -359,8 +415,8 @@ Findings:
 | --- | --- | --- |
 | Flow state | Five states: player, resolution, enemy, win, lose | Command, target, recovery, and interrupt phases are collapsed |
 | Basic | Button immediately enters resolution and starts movement | No pending command, ready idle, target, cancel, or explicit confirm |
-| Skill | Production path now uses pending/confirm/commit; legacy fallback still spends SP before cast feedback | Ultimate and later multi-skill data still need the same boundary |
-| Ultimate | Player-turn only; Energy resets immediately on press | No off-turn request, queue, target, cancel, or safe interrupt |
+| Skill | Production path now uses pending/confirm/commit; legacy fallback still spends SP before cast feedback | Later multi-skill data still needs the same boundary |
+| Ultimate | Production on-turn path now uses pending/confirm/commit; legacy fallback still zeroes Energy on press | No off-turn request, queue, or safe interrupt |
 | Confirm | Confirm during player turn calls Basic Attack | It is a shortcut, not command confirmation |
 | Targeting | Player actions use the single `enemy` node directly | No independent target-selection state or policy |
 | Energy | `battle_manager.gd::ultimate_energy` is current source | Single-character and manager-local; no per-character model |

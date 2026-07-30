@@ -169,9 +169,13 @@ const BasicAttackAdapter := preload(
 const SkillCommandAdapterScript := preload(
 	"res://scripts/battle/command/skill_command_adapter.gd"
 )
+const UltimateCommandAdapterScript := preload(
+	"res://scripts/battle/command/ultimate_command_adapter.gd"
+)
 
 @export var use_new_basic_command_flow: bool = true
 @export var use_new_skill_command_flow: bool = true
+@export var use_new_ultimate_command_flow: bool = true
 
 @onready var player: Combatant = $"../Player"
 @onready var enemy: Combatant = $"../Enemy"
@@ -252,6 +256,18 @@ var skill_recovery_tokens: Dictionary = {}
 var skill_turn_completion_tokens: Dictionary = {}
 var skill_hit_tokens: Dictionary = {}
 var skill_animation_looping: bool = false
+var ultimate_command_adapter
+var ultimate_target_highlight: Line2D
+var ultimate_command_panel: Panel
+var ultimate_ready_label: Label
+var ultimate_target_label: Label
+var ultimate_cost_label: Label
+var ultimate_confirm_button: Button
+var ultimate_cancel_button: Button
+var active_ultimate_command_token: int = 0
+var ultimate_recovery_tokens: Dictionary = {}
+var ultimate_turn_completion_tokens: Dictionary = {}
+var ultimate_hit_tokens: Dictionary = {}
 var encounter_enemy_name: String = "Lesser Abyss"
 var encounter_enemy_max_hp: int = ENEMY_MAX_HP
 var encounter_enemy_damage: int = ENEMY_BASE_DAMAGE
@@ -298,6 +314,7 @@ func _ready() -> void:
 	_apply_runtime_layout()
 	_setup_basic_command_runtime()
 	_setup_skill_command_runtime()
+	_setup_ultimate_command_runtime()
 	restart_battle()
 	_play_battle_intro_effect()
 
@@ -309,6 +326,7 @@ func _process(delta: float) -> void:
 	_advance_takashi_ultimate_fvx(delta)
 	_sync_basic_target_highlight()
 	_sync_skill_target_highlight()
+	_sync_ultimate_target_highlight()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -350,6 +368,26 @@ func _unhandled_input(event: InputEvent) -> void:
 				and _select_skill_target_at_position(mouse_event.position)
 			):
 				get_viewport().set_input_as_handled()
+		return
+
+	if _uses_new_ultimate_command_flow() and _has_pending_ultimate_command():
+		if event.is_action_pressed("ui_cancel"):
+			if _cancel_ultimate_command():
+				get_viewport().set_input_as_handled()
+		elif event.is_action_pressed("ui_left"):
+			if _cycle_ultimate_target(-1):
+				get_viewport().set_input_as_handled()
+		elif event.is_action_pressed("ui_right"):
+			if _cycle_ultimate_target(1):
+				get_viewport().set_input_as_handled()
+		elif event is InputEventMouseButton:
+			var mouse_event := event as InputEventMouseButton
+			if (
+				mouse_event.button_index == MOUSE_BUTTON_LEFT
+				and mouse_event.pressed
+				and _select_ultimate_target_at_position(mouse_event.position)
+			):
+				get_viewport().set_input_as_handled()
 
 
 func _exit_tree() -> void:
@@ -359,6 +397,9 @@ func _exit_tree() -> void:
 	active_skill_command_token = 0
 	if skill_command_adapter != null:
 		skill_command_adapter.reset()
+	active_ultimate_command_token = 0
+	if ultimate_command_adapter != null:
+		ultimate_command_adapter.reset()
 
 
 func restart_battle() -> void:
@@ -424,6 +465,7 @@ func _reset_battle_values() -> void:
 	_hide_takashi_ultimate_glow_effect()
 	_reset_basic_command_runtime()
 	_reset_skill_command_runtime()
+	_reset_ultimate_command_runtime()
 	timing_bar.cancel_window()
 	ui.set_timing_mode(false)
 	ui.set_restart_visible(false)
@@ -1613,6 +1655,568 @@ func _update_skill_command_panel(command: PendingBattleCommand) -> void:
 		skill_confirm_button.disabled = target == null
 
 
+func _setup_ultimate_command_runtime() -> void:
+	_setup_ultimate_command_adapter()
+	_create_ultimate_target_highlight()
+	_create_ultimate_command_panel()
+
+
+func _setup_ultimate_command_adapter() -> void:
+	if ultimate_command_adapter != null:
+		return
+	ultimate_command_adapter = UltimateCommandAdapterScript.new()
+	ultimate_command_adapter.name = "UltimateCommandAdapter"
+	add_child(ultimate_command_adapter)
+	ultimate_command_adapter.configure(
+		player,
+		_get_ultimate_candidate_targets,
+		_validate_ultimate_command,
+		_commit_ultimate_command_resources
+	)
+	ultimate_command_adapter.ultimate_ready.connect(_on_ultimate_command_ready)
+	ultimate_command_adapter.target_changed.connect(_on_ultimate_command_target_changed)
+	ultimate_command_adapter.ultimate_cancelled.connect(_on_ultimate_command_cancelled)
+	ultimate_command_adapter.ultimate_committed.connect(_on_ultimate_command_committed)
+	ultimate_command_adapter.ultimate_failed.connect(_on_ultimate_command_failed)
+
+
+func _reset_ultimate_command_runtime() -> void:
+	active_ultimate_command_token = 0
+	ultimate_recovery_tokens.clear()
+	ultimate_turn_completion_tokens.clear()
+	ultimate_hit_tokens.clear()
+	if ultimate_command_adapter != null:
+		ultimate_command_adapter.reset()
+	_hide_ultimate_target_highlight()
+	_set_ultimate_command_panel_visible(false)
+
+
+func _uses_new_ultimate_command_flow() -> bool:
+	return use_new_ultimate_command_flow and ultimate_command_adapter != null
+
+
+func _begin_ultimate_command() -> bool:
+	if not _uses_new_ultimate_command_flow():
+		return false
+	if state != BattleState.PLAYER_TURN or _is_battle_over():
+		return false
+	if (
+		_has_pending_basic_command()
+		or _has_pending_skill_command()
+		or _has_pending_ultimate_command()
+	):
+		return false
+	if ultimate_energy < MAX_ULTIMATE_ENERGY:
+		ui.set_battle_log("Octagram Fragment needs full Energy.")
+		return false
+	return ultimate_command_adapter.begin_ultimate(
+		&"octagram_fragment",
+		PendingBattleCommand.TargetRule.SINGLE_ENEMY,
+		MAX_ULTIMATE_ENERGY
+	)
+
+
+func _confirm_ultimate_command() -> bool:
+	if not _has_pending_ultimate_command():
+		return false
+	_repair_ultimate_pending_target()
+	return ultimate_command_adapter.confirm_ultimate()
+
+
+func _cancel_ultimate_command() -> bool:
+	if not _has_pending_ultimate_command():
+		return false
+	return ultimate_command_adapter.cancel_ultimate()
+
+
+func _has_pending_ultimate_command() -> bool:
+	return (
+		ultimate_command_adapter != null
+		and ultimate_command_adapter.has_pending_ultimate()
+	)
+
+
+func _on_ultimate_command_ready(command: PendingBattleCommand) -> void:
+	_start_ultimate_ready_idle()
+	_update_action_buttons(false)
+	ui.set_battle_input_enabled(true)
+	ui.set_turn_text("Octagram Fragment")
+	ui.set_battle_log("Octagram Fragment ready. Choose a target or confirm.")
+	_update_ultimate_command_panel(command)
+	_set_ultimate_command_panel_visible(true)
+
+
+func _on_ultimate_command_target_changed(
+	command: PendingBattleCommand,
+	_targets: Array
+) -> void:
+	_update_ultimate_command_panel(command)
+	_show_ultimate_target_highlight(command)
+
+
+func _on_ultimate_command_cancelled(_command: PendingBattleCommand) -> void:
+	active_ultimate_command_token = 0
+	_start_player_idle_animation()
+	_hide_ultimate_target_highlight()
+	_set_ultimate_command_panel_visible(false)
+	ui.set_battle_input_enabled(true)
+	ui.set_turn_text("Player Turn")
+	ui.set_battle_log("Octagram Fragment cancelled.")
+	_update_action_buttons(true)
+
+
+func _on_ultimate_command_committed(command: PendingBattleCommand) -> void:
+	_hide_ultimate_target_highlight()
+	_set_ultimate_command_panel_visible(false)
+	_update_action_buttons(false)
+	ui.set_battle_input_enabled(false)
+	call_deferred("_execute_committed_ultimate", command)
+
+
+func _on_ultimate_command_failed(
+	_command: PendingBattleCommand,
+	reason: StringName
+) -> void:
+	active_ultimate_command_token = 0
+	_start_player_idle_animation()
+	_hide_ultimate_target_highlight()
+	_set_ultimate_command_panel_visible(false)
+	if _is_battle_over():
+		return
+	state = BattleState.PLAYER_TURN
+	ui.set_battle_input_enabled(true)
+	ui.set_turn_text("Player Turn")
+	ui.set_battle_log(_ultimate_command_failure_message(reason))
+	_update_action_buttons(true)
+
+
+func _start_ultimate_ready_idle() -> void:
+	_stop_player_idle_animation()
+	_stop_player_basic_animation()
+	_stop_player_skill_animation()
+	_set_player_action_texture(TAKASHI_ULTIMATE_TEXTURE)
+
+
+func _execute_committed_ultimate(command: PendingBattleCommand) -> void:
+	if not _uses_new_ultimate_command_flow():
+		return
+	if not _is_committed_ultimate_command(command):
+		return
+	if not ultimate_command_adapter.execute_committed_command():
+		return
+
+	var target := _selected_ultimate_target(command)
+	if target == null:
+		_abort_committed_ultimate_command(command, &"target_missing_during_execution")
+		return
+
+	active_ultimate_command_token = command.commit_token
+	state = BattleState.ACTION_RESOLUTION
+	_update_action_buttons(false)
+	ui.set_turn_text("Octagram Fragment")
+	ui.set_battle_log("Octagram Fragment awakens.")
+	await _run_ultimate_sequence(target, command)
+
+
+func _finish_ultimate_command_resolution(
+	command: PendingBattleCommand,
+	log_text: String
+) -> void:
+	if not _is_committed_ultimate_command(command):
+		return
+	if not ultimate_command_adapter.resolve_committed_command(command):
+		return
+	if not ultimate_command_adapter.begin_recovery(command):
+		return
+
+	var token := command.commit_token
+	if ultimate_recovery_tokens.has(token):
+		return
+	ultimate_recovery_tokens[token] = true
+	_start_player_idle_animation()
+	_hide_ultimate_target_highlight()
+	if not _ultimate_recovery_guard(command):
+		return
+	if not ultimate_command_adapter.complete_recovery(command):
+		return
+	if ultimate_turn_completion_tokens.has(token):
+		return
+	ultimate_turn_completion_tokens[token] = true
+	active_ultimate_command_token = 0
+	_finish_player_action(log_text)
+
+
+func _abort_committed_ultimate_command(
+	command: PendingBattleCommand,
+	reason: StringName
+) -> void:
+	active_ultimate_command_token = 0
+	if ultimate_command_adapter != null:
+		ultimate_command_adapter.fail_ultimate(command, reason)
+		ultimate_command_adapter.reset()
+
+
+func _validate_ultimate_command(command: PendingBattleCommand) -> String:
+	if command == null:
+		return "missing_command"
+	if command.command_type != PendingBattleCommand.CommandType.ULTIMATE:
+		return "unsupported_command"
+	if command.action_id != &"octagram_fragment":
+		return "unsupported_ultimate"
+	if _is_battle_over():
+		return "battle_already_finished"
+	if state != BattleState.PLAYER_TURN:
+		return "battle_state_not_player_turn"
+	if (
+		active_basic_command_token != 0
+		or active_skill_command_token != 0
+		or active_ultimate_command_token != 0
+	):
+		return "action_execution_already_active"
+	if not is_instance_valid(player) or player.is_defeated():
+		return "actor_invalid"
+	if ultimate_energy < command.energy_cost:
+		return "not_enough_energy"
+	if not command.has_required_targets():
+		return "target_invalid"
+	if _selected_ultimate_target(command) == null:
+		return "target_not_targetable"
+	return ""
+
+
+func _commit_ultimate_command_resources(
+	command: PendingBattleCommand
+) -> bool:
+	if not _validate_ultimate_command(command).is_empty():
+		return false
+	ultimate_energy = maxi(ultimate_energy - command.energy_cost, 0)
+	_refresh_energy_ui()
+	return true
+
+
+func _get_ultimate_candidate_targets() -> Array[Node]:
+	var targets: Array[Node] = []
+	if battle_scene == null:
+		return targets
+	for child in battle_scene.get_children():
+		if _is_ultimate_targetable(child):
+			targets.append(child)
+	return targets
+
+
+func _is_ultimate_targetable(target: Node) -> bool:
+	return (
+		target is Combatant
+		and target != player
+		and is_instance_valid(target)
+		and not (target as Combatant).is_defeated()
+	)
+
+
+func _selected_ultimate_target(command: PendingBattleCommand) -> Combatant:
+	if command == null or command.selected_targets.is_empty():
+		return null
+	var target := command.selected_targets[0] as Combatant
+	if target == null or not _is_ultimate_targetable(target):
+		return null
+	return target
+
+
+func _repair_ultimate_pending_target() -> bool:
+	var command: PendingBattleCommand = ultimate_command_adapter.get_pending_command()
+	if command == null:
+		return false
+
+	command.candidate_targets.assign(_get_ultimate_candidate_targets())
+	command.refresh_candidates()
+	if _selected_ultimate_target(command) != null:
+		return true
+	if command.candidate_targets.is_empty():
+		return false
+	return ultimate_command_adapter.select_target(command.candidate_targets[0])
+
+
+func _cycle_ultimate_target(direction: int) -> bool:
+	if not _has_pending_ultimate_command():
+		return false
+	var command: PendingBattleCommand = ultimate_command_adapter.get_pending_command()
+	command.candidate_targets.assign(_get_ultimate_candidate_targets())
+	command.refresh_candidates()
+	if command.candidate_targets.size() < 2:
+		return false
+
+	var current_index := 0
+	if not command.selected_targets.is_empty():
+		current_index = command.candidate_targets.find(command.selected_targets[0])
+	if current_index < 0:
+		current_index = 0
+	var next_index := wrapi(
+		current_index + direction,
+		0,
+		command.candidate_targets.size()
+	)
+	return ultimate_command_adapter.select_target(command.candidate_targets[next_index])
+
+
+func _select_ultimate_target_at_position(screen_position: Vector2) -> bool:
+	if not _has_pending_ultimate_command():
+		return false
+	var command: PendingBattleCommand = ultimate_command_adapter.get_pending_command()
+	command.candidate_targets.assign(_get_ultimate_candidate_targets())
+	command.refresh_candidates()
+	var closest_target: Combatant
+	var closest_distance := INF
+	for candidate in command.candidate_targets:
+		var combatant := candidate as Combatant
+		if combatant == null:
+			continue
+		var distance := screen_position.distance_to(combatant.global_position)
+		if distance < closest_distance:
+			closest_distance = distance
+			closest_target = combatant
+	if closest_target == null or closest_distance > 170.0:
+		return false
+	return ultimate_command_adapter.select_target(closest_target)
+
+
+func _ultimate_execution_guard(
+	command: PendingBattleCommand,
+	target: Combatant,
+	require_live_target: bool = true
+) -> bool:
+	if (
+		not is_inside_tree()
+		or state != BattleState.ACTION_RESOLUTION
+		or _is_battle_over()
+		or not is_instance_valid(player)
+		or player.is_defeated()
+		or target == null
+		or not is_instance_valid(target)
+		or (require_live_target and target.is_defeated())
+	):
+		return false
+	if command == null:
+		return true
+	return (
+		ultimate_command_adapter != null
+		and command == ultimate_command_adapter.get_pending_command()
+		and command.is_committed
+		and active_ultimate_command_token == command.commit_token
+		and ultimate_command_adapter.is_token_active(command.commit_token)
+	)
+
+
+func _ultimate_recovery_guard(command: PendingBattleCommand) -> bool:
+	return (
+		is_inside_tree()
+		and state == BattleState.ACTION_RESOLUTION
+		and not _is_battle_over()
+		and ultimate_command_adapter != null
+		and command == ultimate_command_adapter.get_pending_command()
+		and command.is_committed
+		and command.is_resolved
+		and active_ultimate_command_token == command.commit_token
+	)
+
+
+func _is_committed_ultimate_command(command: PendingBattleCommand) -> bool:
+	return (
+		command != null
+		and command.command_type == PendingBattleCommand.CommandType.ULTIMATE
+		and command.is_committed
+		and command.commit_token > 0
+	)
+
+
+func _consume_ultimate_hit(
+	command: PendingBattleCommand,
+	hit_index: int
+) -> bool:
+	if command == null:
+		return true
+	var key := "%d:%d" % [command.commit_token, hit_index]
+	if ultimate_hit_tokens.has(key):
+		return false
+	ultimate_hit_tokens[key] = true
+	return true
+
+
+func _ultimate_command_failure_message(reason: StringName) -> String:
+	match reason:
+		&"not_enough_energy":
+			return "Octagram Fragment needs full Energy."
+		&"target_invalid_before_confirm", &"target_not_targetable":
+			return "Octagram Fragment target is no longer valid."
+		&"no_valid_targets", &"target_missing_during_execution":
+			return "Octagram Fragment has no valid target."
+		&"battle_state_not_player_turn", &"action_execution_already_active":
+			return "Octagram Fragment is not available right now."
+	return "Octagram Fragment was cancelled safely."
+
+
+func _create_ultimate_target_highlight() -> void:
+	if ultimate_target_highlight != null or battle_scene == null:
+		return
+	ultimate_target_highlight = Line2D.new()
+	ultimate_target_highlight.name = "UltimateTargetHighlight"
+	ultimate_target_highlight.width = 4.0
+	ultimate_target_highlight.default_color = Color(0.72, 0.95, 1.0, 0.98)
+	ultimate_target_highlight.closed = true
+	ultimate_target_highlight.z_index = 32
+	for index in range(40):
+		var angle := TAU * float(index) / 40.0
+		ultimate_target_highlight.add_point(
+			Vector2(cos(angle) * 78.0, sin(angle) * 94.0)
+		)
+	battle_scene.add_child(ultimate_target_highlight)
+	ultimate_target_highlight.visible = false
+
+
+func _show_ultimate_target_highlight(command: PendingBattleCommand) -> void:
+	if ultimate_target_highlight == null:
+		return
+	ultimate_target_highlight.visible = _selected_ultimate_target(command) != null
+	_sync_ultimate_target_highlight()
+
+
+func _hide_ultimate_target_highlight() -> void:
+	if ultimate_target_highlight != null:
+		ultimate_target_highlight.visible = false
+
+
+func _sync_ultimate_target_highlight() -> void:
+	if ultimate_target_highlight == null or not ultimate_target_highlight.visible:
+		return
+	if not _has_pending_ultimate_command():
+		ultimate_target_highlight.visible = false
+		return
+	var target := _selected_ultimate_target(ultimate_command_adapter.get_pending_command())
+	if target == null:
+		ultimate_target_highlight.visible = false
+		return
+	ultimate_target_highlight.global_position = target.global_position + Vector2(0.0, -80.0)
+	ultimate_target_highlight.rotation += 0.012
+
+
+func _create_ultimate_command_panel() -> void:
+	if ultimate_command_panel != null or canvas_layer == null:
+		return
+
+	ultimate_command_panel = Panel.new()
+	ultimate_command_panel.name = "UltimateCommandPanel"
+	ultimate_command_panel.visible = false
+	ultimate_command_panel.anchor_left = 0.5
+	ultimate_command_panel.anchor_right = 0.5
+	ultimate_command_panel.anchor_top = 1.0
+	ultimate_command_panel.anchor_bottom = 1.0
+	ultimate_command_panel.offset_left = -180.0
+	ultimate_command_panel.offset_right = 180.0
+	ultimate_command_panel.offset_top = -258.0
+	ultimate_command_panel.offset_bottom = -120.0
+	ultimate_command_panel.mouse_filter = Control.MOUSE_FILTER_STOP
+	ultimate_command_panel.add_theme_stylebox_override(
+		"panel",
+		_make_ultimate_command_panel_style()
+	)
+	canvas_layer.add_child(ultimate_command_panel)
+
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	margin.add_theme_constant_override("margin_left", 14)
+	margin.add_theme_constant_override("margin_top", 10)
+	margin.add_theme_constant_override("margin_right", 14)
+	margin.add_theme_constant_override("margin_bottom", 10)
+	ultimate_command_panel.add_child(margin)
+
+	var rows := VBoxContainer.new()
+	rows.add_theme_constant_override("separation", 5)
+	margin.add_child(rows)
+
+	ultimate_ready_label = Label.new()
+	ultimate_ready_label.text = "Octagram Fragment Ready"
+	ultimate_ready_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ultimate_ready_label.add_theme_font_size_override("font_size", 15)
+	ultimate_ready_label.add_theme_color_override(
+		"font_color",
+		Color(0.72, 0.95, 1.0, 1.0)
+	)
+	rows.add_child(ultimate_ready_label)
+
+	ultimate_cost_label = Label.new()
+	ultimate_cost_label.text = "Energy: -"
+	ultimate_cost_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ultimate_cost_label.add_theme_font_size_override("font_size", 12)
+	ultimate_cost_label.add_theme_color_override(
+		"font_color",
+		Color(0.98, 0.92, 0.74, 1.0)
+	)
+	rows.add_child(ultimate_cost_label)
+
+	ultimate_target_label = Label.new()
+	ultimate_target_label.text = "Target: -"
+	ultimate_target_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	ultimate_target_label.add_theme_font_size_override("font_size", 13)
+	ultimate_target_label.add_theme_color_override(
+		"font_color",
+		Color(0.84, 0.92, 1.0, 1.0)
+	)
+	rows.add_child(ultimate_target_label)
+
+	var buttons := HBoxContainer.new()
+	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
+	buttons.add_theme_constant_override("separation", 8)
+	rows.add_child(buttons)
+
+	ultimate_confirm_button = Button.new()
+	ultimate_confirm_button.text = "Confirm"
+	ultimate_confirm_button.custom_minimum_size = Vector2(104.0, 32.0)
+	ultimate_confirm_button.pressed.connect(_confirm_ultimate_command)
+	buttons.add_child(ultimate_confirm_button)
+
+	ultimate_cancel_button = Button.new()
+	ultimate_cancel_button.text = "Cancel"
+	ultimate_cancel_button.custom_minimum_size = Vector2(104.0, 32.0)
+	ultimate_cancel_button.pressed.connect(_cancel_ultimate_command)
+	buttons.add_child(ultimate_cancel_button)
+
+
+func _make_ultimate_command_panel_style() -> StyleBoxFlat:
+	var style := StyleBoxFlat.new()
+	style.bg_color = Color(0.02, 0.03, 0.06, 0.94)
+	style.border_color = Color(0.72, 0.95, 1.0, 0.92)
+	style.border_width_left = 1
+	style.border_width_top = 1
+	style.border_width_right = 1
+	style.border_width_bottom = 1
+	style.corner_radius_top_left = 6
+	style.corner_radius_top_right = 6
+	style.corner_radius_bottom_right = 6
+	style.corner_radius_bottom_left = 6
+	return style
+
+
+func _set_ultimate_command_panel_visible(is_visible: bool) -> void:
+	if ultimate_command_panel != null:
+		ultimate_command_panel.visible = is_visible
+
+
+func _update_ultimate_command_panel(command: PendingBattleCommand) -> void:
+	if ultimate_target_label == null:
+		return
+	var target_name := "-"
+	var target := _selected_ultimate_target(command)
+	if target != null:
+		target_name = target.combatant_name
+	ultimate_target_label.text = "Target: %s" % target_name
+	if ultimate_cost_label != null and command != null:
+		ultimate_cost_label.text = "Energy: %d/%d" % [
+			ultimate_energy,
+			MAX_ULTIMATE_ENERGY
+		]
+	if ultimate_confirm_button != null:
+		ultimate_confirm_button.disabled = target == null
+
+
 func _play_battle_intro_effect() -> void:
 	if battle_intro_overlay == null:
 		return
@@ -1697,6 +2301,8 @@ func _on_attack_pressed() -> void:
 		return
 	if _has_pending_skill_command() and not _cancel_skill_command():
 		return
+	if _has_pending_ultimate_command() and not _cancel_ultimate_command():
+		return
 
 	if _uses_new_basic_command_flow():
 		_begin_basic_attack_command()
@@ -1773,12 +2379,17 @@ func _on_confirm_pressed() -> void:
 	if _uses_new_skill_command_flow() and _has_pending_skill_command():
 		_confirm_skill_command()
 		return
+	if _uses_new_ultimate_command_flow() and _has_pending_ultimate_command():
+		_confirm_ultimate_command()
+		return
 	if state == BattleState.PLAYER_TURN:
 		await _on_attack_pressed()
 
 
 func _on_skill_pressed() -> void:
 	if _has_pending_basic_command() and not _cancel_basic_attack_command():
+		return
+	if _has_pending_ultimate_command() and not _cancel_ultimate_command():
 		return
 	if state != BattleState.PLAYER_TURN:
 		return
@@ -1807,36 +2418,55 @@ func _on_ultimate_pressed() -> void:
 		return
 	if _has_pending_skill_command() and not _cancel_skill_command():
 		return
-	if state != BattleState.PLAYER_TURN or ultimate_energy < MAX_ULTIMATE_ENERGY:
+	if state != BattleState.PLAYER_TURN:
 		return
 
+	if _uses_new_ultimate_command_flow():
+		_begin_ultimate_command()
+		return
+
+	if ultimate_energy < MAX_ULTIMATE_ENERGY:
+		return
+	await _start_legacy_ultimate()
+
+
+func _start_legacy_ultimate() -> void:
 	state = BattleState.ACTION_RESOLUTION
 	_update_action_buttons(false)
 	ui.set_turn_text("Octagram Fragment")
 	ui.set_battle_log("Octagram Fragment awakens.")
 	ultimate_energy = 0
 	_refresh_energy_ui()
+	await _run_ultimate_sequence(enemy, null)
+
+
+func _run_ultimate_sequence(
+	target: Combatant,
+	command: PendingBattleCommand = null
+) -> void:
+	if not _ultimate_execution_guard(command, target):
+		return
 
 	_set_battle_ui_for_ultimate(false)
 	_start_ultimate_camera_zoom_in()
 	await _play_takashi_ultimate_fvx_intro()
-	if state != BattleState.ACTION_RESOLUTION:
+	if not _ultimate_execution_guard(command, target):
 		_hide_takashi_ultimate_glow_effect()
 		_set_battle_ui_for_ultimate(true)
 		return
 	await _play_takashi_ulti_pre_animation()
-	if state != BattleState.ACTION_RESOLUTION:
+	if not _ultimate_execution_guard(command, target):
 		_hide_takashi_ultimate_glow_effect()
 		_set_battle_ui_for_ultimate(true)
 		return
 	await _wait_for_remaining_ultimate_zoom_in()
-	if state != BattleState.ACTION_RESOLUTION:
+	if not _ultimate_execution_guard(command, target):
 		_hide_takashi_ultimate_glow_effect()
 		_set_battle_ui_for_ultimate(true)
 		return
 
 	await _play_ultimate_sequence()
-	if state != BattleState.ACTION_RESOLUTION:
+	if not _ultimate_execution_guard(command, target):
 		_hide_takashi_ultimate_glow_effect()
 		_set_battle_ui_for_ultimate(true)
 		return
@@ -1848,40 +2478,54 @@ func _on_ultimate_pressed() -> void:
 	_play_screen_flash(Color(0.72, 0.95, 1.0, 0.24), 0.12)
 	_shake_camera_with_strength(7.0)
 	await _play_takashi_ulti_post_animation()
-	if state != BattleState.ACTION_RESOLUTION:
+	if not _ultimate_execution_guard(command, target):
 		_hide_takashi_ultimate_glow_effect()
 		_set_battle_ui_for_ultimate(true)
 		return
 
 	await _play_ultimate_camera_zoom_out()
 	_set_battle_ui_for_ultimate(true)
-	if state != BattleState.ACTION_RESOLUTION:
+	if not _ultimate_execution_guard(command, target):
 		_hide_takashi_ultimate_glow_effect()
 		return
 
 	await player.play_ultimate_feedback()
-	if state != BattleState.ACTION_RESOLUTION:
+	if not _ultimate_execution_guard(command, target):
 		_hide_takashi_ultimate_glow_effect()
 		return
 
-	await player.play_skill_movement(enemy)
-	if state != BattleState.ACTION_RESOLUTION:
+	await player.play_skill_movement(target)
+	if not _ultimate_execution_guard(command, target):
 		_hide_takashi_ultimate_glow_effect()
 		return
 
 	await _play_enemy_octagram_impact()
-	if state != BattleState.ACTION_RESOLUTION:
+	if not _ultimate_execution_guard(command, target):
 		_hide_takashi_ultimate_glow_effect()
 		_hide_enemy_impact_fvx()
 		return
 
-	enemy.take_damage(ULTIMATE_DAMAGE)
-	_show_floating_damage(enemy, ULTIMATE_DAMAGE)
-	await enemy.play_hit_feedback()
+	if command != null and not ultimate_command_adapter.begin_resolution(command):
+		return
+	if not _consume_ultimate_hit(command, 0):
+		return
+	target.take_damage(ULTIMATE_DAMAGE)
+	_show_floating_damage(target, ULTIMATE_DAMAGE)
+	await target.play_hit_feedback()
+	if not _ultimate_execution_guard(command, target, false):
+		return
 	await _fade_out_takashi_ultimate_glow_effect(0.26)
+	if not _ultimate_execution_guard(command, target, false):
+		return
 	await _play_enemy_impact_camera_zoom_out()
+	if not _ultimate_execution_guard(command, target, false):
+		return
 	_shake_camera()
-	_finish_player_action("Octagram Fragment deals %d damage and consumes all energy." % ULTIMATE_DAMAGE)
+	var log_text := "Octagram Fragment deals %d damage and consumes all energy." % ULTIMATE_DAMAGE
+	if command != null:
+		_finish_ultimate_command_resolution(command, log_text)
+	else:
+		_finish_player_action(log_text)
 
 
 func _set_battle_ui_for_ultimate(visible: bool) -> void:
@@ -3021,14 +3665,19 @@ func _win(log_text: String) -> void:
 	state = BattleState.WIN
 	active_basic_command_token = 0
 	active_skill_command_token = 0
+	active_ultimate_command_token = 0
 	if basic_command_adapter != null:
 		basic_command_adapter.lock_for_outcome(true)
 	if skill_command_adapter != null:
 		skill_command_adapter.lock_for_outcome(true)
+	if ultimate_command_adapter != null:
+		ultimate_command_adapter.lock_for_outcome(true)
 	_hide_basic_target_highlight()
 	_set_basic_command_panel_visible(false)
 	_hide_skill_target_highlight()
 	_set_skill_command_panel_visible(false)
+	_hide_ultimate_target_highlight()
+	_set_ultimate_command_panel_visible(false)
 	timing_bar.cancel_window()
 	ui.set_battle_input_enabled(false)
 	ui.set_turn_text("Victory")
@@ -3049,14 +3698,19 @@ func _lose(log_text: String) -> void:
 	state = BattleState.LOSE
 	active_basic_command_token = 0
 	active_skill_command_token = 0
+	active_ultimate_command_token = 0
 	if basic_command_adapter != null:
 		basic_command_adapter.lock_for_outcome(false)
 	if skill_command_adapter != null:
 		skill_command_adapter.lock_for_outcome(false)
+	if ultimate_command_adapter != null:
+		ultimate_command_adapter.lock_for_outcome(false)
 	_hide_basic_target_highlight()
 	_set_basic_command_panel_visible(false)
 	_hide_skill_target_highlight()
 	_set_skill_command_panel_visible(false)
+	_hide_ultimate_target_highlight()
+	_set_ultimate_command_panel_visible(false)
 	timing_bar.cancel_window()
 	ui.set_battle_input_enabled(false)
 	ui.set_turn_text("Defeat")

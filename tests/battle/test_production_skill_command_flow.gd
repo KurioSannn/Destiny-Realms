@@ -18,6 +18,7 @@ func _run() -> void:
 	await _test_skill_switching_with_basic()
 	await _test_legacy_skill_fallback_keeps_old_timing()
 	await _test_ultimate_cancels_skill_pending_and_stays_legacy()
+	await _test_new_ultimate_cancels_skill_pending()
 	await _test_scene_exit_stops_committed_skill_callbacks()
 	await _test_bandit_skill_victory_updates_world_progress()
 
@@ -235,7 +236,7 @@ func _test_legacy_skill_fallback_keeps_old_timing() -> void:
 
 
 func _test_ultimate_cancels_skill_pending_and_stays_legacy() -> void:
-	var fixture := await _make_battle(false, true, true)
+	var fixture := await _make_battle(false, true, true, false)
 	var battle := fixture["battle"] as Node
 	var manager := fixture["manager"] as BattleManager
 
@@ -248,8 +249,34 @@ func _test_ultimate_cancels_skill_pending_and_stays_legacy() -> void:
 
 	_check(not manager.skill_command_adapter.has_pending_skill(), "Ultimate clears pending Skill")
 	_check(not manager.skill_command_panel.visible, "Ultimate hides Skill panel")
-	_check(manager.state == BattleManager.BattleState.ACTION_RESOLUTION, "Ultimate remains legacy action resolution")
-	_check(manager.ultimate_energy == 0, "Ultimate energy timing is unchanged")
+	_check(manager.state == BattleManager.BattleState.ACTION_RESOLUTION, "Ultimate legacy fallback remains action resolution")
+	_check(manager.ultimate_energy == 0, "Ultimate legacy fallback energy timing is unchanged")
+
+	await _free_battle(battle)
+
+
+func _test_new_ultimate_cancels_skill_pending() -> void:
+	var fixture := await _make_battle(false, true, true)
+	var battle := fixture["battle"] as Node
+	var manager := fixture["manager"] as BattleManager
+
+	manager.ultimate_energy = BattleManager.MAX_ULTIMATE_ENERGY
+	manager.call("_refresh_energy_ui")
+	manager.enemy.current_hp = BattleManager.ULTIMATE_DAMAGE
+	manager.call("_on_skill_pressed")
+	await _idle_frames(3)
+	manager.call("_on_ultimate_pressed")
+	await _idle_frames(3)
+
+	_check(not manager.skill_command_adapter.has_pending_skill(), "new Ultimate clears pending Skill")
+	_check(not manager.skill_command_panel.visible, "new Ultimate hides Skill panel")
+	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "new Ultimate flow creates a pending command")
+	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "new Ultimate flow does not spend energy before commit")
+
+	manager.call("_confirm_ultimate_command")
+
+	_check(await _wait_for_state(manager, BattleManager.BattleState.WIN, 40.0), "new Ultimate can win Lesser Abyss")
+	_check(manager.ultimate_energy == 0, "new Ultimate flow spends energy exactly once on commit")
 
 	await _free_battle(battle)
 
@@ -291,7 +318,8 @@ func _test_bandit_skill_victory_updates_world_progress() -> void:
 func _make_battle(
 	bandit: bool,
 	use_basic_flow: bool,
-	use_skill_flow: bool
+	use_skill_flow: bool,
+	use_ultimate_flow: bool = true
 ) -> Dictionary:
 	WorldProgress.reset_story()
 	if bandit:
@@ -300,6 +328,7 @@ func _make_battle(
 	var manager := battle.get_node("BattleManager") as BattleManager
 	manager.use_new_basic_command_flow = use_basic_flow
 	manager.use_new_skill_command_flow = use_skill_flow
+	manager.use_new_ultimate_command_flow = use_ultimate_flow
 	get_tree().root.add_child(battle)
 	await _idle_frames(8)
 	return {
