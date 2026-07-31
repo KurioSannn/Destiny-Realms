@@ -1,6 +1,6 @@
 extends Node
 
-## Block 10: multi-enemy targeting production hardening. Proves the
+## Block 9G: multi-enemy targeting production hardening. Proves the
 ## production Basic/Skill/Ultimate command flow (Block 8.5/9E UX,
 ## Block 9B/9F off-turn queue) behaves correctly when more than one live
 ## enemy exists in the battle -- target selection, target validity,
@@ -19,7 +19,7 @@ extends Node
 ## (`_get_basic_attack_candidate_targets()` and its Skill/Ultimate
 ## equivalents) already scans the battle scene tree for every non-player
 ## Combatant, so no BattleManager changes were needed to make two enemies
-## selectable -- see docs/battle_system_spec.md, "Block 10 implementation
+## selectable -- see docs/battle_system_spec.md, "Block 9G implementation
 ## status" for the full audit. The one real bug this block fixed:
 ## `_finish_player_action()`/`_finish_interrupt_ultimate_action()` used to
 ## check `enemy.is_defeated()` (the single scene-node reference) for

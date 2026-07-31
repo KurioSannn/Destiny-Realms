@@ -800,7 +800,7 @@ func _selected_basic_target(command: PendingBattleCommand) -> Combatant:
 	return target
 
 
-## Block 10: revalidates the *already-selected* target only -- refreshes
+## Block 9G: revalidates the *already-selected* target only -- refreshes
 ## candidate_targets against the current battle state and re-checks
 ## whether the specific target the player already chose is still alive
 ## and valid. Deliberately does NOT auto-select a different candidate
@@ -809,7 +809,7 @@ func _selected_basic_target(command: PendingBattleCommand) -> Combatant:
 ## player never chose would let commit succeed against the wrong enemy.
 ## In a single-enemy battle this distinction was invisible (candidate_targets
 ## was always empty once the only enemy died, so the old fallback never
-## actually fired) -- see docs/battle_system_spec.md, "Block 10
+## actually fired) -- see docs/battle_system_spec.md, "Block 9G
 ## implementation status" for the multi-enemy audit that found it.
 func _repair_basic_pending_target() -> bool:
 	var command: PendingBattleCommand = basic_command_adapter.get_pending_command()
@@ -1253,7 +1253,7 @@ func _selected_skill_target(command: PendingBattleCommand) -> Combatant:
 	return target
 
 
-## Block 10: see _repair_basic_pending_target()'s doc comment -- same
+## Block 9G: see _repair_basic_pending_target()'s doc comment -- same
 ## fix, same reason. Does not auto-select a different live enemy when the
 ## selected target has died.
 func _repair_skill_pending_target() -> bool:
@@ -1888,7 +1888,7 @@ func _resume_enemy_action_after_a1() -> void:
 ## non-lethal confirm resumes whichever window actually began this
 ## request.
 ##
-## Block 10: uses _all_enemies_defeated() rather than enemy.is_defeated()
+## Block 9G: uses _all_enemies_defeated() rather than enemy.is_defeated()
 ## -- in a multi-enemy battle, a queued Ultimate that kills only the
 ## targeted enemy must not end the battle while another enemy is still
 ## alive; see _all_enemies_defeated()'s doc comment.
@@ -2188,7 +2188,7 @@ func _selected_ultimate_target(command: PendingBattleCommand) -> Combatant:
 	return target
 
 
-## Block 10: see _repair_basic_pending_target()'s doc comment -- same
+## Block 9G: see _repair_basic_pending_target()'s doc comment -- same
 ## fix, same reason. Does not auto-select a different live enemy when the
 ## selected target has died. This also covers off-turn Ultimate (A1/B):
 ## a queued request's target is revalidated, never silently swapped, at
@@ -4194,7 +4194,7 @@ func _finish_player_action(log_text: String) -> void:
 	_begin_enemy_turn(log_text)
 
 
-## Block 10: victory must require every enemy in the battle to be
+## Block 9G: victory must require every enemy in the battle to be
 ## defeated, not just the specific `enemy` scene node. `enemy.is_defeated()`
 ## alone is a single-enemy assumption that would incorrectly end a
 ## multi-enemy battle the instant that one node dies, even if another

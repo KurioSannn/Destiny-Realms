@@ -1,11 +1,11 @@
 extends Node
 
-## Block 10 visual QA: proves multi-enemy targeting looks correct in a
+## Block 9G visual QA: proves multi-enemy targeting looks correct in a
 ## real production battle -- two enemies alive, target marker switching
 ## between them, Basic waiting for a target choice, Skill/Ultimate ready
 ## idle with a target selected, and the battle continuing normally after
 ## one of two enemies is defeated. See docs/battle_system_spec.md,
-## "Block 10 implementation status".
+## "Block 9G implementation status".
 
 const BATTLE_SCENE := preload("res://scenes/battle/battle_scene.tscn")
 

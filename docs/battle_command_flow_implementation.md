@@ -1444,12 +1444,12 @@ window A2/A3 would require the enemy attack guard chain to support
 genuine mid-action pause/resume, a substantially larger, separately
 scoped undertaking.
 
-## Block 10: multi-enemy targeting production hardening
+## Block 9G: multi-enemy targeting production hardening
 
-Block 10 audits and hardens Basic/Skill/Ultimate targeting for battles
+Block 9G audits and hardens Basic/Skill/Ultimate targeting for battles
 with more than one live enemy, using the production command flow
 directly (not mock unit tests). See `docs/battle_system_spec.md`, "Block
-10 implementation status" for the full audit writeup (target identity
+9G implementation status" for the full audit writeup (target identity
 model, validation checkpoints, per-command multi-enemy behavior, victory
 semantics, A1/B compatibility, known limitations). This section covers
 only what changed in code and how to verify it.
@@ -1484,7 +1484,7 @@ Enemy turn scheduling (`_begin_enemy_turn()`/`_enemy_attack()`) is
 untouched — it remains single-actor by design, out of this block's
 scope.
 
-### Block 10 Verification
+### Block 9G Verification
 
 Automated tests (all pre-existing suites re-run with zero modifications
 required, plus one new suite):
@@ -1511,7 +1511,7 @@ required, plus one new suite):
 
 `godot --headless --disable-crash-handler --log-file godot-bandit-startup.log --path . --scene res://tests/battle/test_bandit_battle_startup.tscn`
 
-New in Block 10:
+New in Block 9G:
 
 `godot --headless --disable-crash-handler --log-file godot-multi-enemy.log --path . --scene res://tests/battle/test_multi_enemy_targeting_production.tscn`
 
@@ -1547,7 +1547,7 @@ resolutions, to
 `docs/images/battle_command_flow/multi_enemy_targeting/{1280x720,1920x1080}/`.
 **Could not be captured this session** — hit the identical
 `texture_2d_get: Parameter "t" is null` / dummy-rendering-backend failure
-documented in Block 9C/9D/9E/9F, confirmed still present (not a Block 10
+documented in Block 9C/9D/9E/9F, confirmed still present (not a Block 9G
 regression, and not assumed identical without checking — retried fresh
 this session, same result) by retrying once.
 
@@ -1555,7 +1555,7 @@ this session, same result) by retrying once.
 
 `godot --headless --disable-crash-handler --log-file godot-capture-multi-enemy.log --path . --scene res://tests/battle/capture_multi_enemy_targeting.tscn -- --capture-size=1920x1080`
 
-Known Block 10 limitations:
+Known Block 9G limitations:
 
 - Enemy turn scheduling remains single-actor; no multi-enemy AI or
   multiple enemies acting in a single turn.
@@ -1566,7 +1566,7 @@ Known Block 10 limitations:
   this block proves the underlying system is correct for when one is
   added, without building that encounter.
 
-Block 10 does not change Basic Attack's fast flow beyond the repair-target
+Block 9G does not change Basic Attack's fast flow beyond the repair-target
 fix; does not change Skill/Ultimate's Block 9E command UX; does not
 change off-turn Ultimate's A1/B resume policy (Block 9F/9B/9D); does not
 implement window A2/A3; does not implement mid-action suspend/resume;

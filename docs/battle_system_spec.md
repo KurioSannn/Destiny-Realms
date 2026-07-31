@@ -1744,9 +1744,9 @@ multi-enemy encounter targeting, rather than window A2/A3, which would
 require the enemy-attack guard chain to support genuine mid-action pause/
 resume — a substantially larger, separately-scoped undertaking.
 
-## Block 10 implementation status
+## Block 9G implementation status
 
-Block 10 audits and hardens production Basic/Skill/Ultimate targeting for
+Block 9G audits and hardens production Basic/Skill/Ultimate targeting for
 battles with more than one live enemy. It is not a new capability block —
 it proves an already-multi-enemy-capable target *enumeration* system
 against a dedicated production test fixture, and fixes two real gaps the
@@ -1851,7 +1851,7 @@ global.
    auto-select): candidate must be a live, valid, non-player `Combatant`.
 2. **On commit** (`_repair_*_pending_target()` → `_validate_*_command()`):
    the *specific* selected target is re-checked; if it died, commit fails
-   — it is never silently swapped for a different live enemy (Block 10
+   — it is never silently swapped for a different live enemy (Block 9G
    fix, see above).
 3. **At execution start** (`_execute_committed_*()`): the target is
    re-fetched and re-validated one more time before any cinematic begins;
