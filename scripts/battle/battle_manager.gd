@@ -37,6 +37,22 @@ const SKILL_RIFT_IMPACT_PULSE_COUNT: int = 3
 const SKILL_RIFT_IMPACT_INTERVAL: float = 0.06
 const SKILL_RIFT_CAMERA_SHAKE: float = 7.0
 const SKILL_RIFT_TARGET_SHAKE: float = 10.0
+## Block 9H: combat feel tuning. A short, purely cosmetic "impact hold" --
+## a brief pause after damage/the floating number already appear and
+## before the existing hit-feedback/multi-hit continuation -- so the
+## moment of impact reads as a distinct beat instead of blending into the
+## follow-up animation. Local (a single get_tree().create_timer() await,
+## the same primitive already used throughout this file), never a global
+## Engine.time_scale change, and always placed strictly after
+## take_damage()/resource mutation already happened -- it can delay
+## cosmetic follow-through but can never delay, duplicate, or block
+## authoritative resolution. Durations scale with each action's existing
+## weight (Basic lightest, Ultimate heaviest, matching the baseline audit
+## in docs/battle_system_spec.md, "Block 9H implementation status").
+const BASIC_IMPACT_HOLD_SECONDS: float = 0.03
+const SKILL_IMPACT_HOLD_SECONDS: float = 0.05
+const ULTIMATE_IMPACT_HOLD_SECONDS: float = 0.08
+const ENEMY_IMPACT_HOLD_SECONDS: float = 0.05
 const BASE_VIEWPORT_SIZE: Vector2 = Vector2(1280.0, 720.0)
 const PLAYER_VIEWPORT_POSITION: Vector2 = Vector2(0.34, 0.70)
 const ENEMY_VIEWPORT_POSITION: Vector2 = Vector2(0.68, 0.70)
@@ -183,6 +199,14 @@ const UltimateCommandAdapterScript := preload(
 @onready var timing_bar: TimingBar = $"../CanvasLayer/BattleUI/TimingBar"
 @onready var battle_scene: Node2D = $".."
 @onready var battle_camera: Camera2D = get_node_or_null("../BattleCamera") as Camera2D
+## Block 9H: the only fire-and-forget camera tween in this file (every
+## other camera tween -- Ultimate zoom in/out, enemy impact zoom -- is
+## always awaited by its caller before continuing). Tracked so
+## _reset_camera() can kill it: without this, a shake still mid-flight
+## when _win()/_lose() fires could keep overwriting the just-reset
+## offset for the shake's remaining ~0.1s, leaving a stray offset
+## briefly visible instead of the guaranteed-clean camera state.
+var _camera_shake_tween: Tween
 @onready var forest_background: Sprite2D = get_node_or_null("../Background/ForestBackground") as Sprite2D
 @onready var sky: Polygon2D = get_node_or_null("../Background/Sky") as Polygon2D
 @onready var forest_line: Polygon2D = get_node_or_null("../Background/ForestLine") as Polygon2D
@@ -2644,6 +2668,11 @@ func _enemy_attack() -> void:
 	player.take_damage(damage)
 	_refresh_player_status_ui()
 	_show_floating_damage(player, damage)
+	if ENEMY_IMPACT_HOLD_SECONDS > 0.0:
+		await get_tree().create_timer(ENEMY_IMPACT_HOLD_SECONDS).timeout
+		if not _enemy_attack_guard(token):
+			_clear_enemy_attack_token(token)
+			return
 	await player.play_hit_feedback()
 	if not _enemy_recovery_guard(token) or not _consume_enemy_recovery(token):
 		_clear_enemy_attack_token(token)
@@ -2745,6 +2774,10 @@ func _resolve_basic_attack(
 
 	target.take_damage(damage)
 	_show_floating_damage(target, damage)
+	if BASIC_IMPACT_HOLD_SECONDS > 0.0:
+		await get_tree().create_timer(BASIC_IMPACT_HOLD_SECONDS).timeout
+		if state != BattleState.ACTION_RESOLUTION or not _basic_execution_guard(command, target, false):
+			return
 	await _play_basic_cetar_impact(target, command)
 	if state != BattleState.ACTION_RESOLUTION:
 		return
@@ -2936,6 +2969,10 @@ func _run_ultimate_sequence(
 		return
 	target.take_damage(ULTIMATE_DAMAGE)
 	_show_floating_damage(target, ULTIMATE_DAMAGE)
+	if ULTIMATE_IMPACT_HOLD_SECONDS > 0.0:
+		await get_tree().create_timer(ULTIMATE_IMPACT_HOLD_SECONDS).timeout
+		if not _ultimate_execution_guard(command, target, false):
+			return
 	await target.play_hit_feedback()
 	if not _ultimate_execution_guard(command, target, false):
 		return
@@ -3773,6 +3810,11 @@ func _resolve_triangle_rift_damage(
 	target.take_damage(SKILL_DAMAGE)
 	_show_floating_damage(target, SKILL_DAMAGE)
 
+	if SKILL_IMPACT_HOLD_SECONDS > 0.0:
+		await get_tree().create_timer(SKILL_IMPACT_HOLD_SECONDS).timeout
+		if not _skill_execution_guard(command, target, false):
+			return
+
 	await _play_triangle_rift_impact(target, command)
 	if not _skill_execution_guard(command, target, false):
 		return
@@ -4093,6 +4135,13 @@ func _win(log_text: String) -> void:
 	active_ultimate_command_token = 0
 	_reset_ultimate_interrupt_queue()
 	_reset_enemy_attack_runtime()
+	# Block 9H: the happy path already returns the camera to its default
+	# position/offset/zoom via each cinematic's own zoom-out tween before
+	# resolution reaches here, but nothing previously guaranteed that if a
+	# shake/zoom tween was ever interrupted or skipped. An explicit reset
+	# here means victory can never leave a stray camera offset behind,
+	# regardless of which command ended the battle.
+	_reset_camera()
 	if basic_command_adapter != null:
 		basic_command_adapter.lock_for_outcome(true)
 	if skill_command_adapter != null:
@@ -4127,6 +4176,9 @@ func _lose(log_text: String) -> void:
 	active_ultimate_command_token = 0
 	_reset_ultimate_interrupt_queue()
 	_reset_enemy_attack_runtime()
+	# Block 9H: see _win()'s matching comment -- guarantees no stray camera
+	# offset survives defeat either.
+	_reset_camera()
 	if basic_command_adapter != null:
 		basic_command_adapter.lock_for_outcome(false)
 	if skill_command_adapter != null:
@@ -4251,10 +4303,12 @@ func _shake_camera_with_strength(strength: float) -> void:
 	if battle_camera == null:
 		return
 
-	var tween: Tween = create_tween()
-	tween.tween_property(battle_camera, "offset", Vector2(strength, randf_range(-1.5, 1.5)), 0.025)
-	tween.tween_property(battle_camera, "offset", Vector2(-strength, randf_range(-1.5, 1.5)), 0.035)
-	tween.tween_property(battle_camera, "offset", Vector2.ZERO, 0.035)
+	if _camera_shake_tween != null and _camera_shake_tween.is_valid():
+		_camera_shake_tween.kill()
+	_camera_shake_tween = create_tween()
+	_camera_shake_tween.tween_property(battle_camera, "offset", Vector2(strength, randf_range(-1.5, 1.5)), 0.025)
+	_camera_shake_tween.tween_property(battle_camera, "offset", Vector2(-strength, randf_range(-1.5, 1.5)), 0.035)
+	_camera_shake_tween.tween_property(battle_camera, "offset", Vector2.ZERO, 0.035)
 
 
 func _shake_target_once(target: Node2D, strength: float, duration: float) -> Signal:
@@ -4281,6 +4335,8 @@ func _shake_target_once(target: Node2D, strength: float, duration: float) -> Sig
 
 func _reset_camera() -> void:
 	if battle_camera != null:
+		if _camera_shake_tween != null and _camera_shake_tween.is_valid():
+			_camera_shake_tween.kill()
 		var viewport_size: Vector2 = get_viewport().get_visible_rect().size
 		if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
 			viewport_size = BASE_VIEWPORT_SIZE

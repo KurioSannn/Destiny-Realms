@@ -1576,3 +1576,142 @@ not overhaul battle UI; does not rewrite `battle_manager.gd`; does not
 build enemy-side multi-actor turn scheduling. Next step: an actual
 multi-enemy encounter (data + positions), or continuing the Block 9
 window A series, or general UI polish.
+
+## Block 9H: combat feel tuning
+
+Block 9H tunes pacing and impact feedback for Basic, Skill, Ultimate
+(on-turn/A1/B), and enemy attack — anticipation, impact timing, hit
+feedback, camera feedback, recovery pacing — without changing damage,
+resource cost/gain, targeting, AI, turn order, or the Block 9E command
+UX. See `docs/battle_system_spec.md`, "Block 9H implementation status"
+for the full baseline-timing audit and per-action before/after writeup.
+This section covers only what changed in code and how to verify it.
+
+**Files changed:**
+
+- `scripts/battle/battle_manager.gd` —
+  - Four new constants in the existing centralized constants block
+    (no new profile file/Resource was created; Tahap 2's audit found the
+    existing location already sufficient): `BASIC_IMPACT_HOLD_SECONDS`
+    (0.03), `SKILL_IMPACT_HOLD_SECONDS` (0.05),
+    `ULTIMATE_IMPACT_HOLD_SECONDS` (0.08), `ENEMY_IMPACT_HOLD_SECONDS`
+    (0.05).
+  - A short, local, cosmetic "impact hold" pause inserted at exactly four
+    call sites, each strictly *after* `take_damage()`/
+    `_show_floating_damage()` already ran: `_resolve_basic_attack()`,
+    `_resolve_triangle_rift_damage()` (Skill), `_run_ultimate_sequence()`
+    (shared by on-turn/A1/B Ultimate), and `_enemy_attack()`. Each
+    insertion is a single `await get_tree().create_timer(...).timeout`
+    followed by the same guard re-check pattern every other await
+    boundary in these functions already uses — no new pattern, no global
+    `Engine.time_scale`.
+  - New field `_camera_shake_tween: Tween`, tracking the previously
+    fire-and-forget tween created by `_shake_camera_with_strength()` (the
+    only untracked camera tween in the file — every other camera tween is
+    already awaited by its caller). `_reset_camera()` now kills this
+    tween before applying its direct property reset, so a shake still
+    mid-flight when victory/defeat fires can no longer overwrite the
+    just-reset camera offset for its remaining ~0.1s.
+  - `_win()` and `_lose()` each gained one call to `_reset_camera()`.
+    Previously neither function called it at all; the happy path already
+    returned the camera to default via each cinematic's own awaited
+    zoom-out tween, but nothing *guaranteed* it — this closes that gap
+    explicitly.
+
+No changes to `battle_command_flow.gd`, any command adapter,
+`pending_battle_command.gd`, damage formulas, SP/Energy cost or balance,
+targeting/candidate-target logic (Block 9G untouched), AI, encounter
+data, story, `WorldProgress`, `MusicDirector`, or `SceneTransition`.
+Block 9E's command UX (ready idle, same-command-commit, target-click-commit,
+cancel-on-switch) is unchanged — the impact hold sits entirely inside the
+post-commit execution chain, after the UX-relevant decision points.
+
+### Block 9H Verification
+
+Automated tests (all pre-existing suites re-run with zero modifications
+required, plus two new suites):
+
+`godot --headless --disable-crash-handler --log-file godot-production-basic.log --path . --scene res://tests/battle/test_production_basic_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-production-skill.log --path . --scene res://tests/battle/test_production_skill_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-production-ultimate.log --path . --scene res://tests/battle/test_production_ultimate_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-command-ux.log --path . --scene res://tests/battle/test_command_ux_no_panel.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-window-a1.log --path . --scene res://tests/battle/test_window_a1_ultimate_interrupt.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-interrupt-integration.log --path . --scene res://tests/battle/test_ultimate_off_turn_interrupt.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-enemy-guard.log --path . --scene res://tests/battle/test_enemy_attack_guard_chain.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-interrupt-cleanup.log --path . --scene res://tests/battle/test_interrupt_state_cleanup.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-interrupt-queue.log --path . --scene res://tests/battle/test_ultimate_interrupt_queue.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-debug-scene.log --path . --scene res://tests/battle/test_battle_command_debug_scene.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-bandit-startup.log --path . --scene res://tests/battle/test_bandit_battle_startup.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-multi-enemy.log --path . --scene res://tests/battle/test_multi_enemy_targeting_production.tscn`
+
+New in Block 9H:
+
+`godot --headless --disable-crash-handler --log-file godot-combat-feel.log --path . --scene res://tests/battle/test_combat_feel_timing.tscn`
+
+`test_combat_feel_timing.gd` covers 25 scenarios, deliberately using event
+order and bounded-time assertions rather than frame-perfect timing (which
+would be flaky headless): Basic commits without dead input delay and
+resolves within a bounded window; Skill shows ready feedback strictly
+before commit and damage lands only after the anticipation phase; Ultimate's
+cut-in (execution-started signal) always precedes the damage it causes;
+enemy damage never lands during the anticipation window and safe window B
+never opens mid-recovery; damage/resource/turn-completion/resolution
+signal counts are exactly 1 in every case, including under simulated spam
+input during the new impact-hold window; scene exit mid-impact-hold does
+not crash; victory leaves no stray camera offset/zoom (this test caught
+the fire-and-forget shake-tween bug described above); multi-enemy hit
+feedback lands on the specifically selected target; and disabling the
+cosmetic VFX layer entirely still lets damage/resource/turn-completion
+resolve normally.
+
+Startup smoke tests continue to cover Login, Prologue, and the production
+battle scene with `--quit-after`.
+
+Visual QA capture script (new):
+`tests/battle/capture_combat_feel_tuning.gd` (+ `.tscn`), intended to
+capture Basic anticipation/impact, Skill buildup/impact, Ultimate cut-in
+toward impact, enemy anticipation/impact, and multi-enemy hit feedback
+plus post-recovery camera state, at both resolutions, to
+`docs/images/battle_command_flow/combat_feel_tuning/{1280x720,1920x1080}/`.
+**Could not be captured this session** — hit the identical
+`texture_2d_get: Parameter "t" is null` / dummy-rendering-backend failure
+documented in Block 9C/9D/9E/9F/9G, confirmed still present (retried once
+fresh this session, same result). All non-visual verification (automated
+tests above, full regression) passed cleanly both before and after this
+failure was encountered.
+
+`godot --headless --disable-crash-handler --log-file godot-capture-combat-feel.log --path . --scene res://tests/battle/capture_combat_feel_tuning.tscn -- --capture-size=1280x720`
+
+`godot --headless --disable-crash-handler --log-file godot-capture-combat-feel.log --path . --scene res://tests/battle/capture_combat_feel_tuning.tscn -- --capture-size=1920x1080`
+
+Known Block 9H limitations:
+
+- Enemy anticipation is a turn-banner-plus-delay, not a visible wind-up
+  pose (no such animation asset exists today).
+- Ultimate's total cut-in length is asset/frame-rate driven, not a single
+  tunable constant.
+- The four impact-hold durations are a first-pass estimate from code and
+  baseline timing, not final perceptual-playback tuning — safe and cheap
+  to adjust further in isolation.
+
+Block 9H does not change damage, HP, SP/Energy cost or gain, targeting,
+critical hits, elements/weakness, status effects, combos, AI, turn order,
+Basic/Skill/Ultimate targeting rules, the Block 9E no-panel command UX,
+window A2/A3, `SuspendedBattleContext`, multi-actor enemy scheduling, HUD/
+UI frontend, character assets, `battle_manager.gd`'s overall structure
+(only additive/local edits), encounter data, story, `WorldProgress`,
+`MusicDirector`, or `SceneTransition`; does not use global
+`Engine.time_scale`. Next step: perceptual tuning of the four impact-hold
+constants based on actual playback, or returning to systemic work (window
+A2/A3, a real multi-enemy encounter, or UI polish).

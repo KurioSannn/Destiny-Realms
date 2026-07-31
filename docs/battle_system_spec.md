@@ -1967,6 +1967,194 @@ deliberately not started here. Alternatively, Block 9 series items
 (window A2/A3) or general UI polish remain available, unaffected by this
 block.
 
+## Block 9H implementation status
+
+Block 9H tunes combat pacing and impact feedback for Basic, Skill,
+Ultimate (on-turn/A1/B), and the enemy attack, without touching damage,
+resource cost/gain, targeting, AI, turn order, or the Block 9E command
+UX. It is a small, additive tuning pass on top of an already
+well-differentiated system, not a rebuild.
+
+### Authoritative vs. cosmetic timing
+
+Every timing source in this file was already cleanly separated before
+this block, confirmed by audit rather than assumed:
+
+- **Authoritative** (never delayed or gated by cosmetic feedback):
+  `target.take_damage(...)`, `_spend_skill_points()`/`_add_ultimate_energy()`,
+  commit-token assignment, `command_resolved`, `command_committed`,
+  `active_*_command_token` clearing, `_all_enemies_defeated()`/`_win()`/`_lose()`.
+- **Cosmetic** (may be skipped, delayed, or fail without affecting the
+  above): SFX (`_play_*_sfx()`), VFX (`_spawn_*_effect()`, all already
+  guarded on `effect_layer == null`), floating damage numbers, hit
+  flash/squash-stretch (`Combatant.play_hit_feedback()`/
+  `play_ultimate_feedback()`), camera shake/zoom/impulse, screen flash.
+
+The new Block 9H "impact hold" pause (below) is cosmetic by construction:
+it is inserted strictly *after* `take_damage()`/`_show_floating_damage()`
+already ran, so it can delay follow-through animation but can never delay
+or duplicate the damage event itself.
+
+### Baseline timing audit (before tuning)
+
+All figures are from code (constants + tween/timer durations), not
+guessed. Ultimate's cut-in uses frame-sequence sprite animation
+(`ultimate_frames`, `takashi_ulti_pre_frames`/`takashi_ulti_post_frames`,
+duration = frame count ÷ configured frame rate) — genuinely asset-length
+driven, not a simple constant, so its total is reported as "cinematic,
+multi-second" rather than a single number.
+
+| Action | Input→Motion | Motion→Impact | Impact Hold (new) | Impact→Recovery | Total Resolve (approx.) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Basic | ~0s (single enemy auto-commits synchronously) | movement 0.30s + 0.08s gap | 0.03s | cetar flourish 0.21s + hit feedback 0.18s | ~0.80s |
+| Skill | cast feedback 0.34s (genuine anticipation, UI button pulse before any movement) | movement 0.34s + projectile travel 0.22s | 0.05s | rift impact flourish 0.37s + hit feedback 0.18s | ~1.50s |
+| Ultimate | cinematic buildup (camera zoom-in 0.6s + FVX intro + pre-animation frame sequence + cut-in sequence, all asset/frame-rate driven) | (part of buildup above) | 0.08s | hit feedback 0.18s + glow fade 0.26s + zoom-out 0.32s | multi-second, deliberately cinematic |
+| Enemy | anticipation: `TURN_DELAY_SECONDS` 0.6s (turn banner, no visible wind-up pose) + movement 0.30s | (included in anticipation) | 0.05s | hit feedback 0.18s + camera shake ~0.095s | ~1.13s |
+
+Recovery→turn-completion itself has **zero** additional delay for all
+three player commands: `_finish_basic/skill_command_resolution()` run
+`resolve_committed_command()` → `begin_recovery()` → `complete_recovery()`
+→ `_finish_player_action()` fully synchronously, in the same call stack,
+once the last cosmetic await (hit feedback) returns. There was no hidden
+"recovery padding" to trim.
+
+### Dead-air found and addressed
+
+1. **No impact hold anywhere** — damage landed and the floating number
+   appeared, but nothing gave that instant a distinct beat before the
+   existing multi-hit/impact flourish continued. Added (see below).
+2. **Fire-and-forget camera shake tween** — `_shake_camera_with_strength()`
+   created a tween never tracked or awaited by any caller. Not dead air
+   exactly, but a real correctness gap: if victory/defeat fired while a
+   shake was still mid-flight, the shake's own in-progress interpolation
+   could keep overwriting `_reset_camera()`'s freshly-reset offset for
+   up to ~0.1s afterward. Fixed by tracking the tween and killing it in
+   `_reset_camera()`.
+3. **`_win()`/`_lose()` never called `_reset_camera()` at all** — the
+   happy path already returned the camera to default via each cinematic's
+   own awaited zoom-out tween, but nothing *guaranteed* it if a shake was
+   still settling or a cinematic was ever interrupted. Fixed by calling
+   `_reset_camera()` explicitly in both.
+4. **Enemy anticipation is a turn banner, not a pose** — the 0.6s
+   `TURN_DELAY_SECONDS` wait before `_enemy_attack()` starts is currently
+   the entire "anticipation" a player gets (turn text changes to "Enemy
+   Turn", no visible enemy wind-up animation). This already satisfies the
+   letter of "anticipation terbaca" (there is a readable pause before the
+   attack), but a genuine wind-up pose would be a stronger cue — not
+   built this block, since it needs an actual anticipation animation
+   asset/frame sequence that does not currently exist; documented as a
+   known limitation, not fabricated.
+
+Nothing else qualified as dead air: Skill's 0.34s cast-feedback delay and
+Ultimate's cinematic buildup are deliberate anticipation, not empty waits
+(both are actively animating something the player can read).
+
+### Impact hold (new)
+
+A short, local, purely cosmetic pause inserted immediately after
+`take_damage()`/`_show_floating_damage()` and before the existing
+hit-feedback/multi-hit continuation, so the moment of impact reads as a
+distinct beat. Implemented as a single `await get_tree().create_timer(...).timeout`
+— the same primitive already used throughout this file — followed by the
+same guard re-check pattern every other await boundary in these functions
+already uses (never a new pattern). New constants, added to the existing
+centralized constants block at the top of `battle_manager.gd` (Tahap 2's
+audit found this location already appropriate — no new profile
+file/Resource was created):
+
+```gdscript
+const BASIC_IMPACT_HOLD_SECONDS: float = 0.03
+const SKILL_IMPACT_HOLD_SECONDS: float = 0.05
+const ULTIMATE_IMPACT_HOLD_SECONDS: float = 0.08
+const ENEMY_IMPACT_HOLD_SECONDS: float = 0.05
+```
+
+Durations scale with each action's existing weight (Basic lightest,
+Ultimate heaviest), matching the baseline audit above. Applied at exactly
+four call sites, each strictly after damage/resource mutation already
+happened: `_resolve_basic_attack()`, `_resolve_triangle_rift_damage()`
+(Skill), `_run_ultimate_sequence()` (shared by on-turn/A1/B — the same
+one function all three already reuse, per Block 9B/9F), and
+`_enemy_attack()`.
+
+### Basic/Skill/Ultimate/Enemy feel after tuning
+
+- **Basic** stays the lightest command by a wide margin (~0.80s vs.
+  Skill's ~1.50s) — no ready idle, no confirmation, shortest impact hold.
+  Unchanged: no ready idle was added, no cinematic delay was added.
+- **Skill** keeps its existing cast-feedback anticipation and rift-impact
+  flourish; the impact hold sits between them and the hit-feedback tween,
+  making the hit register a beat before the follow-through.
+- **Ultimate** keeps its full cinematic chain unchanged; the impact hold
+  is the longest of the four, appropriately, and does not alter the
+  cut-in/cinematic timing at all — it only affects the ~0.08s after
+  damage lands, before hit feedback plays.
+- **Enemy** attack timing, movement, and damage amount are byte-for-byte
+  unchanged; only the impact hold and the (now-guaranteed) camera reset
+  were added.
+
+### Multi-enemy and A1/B compatibility
+
+The impact hold is inserted inside the same shared execution functions
+Block 9G already proved multi-enemy-correct (`_resolve_basic_attack`,
+`_resolve_triangle_rift_damage`, `_run_ultimate_sequence`) and Block 9B/9F
+already proved A1/B-correct (`_run_ultimate_sequence` is the one function
+all three Ultimate origins share) — it does not introduce a new code
+path, so those guarantees carry over unchanged. Re-verified directly: the
+new test suite's `_test_multi_enemy_feedback_uses_selected_target`,
+`_test_a1_ultimate_resume_policy_is_unchanged`, and
+`_test_window_b_ultimate_resume_policy_is_unchanged` all pass.
+
+### Test strategy
+
+`tests/battle/test_combat_feel_timing.gd` (25 functions) intentionally
+avoids frame-perfect assertions — every check is either event order
+(e.g. "ready feedback signal fires before commit signal") or a bounded
+window (e.g. "resolves within N seconds", generous enough to absorb
+headless-environment jitter already observed this session). The
+recurring guarantee under test is "exactly once": damage change count,
+resource mutation, `command_committed`/`command_resolved` signal counts,
+and turn-completion transitions are all asserted to happen exactly once,
+including under simulated spam input during the new impact-hold window.
+
+### Visual QA
+
+`tests/battle/capture_combat_feel_tuning.gd` (+ `.tscn`) captures Basic
+anticipation/impact, Skill buildup/impact, Ultimate cut-in/impact, enemy
+anticipation/impact, and multi-enemy hit feedback + post-recovery camera
+state, at 1280x720 and 1920x1080. See the implementation doc for this
+block's actual capture result this session.
+
+### Known limitations
+
+1. Enemy anticipation is a turn-banner-plus-delay, not a visible wind-up
+   pose — a real animation asset would read more clearly but was not
+   fabricated this block.
+2. Ultimate's total cut-in duration is asset/frame-rate driven, not a
+   single tunable constant — changing it meaningfully would mean editing
+   frame-sequence assets or their playback rate, out of this block's
+   scope (no asset changes were made).
+3. Impact hold durations (0.03–0.08s) are a first-pass, code-and-baseline
+   -derived estimate, explicitly not claimed as final by the user's own
+   framing ("Nilai final harus berasal dari audit kode, animation length,
+   dan hasil playback") — real playback/perceptual tuning (adjusting
+   these four constants) is cheap and safe to iterate on further without
+   touching any other system.
+
+### Technical debt
+
+None new. The camera-shake-tween tracking fix closes a latent gap rather
+than introducing one.
+
+### Recommendation
+
+Combat feel is now measurably tuned and regression-proven; the next
+reasonable step is either perceptual playback tuning (adjusting the four
+impact-hold constants based on actual play-feel, which this block's
+architecture makes trivial and safe), or returning to systemic work
+(window A2/A3, a real multi-enemy encounter, or UI polish), all
+unaffected by this block.
+
 ## Responsibility model
 
 Four independent state domains are required:

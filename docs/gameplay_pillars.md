@@ -96,6 +96,15 @@ cancel step once a single live enemy is targeted, since selection and
 commit happen in the same instant; with multiple live enemies, cancel is
 only available before a target is chosen.
 
+Block 9H tunes the *feel* of this same pacing without touching the rules
+above: a short, weight-appropriate "impact hold" now gives the exact
+moment of impact a distinct beat before hit feedback continues (shortest
+for Basic, longest for Ultimate), and a fire-and-forget camera shake that
+could occasionally survive past victory/defeat is now properly cleaned
+up. Damage, resource cost, targeting, and command timing rules are all
+unchanged — see `docs/battle_system_spec.md`, "Block 9H implementation
+status" for the full baseline-timing audit.
+
 ## Ultimate interrupt pillar
 
 Ultimate Energy exists only in battle. A character with enough Energy may
