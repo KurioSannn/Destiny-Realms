@@ -800,6 +800,17 @@ func _selected_basic_target(command: PendingBattleCommand) -> Combatant:
 	return target
 
 
+## Block 10: revalidates the *already-selected* target only -- refreshes
+## candidate_targets against the current battle state and re-checks
+## whether the specific target the player already chose is still alive
+## and valid. Deliberately does NOT auto-select a different candidate
+## when the selected target has died, even if another live enemy exists:
+## silently switching the pending command to a different target the
+## player never chose would let commit succeed against the wrong enemy.
+## In a single-enemy battle this distinction was invisible (candidate_targets
+## was always empty once the only enemy died, so the old fallback never
+## actually fired) -- see docs/battle_system_spec.md, "Block 10
+## implementation status" for the multi-enemy audit that found it.
 func _repair_basic_pending_target() -> bool:
 	var command: PendingBattleCommand = basic_command_adapter.get_pending_command()
 	if command == null:
@@ -807,11 +818,7 @@ func _repair_basic_pending_target() -> bool:
 
 	command.candidate_targets.assign(_get_basic_attack_candidate_targets())
 	command.refresh_candidates()
-	if _selected_basic_target(command) != null:
-		return true
-	if command.candidate_targets.is_empty():
-		return false
-	return basic_command_adapter.select_target(command.candidate_targets[0])
+	return _selected_basic_target(command) != null
 
 
 func _cycle_basic_target(direction: int) -> bool:
@@ -1246,6 +1253,9 @@ func _selected_skill_target(command: PendingBattleCommand) -> Combatant:
 	return target
 
 
+## Block 10: see _repair_basic_pending_target()'s doc comment -- same
+## fix, same reason. Does not auto-select a different live enemy when the
+## selected target has died.
 func _repair_skill_pending_target() -> bool:
 	var command: PendingBattleCommand = skill_command_adapter.get_pending_command()
 	if command == null:
@@ -1253,11 +1263,7 @@ func _repair_skill_pending_target() -> bool:
 
 	command.candidate_targets.assign(_get_skill_candidate_targets())
 	command.refresh_candidates()
-	if _selected_skill_target(command) != null:
-		return true
-	if command.candidate_targets.is_empty():
-		return false
-	return skill_command_adapter.select_target(command.candidate_targets[0])
+	return _selected_skill_target(command) != null
 
 
 func _cycle_skill_target(direction: int) -> bool:
@@ -1878,9 +1884,14 @@ func _resume_enemy_action_after_a1() -> void:
 ##
 ## Block 9F: routes through _resume_after_interrupt() so a lethal confirm
 ## at window A1 still wins the battle exactly as it does at window B
-## (the enemy.is_defeated() check below is window-agnostic), while a
+## (the _all_enemies_defeated() check below is window-agnostic), while a
 ## non-lethal confirm resumes whichever window actually began this
 ## request.
+##
+## Block 10: uses _all_enemies_defeated() rather than enemy.is_defeated()
+## -- in a multi-enemy battle, a queued Ultimate that kills only the
+## targeted enemy must not end the battle while another enemy is still
+## alive; see _all_enemies_defeated()'s doc comment.
 func _finish_interrupt_ultimate_action(log_text: String) -> void:
 	if not _consume_interrupt_resume_token(interrupt_resume_token):
 		return
@@ -1889,7 +1900,7 @@ func _finish_interrupt_ultimate_action(log_text: String) -> void:
 	_start_player_idle_animation()
 	is_processing_interrupt_queue = false
 	active_interrupt_request = null
-	if enemy.is_defeated():
+	if _all_enemies_defeated():
 		active_interrupt_window = &""
 		_win("Enemy defeated. You win!")
 		return
@@ -2177,6 +2188,11 @@ func _selected_ultimate_target(command: PendingBattleCommand) -> Combatant:
 	return target
 
 
+## Block 10: see _repair_basic_pending_target()'s doc comment -- same
+## fix, same reason. Does not auto-select a different live enemy when the
+## selected target has died. This also covers off-turn Ultimate (A1/B):
+## a queued request's target is revalidated, never silently swapped, at
+## commit time.
 func _repair_ultimate_pending_target() -> bool:
 	var command: PendingBattleCommand = ultimate_command_adapter.get_pending_command()
 	if command == null:
@@ -2184,11 +2200,7 @@ func _repair_ultimate_pending_target() -> bool:
 
 	command.candidate_targets.assign(_get_ultimate_candidate_targets())
 	command.refresh_candidates()
-	if _selected_ultimate_target(command) != null:
-		return true
-	if command.candidate_targets.is_empty():
-		return false
-	return ultimate_command_adapter.select_target(command.candidate_targets[0])
+	return _selected_ultimate_target(command) != null
 
 
 func _cycle_ultimate_target(direction: int) -> bool:
@@ -4175,11 +4187,34 @@ func _finish_player_action(log_text: String) -> void:
 	_refresh_energy_ui()
 	_refresh_skill_points_ui()
 	_start_player_idle_animation()
-	if enemy.is_defeated():
+	if _all_enemies_defeated():
 		_win("Enemy defeated. You win!")
 		return
 
 	_begin_enemy_turn(log_text)
+
+
+## Block 10: victory must require every enemy in the battle to be
+## defeated, not just the specific `enemy` scene node. `enemy.is_defeated()`
+## alone is a single-enemy assumption that would incorrectly end a
+## multi-enemy battle the instant that one node dies, even if another
+## Combatant (e.g. a second enemy added for target-selection testing) is
+## still alive. Reuses the exact same scene-tree scan and targetability
+## rule as _get_basic_attack_candidate_targets()/_get_skill_candidate_targets()/
+## _get_ultimate_candidate_targets(), just inverted: true only when no
+## non-player Combatant in the battle is still alive.
+func _all_enemies_defeated() -> bool:
+	if battle_scene == null:
+		return enemy.is_defeated()
+	for child in battle_scene.get_children():
+		if (
+			child is Combatant
+			and child != player
+			and is_instance_valid(child)
+			and not (child as Combatant).is_defeated()
+		):
+			return false
+	return true
 
 
 func _is_battle_over() -> bool:

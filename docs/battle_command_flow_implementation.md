@@ -1443,3 +1443,136 @@ tuning or multi-enemy encounter targeting are reasonable next blocks;
 window A2/A3 would require the enemy attack guard chain to support
 genuine mid-action pause/resume, a substantially larger, separately
 scoped undertaking.
+
+## Block 10: multi-enemy targeting production hardening
+
+Block 10 audits and hardens Basic/Skill/Ultimate targeting for battles
+with more than one live enemy, using the production command flow
+directly (not mock unit tests). See `docs/battle_system_spec.md`, "Block
+10 implementation status" for the full audit writeup (target identity
+model, validation checkpoints, per-command multi-enemy behavior, victory
+semantics, A1/B compatibility, known limitations). This section covers
+only what changed in code and how to verify it.
+
+**Audit result**: target *enumeration* (`_get_basic/skill/ultimate_candidate_targets()`)
+was already multi-enemy-aware — it scans the battle scene tree, not a
+single hardcoded `enemy` variable — since Block 8.5. Two real gaps were
+found and fixed:
+
+**Files changed:**
+
+- `scripts/battle/battle_manager.gd` — new function
+  `_all_enemies_defeated() -> bool` (scans `battle_scene.get_children()`
+  for any live non-player `Combatant`, inverted from the existing
+  candidate-target predicate), used in place of `enemy.is_defeated()` at
+  both victory chokepoints: `_finish_player_action()` (all six on-turn
+  Basic/Skill/Ultimate resolution call sites route through this one
+  function) and `_finish_interrupt_ultimate_action()` (off-turn A1/B).
+  `_repair_basic_pending_target()`, `_repair_skill_pending_target()`, and
+  `_repair_ultimate_pending_target()` (each called once, from
+  `_confirm_*_command()`, immediately before every commit) each lost
+  their auto-select-a-different-candidate fallback — they now only
+  revalidate the *already-selected* target and report whether it is
+  still valid, never silently switching to a different live enemy.
+
+No changes to `battle_command_flow.gd`, any command adapter,
+`pending_battle_command.gd`, `suspended_battle_context.gd`,
+`ultimate_interrupt_queue.gd`, `ultimate_interrupt_request.gd`,
+`battle_ui.gd`, damage formulas, enemy damage/balance, AI, encounter
+data, story, `WorldProgress`, `MusicDirector`, or `SceneTransition`.
+Enemy turn scheduling (`_begin_enemy_turn()`/`_enemy_attack()`) is
+untouched — it remains single-actor by design, out of this block's
+scope.
+
+### Block 10 Verification
+
+Automated tests (all pre-existing suites re-run with zero modifications
+required, plus one new suite):
+
+`godot --headless --disable-crash-handler --log-file godot-production-basic.log --path . --scene res://tests/battle/test_production_basic_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-production-skill.log --path . --scene res://tests/battle/test_production_skill_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-production-ultimate.log --path . --scene res://tests/battle/test_production_ultimate_command_flow.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-command-ux.log --path . --scene res://tests/battle/test_command_ux_no_panel.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-window-a1.log --path . --scene res://tests/battle/test_window_a1_ultimate_interrupt.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-interrupt-integration.log --path . --scene res://tests/battle/test_ultimate_off_turn_interrupt.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-enemy-guard.log --path . --scene res://tests/battle/test_enemy_attack_guard_chain.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-interrupt-cleanup.log --path . --scene res://tests/battle/test_interrupt_state_cleanup.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-interrupt-queue.log --path . --scene res://tests/battle/test_ultimate_interrupt_queue.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-debug-scene.log --path . --scene res://tests/battle/test_battle_command_debug_scene.tscn`
+
+`godot --headless --disable-crash-handler --log-file godot-bandit-startup.log --path . --scene res://tests/battle/test_bandit_battle_startup.tscn`
+
+New in Block 10:
+
+`godot --headless --disable-crash-handler --log-file godot-multi-enemy.log --path . --scene res://tests/battle/test_multi_enemy_targeting_production.tscn`
+
+`test_multi_enemy_targeting_production.gd` covers 23 scenarios against a
+real production battle scene with a second `Combatant` added as a
+battle-root child (the same `_spawn_mock_enemy()` pattern already used by
+`test_production_skill_command_flow.gd`/`test_production_ultimate_command_flow.gd`
+since Block 8.5): Basic waits for a target with two live enemies and
+damages only the clicked one, auto-targets/auto-commits with one
+remaining, rejects an invalid click, gains SP exactly once; Skill/
+Ultimate open ready idle regardless of enemy count, damage only the
+selected enemy, preserve SP/Energy on cancel, fail cleanly (no
+resource spent, no corrupted pending state) when the selected target
+dies before commit, spend SP/Energy exactly once under spam-commit; a
+committed command cannot be retargeted by a later click; a dead
+auto-selected target is never silently replaced by the other live enemy;
+target highlights clear on victory; turn completion fires exactly once;
+killing one of two enemies does not end the battle, killing the last one
+ends it exactly once; A1 and window B off-turn Ultimate both damage only
+the specifically selected enemy and correctly do not end the battle when
+only one of several enemies dies.
+
+Startup smoke tests continue to cover Login, Prologue, and the production
+battle scene with `--quit-after`.
+
+Visual QA capture script (new):
+`tests/battle/capture_multi_enemy_targeting.gd` (+ `.tscn`), intended to
+capture two live enemies at command select, Basic waiting for a target
+choice, the target marker on each enemy in turn (Basic → primary, Skill →
+second), Ultimate ready idle with the second enemy selected, and the
+battle continuing normally after one of two enemies is defeated, at both
+resolutions, to
+`docs/images/battle_command_flow/multi_enemy_targeting/{1280x720,1920x1080}/`.
+**Could not be captured this session** — hit the identical
+`texture_2d_get: Parameter "t" is null` / dummy-rendering-backend failure
+documented in Block 9C/9D/9E/9F, confirmed still present (not a Block 10
+regression, and not assumed identical without checking — retried fresh
+this session, same result) by retrying once.
+
+`godot --headless --disable-crash-handler --log-file godot-capture-multi-enemy.log --path . --scene res://tests/battle/capture_multi_enemy_targeting.tscn -- --capture-size=1280x720`
+
+`godot --headless --disable-crash-handler --log-file godot-capture-multi-enemy.log --path . --scene res://tests/battle/capture_multi_enemy_targeting.tscn -- --capture-size=1920x1080`
+
+Known Block 10 limitations:
+
+- Enemy turn scheduling remains single-actor; no multi-enemy AI or
+  multiple enemies acting in a single turn.
+- Ultimate's cut-in VFX/camera framing always centers on the primary
+  `enemy` scene node, not the actual selected target — cosmetic only,
+  damage correctness is unaffected and verified by tests.
+- No production campaign encounter actually has two live enemies yet;
+  this block proves the underlying system is correct for when one is
+  added, without building that encounter.
+
+Block 10 does not change Basic Attack's fast flow beyond the repair-target
+fix; does not change Skill/Ultimate's Block 9E command UX; does not
+change off-turn Ultimate's A1/B resume policy (Block 9F/9B/9D); does not
+implement window A2/A3; does not implement mid-action suspend/resume;
+does not change damage formulas, SP/Energy cost or balance, AI, encounter
+data, story, `WorldProgress`, `MusicDirector`, or `SceneTransition`; does
+not overhaul battle UI; does not rewrite `battle_manager.gd`; does not
+build enemy-side multi-actor turn scheduling. Next step: an actual
+multi-enemy encounter (data + positions), or continuing the Block 9
+window A series, or general UI polish.

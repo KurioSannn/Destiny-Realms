@@ -1744,6 +1744,229 @@ multi-enemy encounter targeting, rather than window A2/A3, which would
 require the enemy-attack guard chain to support genuine mid-action pause/
 resume — a substantially larger, separately-scoped undertaking.
 
+## Block 10 implementation status
+
+Block 10 audits and hardens production Basic/Skill/Ultimate targeting for
+battles with more than one live enemy. It is not a new capability block —
+it proves an already-multi-enemy-capable target *enumeration* system
+against a dedicated production test fixture, and fixes two real gaps the
+audit found: a single-enemy assumption in victory detection, and a silent
+auto-retarget path in commit-time target repair. Enemy *turn* scheduling
+(who attacks the player, and when) remains single-actor by design — this
+block does not touch it.
+
+### Audit findings
+
+Traced from actual code, not assumption, before any patch was written:
+
+- **Enemy storage**: `@onready var enemy: Combatant = $"../Enemy"` — one
+  Node reference, not an array. This is the actor that takes the enemy's
+  own turn (`_enemy_attack()`, `_begin_enemy_turn()`) and always will be,
+  for this block's scope.
+- **Target enumeration already multi-enemy-aware**: `_get_basic_attack_candidate_targets()`,
+  `_get_skill_candidate_targets()`, and `_get_ultimate_candidate_targets()`
+  each scan `battle_scene.get_children()` (the battle root's direct
+  children) for every `Combatant` that isn't the player and isn't
+  defeated — never hardcoded to the singular `enemy` variable. This is
+  what already let earlier blocks' "mock second enemy" tests
+  (`_spawn_mock_enemy()`, Block 8.5/9B/9E) work by simply adding a second
+  `Combatant` as a battle-root child.
+- **Target identity is already a stable Node reference**: `PendingBattleCommand.selected_targets: Array[Node]`
+  holds the actual target node, re-validated (not re-derived) via
+  `_selected_basic/skill/ultimate_target(command)` at every checkpoint —
+  instance valid, not the player, not defeated. `select_target()` on the
+  command itself refuses to mutate `selected_targets` once
+  `is_committed == true`, and `BattleCommandFlow.set_pending_target()`
+  independently refuses once `battle_state != TARGET_SELECT` — two
+  layers, both already preventing retarget-after-commit. No instance-ID
+  or token abstraction was needed on top of this; Godot Node references
+  plus `is_instance_valid()` are already sufficient, matching the
+  project's own guidance against unneeded abstraction.
+- **Execution already threads the explicit target through, with
+  re-validation at every await**: `_execute_committed_basic_attack()`/
+  `_skill()`/`_ultimate()` each re-fetch and re-validate the target via
+  `_selected_*_target(command)` at the start of execution (aborting
+  cleanly via `_abort_committed_*_command(..., "target_missing_during_execution")`
+  if it died between commit and execution start), then pass that Node
+  explicitly through the whole cinematic chain
+  (`_resolve_basic_attack(target, ...)`, `_execute_triangle_rift(target,
+  ...)`, `_run_ultimate_sequence(target, ...)`), with the existing
+  `_basic/skill/ultimate_execution_guard(command, target, ...)` re-checking
+  `target == null`/`is_instance_valid`/`is_defeated()` at every single
+  `await` boundary (Block 6-9C's guard chain). `target.take_damage(...)`
+  always uses this threaded reference — never a re-read of the global
+  `enemy` variable.
+- **Bug found — victory detection**: `_finish_player_action()` (the
+  single chokepoint all six Basic/Skill/Ultimate on-turn resolution paths
+  funnel through) and `_finish_interrupt_ultimate_action()` (off-turn
+  A1/B resolution) both checked `enemy.is_defeated()` — the *specific*
+  scene node — for victory. In a multi-enemy battle, defeating that one
+  node would incorrectly end the battle even while another Combatant is
+  still alive. Fixed with a new `_all_enemies_defeated()` helper (see
+  below).
+- **Bug found — silent auto-retarget before commit**: `_repair_basic/skill/ultimate_pending_target()`
+  (called from `_confirm_*_command()` immediately before every commit,
+  including same-command-press and target-click-commit) refreshed
+  candidates and, if the currently-selected target had become invalid,
+  **auto-selected a different live candidate** rather than failing. In a
+  single-enemy battle this fallback never actually fired (candidates were
+  always empty once the only enemy died, so it fell through to returning
+  `false` regardless) — invisible until a second enemy made a real
+  replacement available. Fixed by removing the auto-select fallback
+  entirely (see below).
+- **Enemy turn remains single-actor by design, and that's fine for this
+  block's scope**: `_enemy_attack()` calls `enemy.play_attack_movement(player)`
+  and reads `enemy.base_attack_damage` directly — only the one `enemy`
+  node ever takes an enemy turn or deals damage to the player. This
+  block's testing is entirely about *player-command* targeting (Basic/
+  Skill/Ultimate choosing among live enemies), which does not require or
+  touch enemy-turn architecture at all.
+- **Visual-only limitation found, not fixed**: Ultimate's cut-in VFX and
+  camera framing (`_spawn_triangle_rift_effect(enemy, ...)`,
+  `_start_enemy_impact_camera_zoom_in()`'s `enemy.global_position`, inside
+  `_run_ultimate_sequence()`) always center on the singular `enemy` scene
+  node's position, regardless of which enemy was actually targeted and
+  damaged. Damage/Energy correctness is unaffected (verified by tests —
+  the *damage* call always uses the threaded `target`, only the *camera/
+  VFX* framing is hardcoded); the cinematic would visually look wrong in
+  a genuine two-enemy encounter today. Documented as a known limitation,
+  not fixed — threading the real target through the entire 11-checkpoint
+  cut-in sequence for camera/VFX purposes is a cosmetic scope change
+  explicitly excluded from this block ("jangan HUD visual redesign").
+
+### Target identity model
+
+No new abstraction. A command's target is the Godot `Node` reference
+stored in `PendingBattleCommand.selected_targets[0]`, established once at
+`begin_command()` (auto-selected from `candidate_targets[0]` for
+`SINGLE_ENEMY`/`SINGLE_ALLY` rules) or via a later `select_target()` call
+(target click), and frozen the instant `is_committed` becomes true.
+Re-validity is checked by predicate (`is_instance_valid()` + not the
+player + not defeated), never by array index or by re-reading a "current"
+global.
+
+### Validation checkpoints (unchanged, confirmed sufficient by audit + new tests)
+
+1. **On selection** (`select_target()` on the command, or `begin_command()`'s
+   auto-select): candidate must be a live, valid, non-player `Combatant`.
+2. **On commit** (`_repair_*_pending_target()` → `_validate_*_command()`):
+   the *specific* selected target is re-checked; if it died, commit fails
+   — it is never silently swapped for a different live enemy (Block 10
+   fix, see above).
+3. **At execution start** (`_execute_committed_*()`): the target is
+   re-fetched and re-validated one more time before any cinematic begins;
+   a target that died between commit and execution start aborts cleanly
+   via `_abort_committed_*_command(..., "target_missing_during_execution")`.
+4. **Before every resolution-affecting step during the cinematic**
+   (`_basic/skill/ultimate_execution_guard`): re-checked at every `await`
+   boundary, all the way through to the actual `take_damage()` call.
+
+### Basic multi-enemy behavior
+
+Two or more live enemies: pressing Basic opens target selection (no
+damage, no SP gain) exactly as Block 8.5 already specified; clicking a
+live enemy commits to that specific target only, dealing damage and
+granting SP exactly once. One live enemy remaining: auto-targets and
+auto-commits immediately, no click required — unchanged from Block 8.5.
+Clicking empty space (no valid target within the existing 170px pick
+radius) does not commit. All verified against a real second `Combatant`
+by five new tests.
+
+### Skill multi-enemy behavior
+
+Ready idle and target selection open exactly as Block 9E specified,
+regardless of enemy count; committing (same-command-press or
+target-click) spends SP exactly once and damages only the specifically
+selected enemy. A target that dies before commit fails the commit
+cleanly (SP untouched, pending command cleared) rather than silently
+retargeting — this was the auto-retarget bug this block fixed. Cancel
+(different command, or Escape/Back — unchanged from Block 9E) preserves
+SP and clears the pending target. Five new tests.
+
+### Ultimate multi-enemy behavior
+
+Identical shape to Skill: ready idle/target selection unaffected by
+enemy count, commit spends Energy exactly once against the specifically
+selected enemy, a target dying before commit fails cleanly without
+spending Energy, cancel preserves Energy. Four new tests (on-turn); three
+more cover off-turn A1/B specifically (below).
+
+### On-turn targeting result
+
+All three commands (Basic/Skill/Ultimate) now have dedicated multi-enemy
+production coverage proving: correct target selected → damage lands only
+there; wrong/other enemy never takes damage from a command aimed
+elsewhere; committed commands cannot be retargeted by a later click; a
+dead selected target fails commit cleanly instead of being silently
+replaced.
+
+### A1 compatibility
+
+Off-turn Ultimate resolved at window A1 (Block 9F, before the enemy
+commits) correctly targets whichever enemy was specifically selected —
+proven by two new tests: damage lands only on the selected enemy (not the
+primary `enemy` node by default), and defeating one of two enemies at A1
+does **not** end the battle (uses the same `_all_enemies_defeated()` fix)
+— the primary enemy's own attack still proceeds normally afterward since
+the battle continues.
+
+### Window B compatibility
+
+Same guarantees at window B (Block 9B/9D, after enemy recovery): one new
+test confirms a window-B-resolved Ultimate damages only the specifically
+selected enemy, with the primary enemy left untouched.
+
+### Victory semantics for multiple enemies
+
+`_all_enemies_defeated()` (new) replaces `enemy.is_defeated()` at both
+victory chokepoints (`_finish_player_action()` for all on-turn Basic/
+Skill/Ultimate paths — six call sites all route through this one
+function — and `_finish_interrupt_ultimate_action()` for off-turn A1/B).
+It reuses the exact same scene-tree scan and targetability predicate as
+the three `_get_*_candidate_targets()` functions, inverted: true only
+when no non-player `Combatant` in the battle is still alive. Two new
+tests confirm: killing one of two enemies does not end the battle (state
+never becomes `WIN`, the other enemy is confirmed still alive); killing
+the last live enemy ends the battle exactly once (a polling loop confirms
+`WIN` is reached and never re-triggered).
+
+### Known limitations
+
+1. Enemy turn scheduling remains single-actor (`enemy` node only) — no
+   multi-enemy AI, no multiple enemies acting in one turn. Explicitly out
+   of scope; the user's own framing anticipated this ("jangan diam-diam
+   membuat arsitektur multi-enemy penuh").
+2. Ultimate's cut-in VFX and camera framing always visually center on the
+   primary `enemy` node, not the actual selected target — a cosmetic gap,
+   not a correctness one (damage is confirmed correct by tests). Fixing
+   it would mean threading the real target through the entire 11-checkpoint
+   cut-in sequence for camera/VFX purposes only — out of scope for this
+   block.
+3. Production campaign encounters (Lesser Abyss, Bandit Captain) are both
+   genuinely single-enemy; the two-enemy scenario this block hardens and
+   tests is a test-harness construction (`_spawn_mock_enemy()`), not
+   something a player encounters yet in the shipped game. This block
+   makes the underlying system provably correct for whenever a real
+   multi-enemy encounter is added, without building that encounter itself.
+4. Visual QA capture for this block could not be verified in the same
+   session-long pattern as Block 9C-9F's `texture_2d_get` dummy-renderer
+   failure (see "Visual QA" note in the implementation doc for this
+   block's specific result).
+
+### Technical debt
+
+None new.
+
+### Recommendation
+
+The targeting/validation/victory layer is now proven multi-enemy-safe.
+The natural next step, if desired, is building an actual multi-enemy
+*encounter* (enemy data, positions, and — separately — deciding whether
+enemy turn scheduling should ever support more than one actor), which is
+deliberately not started here. Alternatively, Block 9 series items
+(window A2/A3) or general UI polish remain available, unaffected by this
+block.
+
 ## Responsibility model
 
 Four independent state domains are required:

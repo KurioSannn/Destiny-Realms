@@ -166,6 +166,15 @@ interrupting the enemy *while it is actually acting* (mid-movement or
 mid-damage) is left. See `docs/battle_system_spec.md`, "Block 9F
 implementation status".
 
+Block 10 changes nothing a player can see or feel today — no shipped
+encounter has two live enemies yet. It is a hardening pass proving that
+*when* a multi-enemy encounter exists, Basic/Skill/Ultimate targeting,
+resource spending, and victory detection already behave correctly: each
+command hits only the enemy actually chosen, a dying target is never
+silently swapped for another, and defeating one of several enemies
+correctly does not end the battle early. See
+`docs/battle_system_spec.md`, "Block 10 implementation status".
+
 ## Visual character direction
 
 - Stylized compact anime proportions.
