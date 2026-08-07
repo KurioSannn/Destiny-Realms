@@ -1,7 +1,7 @@
 extends Node2D
 class_name EndingScene
 
-const WORLD_SCENE_PATH: String = "res://scenes/world/world_scene.tscn"
+const WORLD_SCENE_PATH: String = "res://scenes/world_3d/abyss_forest_3d.tscn"
 const BASE_VIEWPORT_SIZE: Vector2 = Vector2(1280.0, 720.0)
 const TAKASHI_TALK_TEXTURE: Texture2D = preload("res://public/Takashi portrait 2 (talk).png")
 const MITSUKI_TALK_TEXTURE: Texture2D = preload("res://public/Mitsuki portrait 2 (talk).png")

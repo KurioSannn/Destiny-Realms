@@ -1,0 +1,246 @@
+[gd_scene format=3 uid="uid://ccn2jk4ciyqqk"]
+
+[ext_resource type="Script" uid="uid://cmhc8x8pqd7yj" path="res://scripts/world_3d/abyss_forest_3d.gd" id="1_world"]
+[ext_resource type="Script" uid="uid://btbty8mfvchi8" path="res://scripts/world_3d/hybrid_player_3d.gd" id="2_player"]
+[ext_resource type="PackedScene" path="res://scenes/world_3d/components/exploration_camera_3d.tscn" id="3_camera"]
+[ext_resource type="Texture2D" uid="uid://cf75xeg1cgm78" path="res://public/idle_Takashi/1.png" id="4_idle_1"]
+[ext_resource type="Texture2D" uid="uid://c2lor0xxa82g5" path="res://public/idle_Takashi/2.png" id="5_idle_2"]
+[ext_resource type="Texture2D" uid="uid://l0q4aktkuuod" path="res://public/idle_Takashi/3.png" id="6_idle_3"]
+[ext_resource type="Texture2D" uid="uid://cr72ot8xt6su6" path="res://public/idle_Takashi/4.png" id="7_idle_4"]
+[ext_resource type="PackedScene" path="res://scenes/ui/exploration/hud_explor_placeholder.tscn" id="8_hud"]
+[ext_resource type="AudioStream" uid="uid://c7kpy3hvmda7w" path="res://public/Under_the_Iron_Bough.mp3" id="9_bgm"]
+[ext_resource type="Texture2D" uid="uid://bloftkqexge0l" path="res://Asset HDRI/dikhololo_night_4k.hdr" id="10_night"]
+
+[sub_resource type="PanoramaSkyMaterial" id="PanoramaSkyMaterial_abyss"]
+panorama = ExtResource("10_night")
+energy_multiplier = 0.32
+
+[sub_resource type="Sky" id="Sky_abyss"]
+sky_material = SubResource("PanoramaSkyMaterial_abyss")
+process_mode = 2
+
+[sub_resource type="Environment" id="Environment_abyss"]
+background_mode = 2
+background_energy_multiplier = 0.42
+sky = SubResource("Sky_abyss")
+ambient_light_source = 3
+ambient_light_color = Color(0.18, 0.34, 0.38, 1)
+ambient_light_energy = 0.72
+reflected_light_source = 2
+tonemap_mode = 2
+tonemap_exposure = 1.15
+glow_enabled = true
+fog_enabled = true
+fog_light_color = Color(0.08, 0.25, 0.29, 1)
+fog_light_energy = 0.72
+fog_density = 0.025
+fog_sky_affect = 0.7
+fog_height = -0.4
+fog_height_density = 0.12
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.018
+volumetric_fog_albedo = Color(0.2, 0.47, 0.48, 1)
+volumetric_fog_emission = Color(0.01, 0.04, 0.045, 1)
+volumetric_fog_emission_energy = 0.35
+volumetric_fog_length = 42.0
+
+[sub_resource type="StandardMaterial3D" id="GroundMaterial"]
+albedo_color = Color(0.055, 0.13, 0.105, 1)
+roughness = 0.98
+
+[sub_resource type="BoxMesh" id="GroundMesh"]
+material = SubResource("GroundMaterial")
+size = Vector3(72, 0.3, 60)
+
+[sub_resource type="BoxShape3D" id="GroundShape"]
+size = Vector3(72, 0.3, 60)
+
+[sub_resource type="ParticleProcessMaterial" id="FireflyProcess"]
+emission_shape = 3
+emission_box_extents = Vector3(20, 2.5, 15)
+direction = Vector3(0.2, 0.5, 0.1)
+spread = 180.0
+initial_velocity_min = 0.035
+initial_velocity_max = 0.12
+gravity = Vector3(0, 0.018, 0)
+scale_min = 0.45
+scale_max = 1.35
+
+[sub_resource type="StyleBoxFlat" id="CameraDebugPanelStyle"]
+content_margin_left = 12.0
+content_margin_top = 6.0
+content_margin_right = 12.0
+content_margin_bottom = 6.0
+bg_color = Color(0.015, 0.035, 0.04, 0.72)
+border_width_left = 1
+border_width_top = 1
+border_width_right = 1
+border_width_bottom = 1
+border_color = Color(0.35, 0.78, 0.76, 0.55)
+corner_radius_top_left = 5
+corner_radius_top_right = 5
+corner_radius_bottom_right = 5
+corner_radius_bottom_left = 5
+
+[sub_resource type="StandardMaterial3D" id="FireflyMaterial"]
+transparency = 1
+shading_mode = 0
+albedo_color = Color(0.35, 1, 0.82, 0.86)
+billboard_mode = 1
+
+[sub_resource type="QuadMesh" id="FireflyMesh"]
+material = SubResource("FireflyMaterial")
+size = Vector2(0.045, 0.045)
+
+[sub_resource type="CapsuleShape3D" id="PlayerShape"]
+radius = 0.32
+height = 1.2
+
+[sub_resource type="StandardMaterial3D" id="ShadowMaterial"]
+transparency = 1
+shading_mode = 0
+albedo_color = Color(0.005, 0.012, 0.014, 0.48)
+
+[sub_resource type="CylinderMesh" id="ShadowMesh"]
+material = SubResource("ShadowMaterial")
+top_radius = 0.46
+bottom_radius = 0.46
+height = 0.016
+radial_segments = 32
+
+[sub_resource type="SpriteFrames" id="SpriteFrames_takashi"]
+animations = [{
+"frames": [{
+"duration": 1.0,
+"texture": ExtResource("4_idle_1")
+}, {
+"duration": 1.0,
+"texture": ExtResource("5_idle_2")
+}, {
+"duration": 1.0,
+"texture": ExtResource("6_idle_3")
+}, {
+"duration": 1.0,
+"texture": ExtResource("7_idle_4")
+}],
+"loop": 1,
+"name": &"idle",
+"speed": 5.0
+}]
+
+[sub_resource type="BoxShape3D" id="SealAreaShape"]
+size = Vector3(5, 2.4, 3)
+
+[node name="AbyssForest3D" type="Node3D" unique_id=1334221133]
+script = ExtResource("1_world")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="." unique_id=1185891992]
+environment = SubResource("Environment_abyss")
+
+[node name="Moonlight" type="DirectionalLight3D" parent="." unique_id=1950065450]
+transform = Transform3D(0.9285223, -0.26253927, 0.26252517, -0.077824615, 0.5537509, 0.82903755, -0.36302847, -0.7902107, 0.493738, 0, 0, 0)
+light_color = Color(0.48, 0.72, 0.86, 1)
+light_energy = 1.18
+shadow_enabled = true
+directional_shadow_max_distance = 52.0
+
+[node name="SealLightLeft" type="OmniLight3D" parent="." unique_id=981244934]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.15, 2, -15.25)
+light_color = Color(1, 0.42, 0.12, 1)
+light_energy = 4.0
+shadow_enabled = true
+omni_range = 5.5
+
+[node name="SealLightRight" type="OmniLight3D" parent="." unique_id=1631623064]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.15, 2, -15.25)
+light_color = Color(1, 0.42, 0.12, 1)
+light_energy = 4.0
+shadow_enabled = true
+omni_range = 5.5
+
+[node name="Ground" type="StaticBody3D" parent="." unique_id=1095548919]
+
+[node name="Mesh" type="MeshInstance3D" parent="Ground" unique_id=2113206200]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.15, 0)
+mesh = SubResource("GroundMesh")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Ground" unique_id=1158139791]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.15, 0)
+shape = SubResource("GroundShape")
+
+[node name="GeneratedWorld" type="Node3D" parent="." unique_id=957681333]
+
+[node name="Fireflies" type="GPUParticles3D" parent="." unique_id=1571257816]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, 0)
+amount = 96
+lifetime = 9.0
+randomness = 0.92
+visibility_aabb = AABB(-23, -1, -17, 46, 7, 34)
+process_material = SubResource("FireflyProcess")
+draw_pass_1 = SubResource("FireflyMesh")
+
+[node name="Player" type="CharacterBody3D" parent="." unique_id=1071383704]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.63, 13.5)
+script = ExtResource("2_player")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Player" unique_id=1145083010]
+shape = SubResource("PlayerShape")
+
+[node name="Shadow" type="MeshInstance3D" parent="Player" unique_id=79620728]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 0.62, 0, -0.615, 0)
+mesh = SubResource("ShadowMesh")
+
+[node name="CharacterVisual" type="AnimatedSprite3D" parent="Player" unique_id=1145798982]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.38, 0)
+pixel_size = 0.00162
+billboard = 1
+alpha_cut = 1
+alpha_scissor_threshold = 0.08
+render_priority = 2
+sprite_frames = SubResource("SpriteFrames_takashi")
+animation = &"idle"
+autoplay = "idle"
+
+[node name="ExplorationCamera" parent="." instance=ExtResource("3_camera")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.0, 6.68, 26.1)
+
+[node name="CameraPresetDebug" type="CanvasLayer" parent="."]
+layer = 40
+
+[node name="Panel" type="PanelContainer" parent="CameraPresetDebug"]
+anchors_preset = 10
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -150.0
+offset_top = 14.0
+offset_right = 150.0
+offset_bottom = 46.0
+grow_horizontal = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("CameraDebugPanelStyle")
+
+[node name="Label" type="Label" parent="CameraPresetDebug/Panel"]
+layout_mode = 2
+mouse_filter = 2
+theme_override_colors/font_color = Color(0.88, 1, 0.98, 0.96)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.75)
+theme_override_constants/shadow_offset_x = 1
+theme_override_constants/shadow_offset_y = 1
+theme_override_font_sizes/font_size = 14
+text = "Camera: F2 — EthrA Target"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="SealArea" type="Area3D" parent="." unique_id=1469209017]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.2, -14.25)
+collision_layer = 0
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="SealArea" unique_id=1538563378]
+shape = SubResource("SealAreaShape")
+
+[node name="AbyssBgm" type="AudioStreamPlayer" parent="." unique_id=449805200]
+stream = ExtResource("9_bgm")
+volume_db = -9.0
+autoplay = true
+
+[node name="HudExplorPlaceholder" parent="." unique_id=2048638798 instance=ExtResource("8_hud")]
