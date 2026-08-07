@@ -62,7 +62,6 @@ func _build_abyss_forest() -> void:
 	_build_twisted_tree_line()
 	_scatter_undergrowth()
 	_scatter_rocks_and_relics()
-	_build_boundary_silhouettes()
 
 
 func _build_forest_path() -> void:
@@ -133,22 +132,14 @@ func _build_ruin_clusters() -> void:
 		var position: Vector3 = ruin_data[index][0]
 		var yaw: float = ruin_data[index][1]
 		var wall_name := "Wall_UnevenBrick_Straight" if index % 2 == 0 else "Wall_BottomCover"
-		# Scale range tuned so a ~3m-native ruin wall lands around 4-6m tall,
-		# roughly 2-3x Takashi's height -- see docs/world_3d_block_11.md.
-		var wall_scale := 1.4 + float(index % 3) * 0.25
 		_spawn_asset(
 			VILLAGE_ROOT + wall_name + ".gltf",
 			"AbyssRuin_%02d" % index,
 			position,
 			yaw,
-			wall_scale
+			0.85 + float(index % 3) * 0.1
 		)
-		_add_box_collider(
-			generated_world,
-			Vector3(2.1, 2.4, 0.38) * wall_scale,
-			position + Vector3.UP * 1.2 * wall_scale,
-			yaw
-		)
+		_add_box_collider(generated_world, Vector3(2.1, 2.4, 0.38), position + Vector3.UP * 1.2, yaw)
 
 	_spawn_asset(PROPS_ROOT + "Cage_Small.gltf", "AbandonedCage", Vector3(-9.4, 0.0, 5.6), 0.3, 1.0)
 	_spawn_asset(PROPS_ROOT + "Chain_Coil.gltf", "OldChain", Vector3(-8.6, 0.0, 5.2), -0.4, 1.0)
@@ -177,10 +168,7 @@ func _build_twisted_tree_line() -> void:
 		if position.distance_to(SEAL_POSITION) < 5.0:
 			continue
 		var asset_name := tree_names[rng.randi_range(0, tree_names.size() - 1)]
-		# Scale range tuned so TwistedTree (~16.7m native) and DeadTree (~9.5m
-		# native) land at roughly 8-15x and 5-10x Takashi's ~2.0m sprite
-		# height respectively -- see docs/world_3d_block_11.md scale audit.
-		var tree_scale := rng.randf_range(1.05, 1.60)
+		var tree_scale := rng.randf_range(0.68, 1.03)
 		var tree := _spawn_asset(
 			NATURE_ROOT + asset_name + ".gltf",
 			"TwistedTree_%02d" % placed,
@@ -211,7 +199,7 @@ func _build_twisted_tree_line() -> void:
 			"AbyssPine_%02d" % index,
 			background_pines[index],
 			float(index) * 0.71,
-			1.3 + float(index % 3) * 0.15
+			0.82 + float(index % 3) * 0.08
 		)
 		_register_tree_occluder(pine)
 
@@ -251,9 +239,7 @@ func _scatter_rocks_and_relics() -> void:
 	]
 	for index in range(rock_positions.size()):
 		var position := rock_positions[index]
-		# Wider range than before so the cluster reads as a mix of small
-		# rocks and genuine boulders rather than uniformly medium-sized ones.
-		var scale_value := 0.65 + float(index % 5) * 0.35
+		var scale_value := 0.72 + float(index % 4) * 0.12
 		_spawn_asset(
 			NATURE_ROOT + "Rock_Medium_%d.gltf" % ((index % 3) + 1),
 			"AbyssRock_%02d" % index,
@@ -261,34 +247,11 @@ func _scatter_rocks_and_relics() -> void:
 			float(index) * 0.79,
 			scale_value
 		)
-		_add_cylinder_collider(
-			generated_world, 0.65 * scale_value, 0.9 * scale_value, position + Vector3.UP * 0.45 * scale_value
-		)
+		_add_cylinder_collider(generated_world, 0.65 * scale_value, 0.9 * scale_value, position + Vector3.UP * 0.45)
 
 	_spawn_asset(PROPS_ROOT + "Lantern_Wall.gltf", "BrokenLantern", Vector3(3.0, 0.0, 2.5), 1.2, 0.9)
 	_spawn_asset(PROPS_ROOT + "Scroll_1.gltf", "WeatheredScroll", Vector3(-4.2, 0.03, -2.0), -0.2, 1.1)
 	_spawn_asset(PROPS_ROOT + "Shield_Wooden.gltf", "LostShield", Vector3(5.8, 0.05, -11.0), 0.9, 1.0)
-
-
-func _build_boundary_silhouettes() -> void:
-	# Purely decorative background massing just outside the existing invisible
-	# boundary walls (_build_collision_boundaries), so the world edge reads as
-	# a looming rock line instead of empty fog. No new collision: the player
-	# is already stopped at this Z by the existing boundary colliders.
-	var silhouette_positions: Array[Vector3] = [
-		Vector3(-18.0, 0.0, -19.5), Vector3(-9.0, 0.0, -20.0), Vector3(2.0, 0.0, -19.8),
-		Vector3(12.0, 0.0, -20.0), Vector3(19.5, 0.0, -19.3),
-		Vector3(-19.0, 0.0, 19.5), Vector3(-6.0, 0.0, 20.0), Vector3(7.0, 0.0, 19.8),
-		Vector3(18.5, 0.0, 19.4),
-	]
-	for index in range(silhouette_positions.size()):
-		_spawn_asset(
-			NATURE_ROOT + "Rock_Medium_%d.gltf" % ((index % 3) + 1),
-			"AbyssBoundarySilhouette_%02d" % index,
-			silhouette_positions[index],
-			float(index) * 1.13,
-			7.0 + float(index % 4) * 1.8
-		)
 
 
 func _spawn_asset(
