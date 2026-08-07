@@ -10,6 +10,9 @@ script = ExtResource("2_adapter")
 [node name="WorldCanvas" parent="." index="3"]
 layer = 40
 
+[node name="HudExplorPlaceholder" parent="." index="4"]
+visible = false
+
 [node name="LocationBanner" parent="WorldCanvas" index="0"]
 visible = false
 
@@ -22,6 +25,6 @@ visible = false
 [node name="InteractionPrompt" parent="WorldCanvas" index="3"]
 visible = false
 
-[node name="ExplorationHUD" parent="." index="4" instance=ExtResource("3_hud")]
+[node name="ExplorationHUD" parent="." index="5" instance=ExtResource("3_hud")]
 
 [editable path="WorldCanvas"]

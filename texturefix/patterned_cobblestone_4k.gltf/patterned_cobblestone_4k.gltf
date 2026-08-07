@@ -1,0 +1,148 @@
+{
+  "asset": {
+    "generator": "Khronos glTF Blender I/O v3.5.30",
+    "version": "2.0"
+  },
+  "scene": 0,
+  "scenes": [
+    {
+      "name": "Scene",
+      "nodes": [
+        0
+      ]
+    }
+  ],
+  "nodes": [
+    {
+      "mesh": 0,
+      "name": "sphere_gltf"
+    }
+  ],
+  "materials": [
+    {
+      "doubleSided": true,
+      "name": "patterned_cobblestone",
+      "pbrMetallicRoughness": {
+        "baseColorTexture": {
+          "index": 0
+        },
+        "metallicFactor": 0,
+        "metallicRoughnessTexture": {
+          "index": 1
+        }
+      }
+    }
+  ],
+  "meshes": [
+    {
+      "name": "Sphere.001",
+      "primitives": [
+        {
+          "attributes": {
+            "POSITION": 0,
+            "TEXCOORD_0": 1,
+            "NORMAL": 2
+          },
+          "indices": 3,
+          "material": 0
+        }
+      ]
+    }
+  ],
+  "textures": [
+    {
+      "sampler": 0,
+      "source": 0
+    },
+    {
+      "sampler": 0,
+      "source": 1
+    }
+  ],
+  "images": [
+    {
+      "mimeType": "image/jpeg",
+      "name": "patterned_cobblestone_diff",
+      "uri": "textures/patterned_cobblestone_diff_4k.jpg"
+    },
+    {
+      "mimeType": "image/jpeg",
+      "name": "patterned_cobblestone_rough",
+      "uri": "textures/patterned_cobblestone_arm_4k.jpg"
+    }
+  ],
+  "accessors": [
+    {
+      "bufferView": 0,
+      "componentType": 5126,
+      "count": 53915,
+      "max": [
+        1.2754255533218384,
+        1.2714641094207764,
+        1.2751424312591553
+      ],
+      "min": [
+        -1.275424838066101,
+        -1.2734248638153076,
+        -1.2751314640045166
+      ],
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 1,
+      "componentType": 5126,
+      "count": 53915,
+      "type": "VEC2"
+    },
+    {
+      "bufferView": 2,
+      "componentType": 5126,
+      "count": 53915,
+      "type": "VEC3"
+    },
+    {
+      "bufferView": 3,
+      "componentType": 5123,
+      "count": 322170,
+      "type": "SCALAR"
+    }
+  ],
+  "bufferViews": [
+    {
+      "buffer": 0,
+      "byteLength": 646980,
+      "byteOffset": 0,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 431320,
+      "byteOffset": 646980,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 646980,
+      "byteOffset": 1078300,
+      "target": 34962
+    },
+    {
+      "buffer": 0,
+      "byteLength": 644340,
+      "byteOffset": 1725280,
+      "target": 34963
+    }
+  ],
+  "samplers": [
+    {
+      "magFilter": 9729,
+      "minFilter": 9987
+    }
+  ],
+  "buffers": [
+    {
+      "byteLength": 2369620,
+      "uri": "patterned_cobblestone.bin"
+    }
+  ]
+}

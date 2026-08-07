@@ -79,6 +79,7 @@ const ARRIVAL_DIALOGUE: Array[Dictionary] = [
 @onready var title_button: Button = $WorldCanvas/PausePanel/TitleButton
 @onready var quit_button: Button = $WorldCanvas/PausePanel/QuitButton
 @onready var region_fade: ColorRect = $WorldCanvas/RegionFade
+@onready var hud_explor: HudExplorPlaceholder = $HudExplorPlaceholder/HUDRoot
 
 var _active_region: StringName = REGION_GREAT_GATE
 var _nearby_interactions: Array[StringName] = []
@@ -93,6 +94,13 @@ var _prompt_tween: Tween
 
 
 func _ready() -> void:
+	hud_explor.show_player_marker = false
+	hud_explor.set_player_status("Takashi", 10, 1897.0, 2000.0)
+	hud_explor.slot_pressed.connect(_on_hud_slot_pressed)
+	location_banner.visible = false
+	$WorldCanvas/QuestPanel.visible = false
+	menu_button.visible = false
+
 	_connect_interaction_area(old_stone_area, INTERACTION_OLD_STONE)
 	_connect_interaction_area(wall_record_area, INTERACTION_WALL_RECORD)
 	_connect_interaction_area(sunstone_area, INTERACTION_SUNSTONE)
@@ -149,6 +157,15 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel") and _modal_open:
 		_close_info_panel()
+		get_viewport().set_input_as_handled()
+		return
+	if (
+		event.is_action_pressed("ui_cancel")
+		and not _modal_open
+		and not _region_transitioning
+		and not get_tree().paused
+	):
+		_open_pause_menu()
 		get_viewport().set_input_as_handled()
 		return
 
@@ -293,6 +310,7 @@ func _activate_current_interaction() -> void:
 				"RELIK WERDONIA"
 			)
 			objective_status.text = "Selidiki jalan menuju Temple Ward"
+			_sync_placeholder_hud()
 		INTERACTION_MARKET:
 			_open_info_panel(
 				"PASAR SUNSTONE",
@@ -313,6 +331,7 @@ func _activate_current_interaction() -> void:
 			)
 			quest_label.text = "JEJAK DI BALIK TEMBOK"
 			objective_status.text = "Cari akses menuju Temple Ward"
+			_sync_placeholder_hud()
 
 
 func _transition_to_region(region_id: StringName, spawn_position: Vector2) -> void:
@@ -395,6 +414,7 @@ func _set_region_immediate(region_id: StringName, spawn_position: Vector2) -> vo
 		_play_region_music(SUNSTONE_MUSIC_PATH)
 
 	world_camera.reset_smoothing()
+	_sync_placeholder_hud()
 
 
 func _set_camera_limits(left: int, top: int, right: int, bottom: int) -> void:
@@ -450,17 +470,19 @@ func _play_region_music(track_path: String) -> void:
 
 
 func _play_location_intro() -> void:
-	location_banner.visible = true
-	location_banner.modulate.a = 0.0
-	location_banner.position.x = 28.0
-	var tween := create_tween()
-	tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	tween.set_parallel(true)
-	tween.tween_property(location_banner, "modulate:a", 1.0, 0.42)
-	tween.tween_property(location_banner, "position:x", 46.0, 0.42)
-	tween.set_parallel(false)
-	tween.tween_interval(2.35)
-	tween.tween_property(location_banner, "modulate:a", 0.0, 0.45)
+	location_banner.visible = false
+	_sync_placeholder_hud()
+
+
+func _sync_placeholder_hud() -> void:
+	if not is_instance_valid(hud_explor):
+		return
+	hud_explor.set_quest(objective_status.text, quest_label.text)
+
+
+func _on_hud_slot_pressed(slot_name: StringName) -> void:
+	# Visual slots are active; their destination screens are still placeholders.
+	print("Exploration HUD slot requested: %s" % slot_name)
 
 
 func _begin_arrival_dialogue() -> void:

@@ -15,6 +15,7 @@ const INTERACTION_MARKER: StringName = &"ancient_marker"
 @onready var world_bgm: AudioStreamPlayer = $WorldBgm
 
 @onready var location_banner: Panel = $WorldCanvas/LocationBanner
+@onready var quest_label: Label = $WorldCanvas/QuestPanel/QuestLabel
 @onready var objective_status: Label = $WorldCanvas/QuestPanel/ObjectiveStatus
 @onready var interaction_prompt: Panel = $WorldCanvas/InteractionPrompt
 @onready var interaction_label: Label = $WorldCanvas/InteractionPrompt/PromptText
@@ -33,6 +34,7 @@ const INTERACTION_MARKER: StringName = &"ancient_marker"
 @onready var restart_button: Button = $WorldCanvas/PausePanel/RestartButton
 @onready var title_button: Button = $WorldCanvas/PausePanel/TitleButton
 @onready var quit_button: Button = $WorldCanvas/PausePanel/QuitButton
+@onready var hud_explor: HudExplorPlaceholder = $HudExplorPlaceholder/HUDRoot
 
 var _nearby_interactions: Array[StringName] = []
 var _active_interaction: StringName = &""
@@ -44,6 +46,14 @@ var _modal_action: StringName = &""
 
 
 func _ready() -> void:
+	hud_explor.show_player_marker = false
+	hud_explor.set_player_status("Takashi", 10, 1897.0, 2000.0)
+	hud_explor.slot_pressed.connect(_on_hud_slot_pressed)
+	location_banner.visible = false
+	$WorldCanvas/QuestPanel.visible = false
+	menu_button.visible = false
+	_sync_placeholder_hud()
+
 	_connect_interaction_area(abyss_gate_area, INTERACTION_GATE)
 	_connect_interaction_area(werdonia_road_area, INTERACTION_CITY)
 	_connect_interaction_area(ancient_marker_area, INTERACTION_MARKER)
@@ -71,6 +81,14 @@ func _ready() -> void:
 func _unhandled_input(event: InputEvent) -> void:
 	if event.is_action_pressed("ui_cancel") and _modal_open:
 		_close_info_panel()
+		get_viewport().set_input_as_handled()
+		return
+	if (
+		event.is_action_pressed("ui_cancel")
+		and not _modal_open
+		and not get_tree().paused
+	):
+		_open_pause_menu()
 		get_viewport().set_input_as_handled()
 		return
 
@@ -164,6 +182,7 @@ func _activate_current_interaction() -> void:
 			)
 		INTERACTION_CITY:
 			objective_status.text = "Perjalanan menuju kota dimulai"
+			_sync_placeholder_hud()
 			_open_info_panel(
 				"JALAN WERDONIA",
 				"Jalan batu menurun menuju padang semanggi yang luas. Rute menuju Werdonia City masih panjang, melewati gerbang tua dan jalan kerajaan yang sudah lama tidak dijaga.",
@@ -259,17 +278,19 @@ func _play_gate_exit_intro() -> void:
 
 
 func _play_location_intro() -> void:
-	location_banner.modulate.a = 0.0
-	location_banner.position.x -= 18.0
-	var target_x := location_banner.position.x + 18.0
-	var tween := create_tween()
-	tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_OUT)
-	tween.set_parallel(true)
-	tween.tween_property(location_banner, "modulate:a", 1.0, 0.45)
-	tween.tween_property(location_banner, "position:x", target_x, 0.45)
-	tween.set_parallel(false)
-	tween.tween_interval(2.6)
-	tween.tween_property(location_banner, "modulate:a", 0.0, 0.5)
+	location_banner.visible = false
+	_sync_placeholder_hud()
+
+
+func _sync_placeholder_hud() -> void:
+	if not is_instance_valid(hud_explor):
+		return
+	hud_explor.set_quest(objective_status.text, quest_label.text)
+
+
+func _on_hud_slot_pressed(slot_name: StringName) -> void:
+	# Visual slots are active; their destination screens are still placeholders.
+	print("Exploration HUD slot requested: %s" % slot_name)
 
 
 func _setup_world_bgm() -> void:

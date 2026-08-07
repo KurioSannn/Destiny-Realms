@@ -1,4 +1,4 @@
-[gd_scene load_steps=24 format=3]
+[gd_scene load_steps=25 format=3]
 
 [ext_resource type="Script" path="res://scripts/grasslands/grasslands_scene.gd" id="1_grasslands"]
 [ext_resource type="Script" uid="uid://cid570vc8knwp" path="res://scripts/world/world_player.gd" id="2_player"]
@@ -8,6 +8,7 @@
 [ext_resource type="Texture2D" uid="uid://c2lor0xxa82g5" path="res://public/idle_Takashi/2.png" id="6_idle_2"]
 [ext_resource type="Texture2D" uid="uid://l0q4aktkuuod" path="res://public/idle_Takashi/3.png" id="7_idle_3"]
 [ext_resource type="Texture2D" uid="uid://cr72ot8xt6su6" path="res://public/idle_Takashi/4.png" id="8_idle_4"]
+[ext_resource type="PackedScene" path="res://scenes/ui/exploration/hud_explor_placeholder.tscn" id="9_hud_explor"]
 
 [sub_resource type="SpriteFrames" id="SpriteFrames_takashi"]
 animations = [{
@@ -308,8 +309,10 @@ limit_right = 3010
 limit_bottom = 1694
 
 [node name="WorldCanvas" type="CanvasLayer" parent="."]
+layer = 40
 
 [node name="LocationBanner" type="Panel" parent="WorldCanvas"]
+visible = false
 offset_left = 28.0
 offset_top = 26.0
 offset_right = 486.0
@@ -345,6 +348,7 @@ theme_override_font_sizes/font_size = 15
 text = "Padang rumput di luar Werdonia"
 
 [node name="QuestPanel" type="Panel" parent="WorldCanvas"]
+visible = false
 offset_left = 772.0
 offset_top = 26.0
 offset_right = 1184.0
@@ -374,6 +378,7 @@ text = "Capai gerbang batu di utara"
 
 [node name="MenuButton" type="Button" parent="WorldCanvas"]
 process_mode = 3
+visible = false
 offset_left = 1202.0
 offset_top = 26.0
 offset_right = 1252.0
@@ -638,3 +643,5 @@ grow_horizontal = 2
 grow_vertical = 2
 mouse_filter = 2
 color = Color(0, 0, 0, 1)
+
+[node name="HudExplorPlaceholder" parent="." instance=ExtResource("9_hud_explor")]

@@ -1,4 +1,4 @@
-[gd_scene load_steps=24 format=3]
+[gd_scene load_steps=25 format=3]
 
 [ext_resource type="Script" uid="uid://8wkf5i0nhmea" path="res://scripts/world/world_scene.gd" id="1_world"]
 [ext_resource type="Script" uid="uid://cid570vc8knwp" path="res://scripts/world/world_player.gd" id="2_player"]
@@ -8,6 +8,7 @@
 [ext_resource type="Texture2D" uid="uid://l0q4aktkuuod" path="res://public/idle_Takashi/3.png" id="6_idle_3"]
 [ext_resource type="Texture2D" uid="uid://cr72ot8xt6su6" path="res://public/idle_Takashi/4.png" id="7_idle_4"]
 [ext_resource type="AudioStream" uid="uid://72beb3uai8kw" path="res://public/Gates_of_Werdonia.mp3" id="8_world_bgm"]
+[ext_resource type="PackedScene" path="res://scenes/ui/exploration/hud_explor_placeholder.tscn" id="9_hud_explor"]
 
 [sub_resource type="SpriteFrames" id="SpriteFrames_takashi"]
 animations = [{
@@ -275,8 +276,10 @@ stream = ExtResource("8_world_bgm")
 volume_db = -13.0
 
 [node name="WorldCanvas" type="CanvasLayer" parent="."]
+layer = 40
 
 [node name="LocationBanner" type="Panel" parent="WorldCanvas"]
+visible = false
 offset_left = 28.0
 offset_top = 26.0
 offset_right = 476.0
@@ -314,6 +317,7 @@ theme_override_font_sizes/font_size = 15
 text = "Pintu keluar dari Dark Forest"
 
 [node name="QuestPanel" type="Panel" parent="WorldCanvas"]
+visible = false
 offset_left = 842.0
 offset_top = 26.0
 offset_right = 1184.0
@@ -343,6 +347,7 @@ text = "Ikuti jalan menuju Werdonia"
 
 [node name="MenuButton" type="Button" parent="WorldCanvas"]
 process_mode = 3
+visible = false
 offset_left = 1202.0
 offset_top = 26.0
 offset_right = 1252.0
@@ -598,3 +603,5 @@ theme_override_styles/pressed = SubResource("StyleBox_button")
 theme_override_styles/hover = SubResource("StyleBox_button_hover")
 theme_override_styles/focus = SubResource("StyleBox_button_hover")
 text = "Keluar Game"
+
+[node name="HudExplorPlaceholder" parent="." instance=ExtResource("9_hud_explor")]

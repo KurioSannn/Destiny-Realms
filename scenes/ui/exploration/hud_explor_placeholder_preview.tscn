@@ -1,0 +1,40 @@
+[gd_scene load_steps=3 format=3]
+
+[ext_resource type="Texture2D" path="res://public/grasslands/clover_reach.png" id="1_background"]
+[ext_resource type="PackedScene" path="res://scenes/ui/exploration/hud_explor_placeholder.tscn" id="2_hud"]
+
+[node name="HudExplorPlaceholderPreview" type="Control"]
+custom_minimum_size = Vector2(960, 540)
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Backdrop" type="TextureRect" parent="."]
+show_behind_parent = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+texture = ExtResource("1_background")
+expand_mode = 1
+stretch_mode = 6
+
+[node name="ReferenceTint" type="ColorRect" parent="."]
+show_behind_parent = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0.08, 0.09, 0.05, 0.12)
+
+[node name="HudExplorPlaceholder" parent="." instance=ExtResource("2_hud")]
+
