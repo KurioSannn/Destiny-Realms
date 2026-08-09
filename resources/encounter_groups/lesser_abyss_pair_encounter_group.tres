@@ -1,0 +1,8 @@
+[gd_resource type="Resource" script_class="EncounterGroupProfile" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/system/encounter_group_profile.gd" id="1_group"]
+
+[resource]
+script = ExtResource("1_group")
+encounter_group_id = &"lesser_abyss_pair"
+battle_enemy_ids = Array[StringName]([&"lesser_abyss", &"lesser_abyss"])

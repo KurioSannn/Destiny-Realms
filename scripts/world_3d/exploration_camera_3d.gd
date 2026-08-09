@@ -134,6 +134,13 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 	if get_tree() != null and get_tree().paused:
 		return
+	# Block 14: GameFlowState.set_context() (TRANSITION/BATTLE/etc.) must also
+	# gate mouse camera input, the same way it now gates player input, or a
+	# caller that forgets to also call set_mouse_control_enabled(false) leaks
+	# orbit/zoom during a transition. F1/F2/F5-F7 above stay ungated -- they
+	# are debug tools, not real gameplay input.
+	if not GameFlowState.is_exploration_active():
+		return
 
 	if _is_reset_key_event(event):
 		_reset_camera_control()

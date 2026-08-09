@@ -14,6 +14,7 @@
 [ext_resource type="Texture2D" uid="uid://dsrqexgu3p1q5" path="res://public/IdleTaka.png" id="10_takashi_idle"]
 [ext_resource type="AudioStream" uid="uid://dvgau22ra5fgk" path="res://public/Iron_and_Ivy.mp3" id="11_battle_bgm"]
 [ext_resource type="Texture2D" path="res://public/bandits/bandit_captain.png" id="12_bandit"]
+[ext_resource type="Script" path="res://scripts/battle/battle_presentation_3d.gd" id="13_bp3d"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_bar_track"]
 bg_color = Color(0.025, 0.032, 0.045, 0.92)
@@ -491,6 +492,7 @@ grow_horizontal = 2
 grow_vertical = 2
 size_flags_horizontal = 3
 size_flags_vertical = 3
+mouse_filter = 2
 script = ExtResource("3_ui")
 
 [node name="PlayerStatusPanel" type="Panel" parent="CanvasLayer/BattleUI" unique_id=1557718199]
@@ -1128,3 +1130,6 @@ expand_mode = 1
 stretch_mode = 5
 
 [node name="UltimateAudioPlayer" type="AudioStreamPlayer" parent="CanvasLayer" unique_id=1857444126]
+
+[node name="BattlePresentation3D" type="Node3D" parent="."]
+script = ExtResource("13_bp3d")

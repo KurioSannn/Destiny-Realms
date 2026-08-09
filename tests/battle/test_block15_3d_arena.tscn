@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://b15_test_3d_arena"]
+
+[ext_resource type="Script" path="res://tests/battle/test_block15_3d_arena.gd" id="1_test"]
+
+[node name="TestBlock153DArena" type="Node"]
+script = ExtResource("1_test")

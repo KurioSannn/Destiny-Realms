@@ -11,7 +11,7 @@ The first playable 3D exploration area is Abyss Forest. Werdonia Outskirts begin
 - `res://scenes/world_3d/abyss_forest_3d.tscn`
 - `ExplorationCamera3D` (perspective, "F2 — Exploration") follows the player by default, with an orthographic "F1 — Legacy" debug baseline (`F1`/`F2` to switch).
 - `CharacterBody3D` movement with Takashi presented through `AnimatedSprite3D`.
-- Dense twisted/dead tree line, ancient ruins, stone path, undergrowth, fog, fireflies, boundary rock silhouettes, and an illuminated exit seal.
+- Dense twisted/dead tree line, ancient ruins, stone path, undergrowth, fog, fireflies, and an illuminated exit seal.
 - Physical ground, world boundaries, tree/rock/ruin collision, and an interaction route into the existing Werdonia Outskirts scene.
 - Existing exploration HUD remains a replaceable placeholder.
 
@@ -59,22 +59,11 @@ A raycast from the follow pivot toward the desired camera position checks a dedi
 
 Takashi is an `AnimatedSprite3D` with `billboard` enabled, so the sprite always turns to face the camera no matter where the camera orbits to. Viewing Takashi from the front, side, or back all show the *same* facing artwork — there is no directional sprite (front/back/side facings) yet. This is expected, pre-existing, temporarily-accepted technical debt with the current 2D-sprite-in-3D-world architecture, not a bug introduced by the camera work, and no attempt was made to fake directional art or mirror-hack it. A production-quality result under free orbit will need a directional-sprite (or full 3D model) system for Takashi later.
 
-## World scale audit
+## World scale audit — attempted, reverted
 
-Takashi's `AnimatedSprite3D` renders at `pixel_size = 0.00162` with a 1254px-tall source texture, i.e. a reference visual height of **≈2.03m**. Sampling native glTF bounds (accessor min/max in each asset's `.gltf` JSON) against that reference:
+A first pass measured actual glTF native bounds against Takashi's true sprite height (≈2.03m, from `pixel_size = 0.00162` × 1254px texture) and increased the scale ranges for trees/rocks/ruin walls, plus added large decorative boundary rocks, to make the environment loom larger. In practice this made the world look badly broken and was reverted in full: tree/rock/ruin scale ranges are back to their original values, and the boundary-silhouette rocks were removed entirely. The numbers were individually defensible on paper, but this environment gives no way to see the combined result before it ships, and stacking several untested scale changes at once compounded into a bad outcome rather than a good one.
 
-| Asset | Native height | Old scale range | Old ratio to Takashi | New scale range | New ratio to Takashi |
-| --- | --- | --- | --- | --- | --- |
-| TwistedTree (major tree) | ~16.7m | 0.68–1.03 | ~5.6–8.5x | 1.05–1.60 | ~8.6–13.2x |
-| DeadTree (ordinary tree) | ~9.5m | 0.68–1.03 | ~3.2–4.8x | 1.05–1.60 | ~4.9–7.5x |
-| Background pine | ~7.3m | 0.82–0.98 | ~3.0–3.5x | 1.3–1.6 | ~4.7–5.8x |
-| Rock_Medium | ~2.26m | 0.72–1.08 (4 fixed steps) | ~0.8–1.2x | 0.65–2.05 (5-step cycle) | ~0.7–2.3x (small rock to real boulder variety) |
-| Ruin wall (UnevenBrick) | ~3.0m | 0.85–1.05 | ~1.25–1.55x | 1.4–1.9 | ~2.1–2.8x |
-| Boundary silhouette rocks (new) | ~2.26m native | n/a (new) | n/a | 7.0–8.8 | ~7.9–10x |
-
-Colliders that were hardcoded independent of the visual scale (ruin wall box, rock cylinder Y-offset) now scale proportionally with the same multiplier used for the mesh, so collision keeps matching the (now larger) visuals. Tree trunk colliders already scaled with `tree_scale` and needed no change.
-
-This was a **targeted** adjustment: only the scale *ranges* for trees, rocks, and ruin walls changed, plus one new decorative function (`_build_boundary_silhouettes`, 9 large rocks placed just outside the existing invisible boundary walls for a "world edge" silhouette). Nothing was globally rescaled, no existing placements were moved, and no new collision was added beyond the boundary walls that already existed — the 9 silhouette rocks are purely decorative, sitting outside the collision boundary that already stops the player at that Z coordinate. Terrain itself (the flat ground plane) was intentionally left unmodified: reshaping it (slopes/terraces) could not be visually verified in this environment and risked the playable route, so it was judged out of the safe-to-attempt set for this pass — see Remaining Technical Debt.
+**Lesson for next time:** world-scale/composition changes need to happen in small, individually-verified steps (ideally with in-editor screenshots between each one), not as a single batch alongside a camera rework. The camera rearchitecture (distance-based zoom, full orbit, obstruction) is unaffected by this revert and remains in place — it doesn't touch asset placement or scale at all.
 
 ## World order
 

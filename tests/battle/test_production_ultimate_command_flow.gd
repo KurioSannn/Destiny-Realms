@@ -11,7 +11,7 @@ func _ready() -> void:
 
 
 func _run() -> void:
-	await _test_lesser_ultimate_select_ready_and_cancel()
+	await _test_lesser_ultimate_select_ready_and_locked()
 	await _test_ultimate_insufficient_energy_does_not_create_pending()
 	await _test_ultimate_invalid_target_revalidates_before_commit()
 	await _test_ultimate_invalid_actor_revalidates_before_commit()
@@ -31,7 +31,7 @@ func _run() -> void:
 		get_tree().quit(1)
 
 
-func _test_lesser_ultimate_select_ready_and_cancel() -> void:
+func _test_lesser_ultimate_select_ready_and_locked() -> void:
 	var fixture := await _make_battle(false)
 	var battle := fixture["battle"] as Node
 	var manager := fixture["manager"] as BattleManager
@@ -52,18 +52,24 @@ func _test_lesser_ultimate_select_ready_and_cancel() -> void:
 		manager.player_action_sprite.texture == BattleManager.TAKASHI_ULTIMATE_TEXTURE,
 		"ultimate select starts ready idle pose"
 	)
-	_check(manager.ultimate_target_highlight.visible, "ultimate select shows target highlight")
+	_check(
+		manager.get_current_target_marker_target() == manager.enemy,
+		"ultimate select marks the default target"
+	)
 	_check(not manager.ultimate_command_panel.visible, "Block 9E: ultimate ready idle does not show a confirm/cancel panel")
 
 	manager.call("_cancel_ultimate_command")
 	await _idle_frames(3)
 
-	_check(manager.state == BattleManager.BattleState.PLAYER_TURN, "ultimate cancel preserves player turn")
-	_check(manager.enemy.current_hp == initial_hp, "ultimate cancel does not deal damage")
-	_check(manager.ultimate_energy == initial_energy, "ultimate cancel preserves energy")
-	_check(not manager.ultimate_command_adapter.has_pending_ultimate(), "ultimate cancel clears pending command")
-	_check(not manager.ultimate_target_highlight.visible, "ultimate cancel hides target highlight")
-	_check(not manager.ultimate_command_panel.visible, "ultimate cancel leaves confirm/cancel panel hidden")
+	_check(manager.state == BattleManager.BattleState.PLAYER_TURN, "locked ultimate idle preserves player turn bridge")
+	_check(manager.enemy.current_hp == initial_hp, "locked ultimate idle does not deal damage")
+	_check(manager.ultimate_energy == initial_energy, "locked ultimate idle preserves energy")
+	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "cancel input does not clear locked Ultimate")
+	_check(
+		manager.get_current_target_marker_target() == manager.enemy,
+		"locked Ultimate keeps the target marker active"
+	)
+	_check(not manager.ultimate_command_panel.visible, "locked Ultimate keeps confirm/cancel panel hidden")
 
 	await _free_battle(battle)
 
@@ -190,7 +196,7 @@ func _test_ultimate_switching_with_basic_and_skill() -> void:
 
 	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "a second Ultimate press (nothing pending now) starts Ultimate")
 
-	manager.call("_cancel_ultimate_command")
+	manager.call("_reset_ultimate_command_runtime")
 	await _idle_frames(3)
 	manager.call("_on_skill_pressed")
 	await _idle_frames(3)
@@ -206,7 +212,7 @@ func _test_ultimate_switching_with_basic_and_skill() -> void:
 
 	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "a second Ultimate press (nothing pending now) starts Ultimate")
 
-	manager.call("_cancel_ultimate_command")
+	manager.call("_reset_ultimate_command_runtime")
 	await _idle_frames(3)
 	manager.call("_on_attack_pressed")
 	await _idle_frames(3)
@@ -291,6 +297,7 @@ func _test_ultimate_confirm_is_single_execution() -> void:
 	manager.call("_confirm_ultimate_command")
 	manager.call("_on_confirm_pressed")
 
+	_check(await _wait_for_ultimate_cutscene_frame(manager, 12.0), "ultimate confirm shows the full-screen Ultimate frame effect")
 	_check(await _wait_for_enemy_hp(manager, expected_hp, 45.0), "ultimate confirm deals legacy damage")
 	_check(await _wait_for_no_pending_ultimate(manager, 10.0), "ultimate confirm completes recovery")
 	_check(int(counts["commit"]) == 1, "ultimate confirm commits once")
@@ -410,6 +417,21 @@ func _wait_for_no_pending_ultimate(
 		if not is_instance_valid(manager):
 			return false
 		if not manager.ultimate_command_adapter.has_pending_ultimate():
+			return true
+		await get_tree().process_frame
+		elapsed += 1.0 / 60.0
+	return false
+
+
+func _wait_for_ultimate_cutscene_frame(
+	manager: BattleManager,
+	timeout_seconds: float
+) -> bool:
+	var elapsed := 0.0
+	while elapsed < timeout_seconds:
+		if not is_instance_valid(manager):
+			return false
+		if manager.ultimate_frame_player != null and manager.ultimate_frame_player.visible:
 			return true
 		await get_tree().process_frame
 		elapsed += 1.0 / 60.0

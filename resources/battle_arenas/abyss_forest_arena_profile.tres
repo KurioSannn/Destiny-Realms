@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="BattleEnvironmentProfile" format=3 uid="uid://b15_abyss_arena"]
+
+[ext_resource type="Script" path="res://scripts/battle/battle_environment_profile.gd" id="1_profile"]
+
+[resource]
+script = ExtResource("1_profile")
+arena_id = &"abyss_forest"
+area_id = &"abyss_forest"
+environment_scene = "res://scenes/battle/arenas/battle_arena_abyss.tscn"
+fog_color = Color(0.08, 0.25, 0.29, 1)
+fog_density = 0.025
+ambient_light_color = Color(0.18, 0.34, 0.38, 1)
+ambient_light_energy = 0.72
+ambient_audio_id = &""
+camera_default_offset = Vector3(0, 2.8, 7.5)
+camera_look_at_offset = Vector3(0, 1, 0)
+arena_center = Vector3(0, 0, 0)
+arena_floor_y = 0.0

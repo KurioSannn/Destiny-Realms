@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://b15_test_battle_camera"]
+
+[ext_resource type="Script" path="res://tests/battle/test_block15_battle_camera.gd" id="1_test"]
+
+[node name="TestBlock15BattleCamera" type="Node3D"]
+script = ExtResource("1_test")

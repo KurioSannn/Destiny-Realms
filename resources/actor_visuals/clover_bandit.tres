@@ -1,0 +1,13 @@
+[gd_resource type="Resource" script_class="ActorVisualProfile" load_steps=3 format=3]
+
+[ext_resource type="Script" path="res://scripts/system/actor_visual_profile.gd" id="1_visual"]
+[ext_resource type="Texture2D" path="res://public/bandits/bandit_captain.png" id="2_bandit"]
+
+[resource]
+script = ExtResource("1_visual")
+actor_id = &"clover_bandit"
+display_name = "Bandit Captain"
+model_scene = ""
+world_height = 1.85
+model_yaw_offset_degrees = 0.0
+billboard_texture = ExtResource("2_bandit")

@@ -3,11 +3,11 @@ extends Node
 ## Block 9E: Skill/Ultimate command UX revision -- no confirm/cancel panel.
 ## Ready idle and target selection are kept; commit now happens by
 ## pressing the same command again or clicking a valid target, and
-## pressing a *different* command only cancels the pending one (never
-## also begins the new one in the same click). See
+## pressing a *different* command only cancels pending Skill. Ultimate
+## ready idle is locked: Basic/Skill/Escape do not cancel it. See
 ## docs/battle_system_spec.md, "Block 9E implementation status". This
 ## suite covers the specific new gestures (second-press commit,
-## target-click commit, Escape cancel, and the queued/off-turn Ultimate
+## target-click commit, Skill Escape cancel, and queued/off-turn Ultimate
 ## equivalents) that the updated production suites don't already exercise
 ## directly through _on_skill_pressed()/_on_ultimate_pressed()/Escape.
 
@@ -26,13 +26,13 @@ func _run() -> void:
 	await _test_skill_escape_cancels()
 	await _test_ultimate_second_press_commits()
 	await _test_ultimate_target_click_commits()
-	await _test_ultimate_escape_cancels()
+	await _test_ultimate_escape_does_not_cancel()
 	await _test_queued_ultimate_ready_shows_no_panel()
 	await _test_queued_ultimate_second_press_commits()
 	await _test_queued_ultimate_target_click_commits()
-	await _test_queued_ultimate_basic_press_cancels_and_resumes_player_turn()
-	await _test_queued_ultimate_skill_press_cancels_and_resumes_player_turn()
-	await _test_queued_ultimate_escape_cancels_and_resumes_player_turn()
+	await _test_queued_ultimate_basic_press_does_not_cancel()
+	await _test_queued_ultimate_skill_press_does_not_cancel()
+	await _test_queued_ultimate_escape_does_not_cancel()
 
 	if failures.is_empty():
 		print("PASS: command UX no confirm/cancel panel")
@@ -150,7 +150,7 @@ func _test_ultimate_target_click_commits() -> void:
 	await _free_battle(battle)
 
 
-func _test_ultimate_escape_cancels() -> void:
+func _test_ultimate_escape_does_not_cancel() -> void:
 	var fixture := await _make_battle()
 	var battle := fixture["battle"] as Node
 	var manager := fixture["manager"] as BattleManager
@@ -165,10 +165,10 @@ func _test_ultimate_escape_cancels() -> void:
 	_simulate_ui_cancel(manager)
 	await _idle_frames(3)
 
-	_check(not manager.ultimate_command_adapter.has_pending_ultimate(), "Escape cancels pending Ultimate")
-	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "Escape cancel does not spend Energy")
-	_check(manager.enemy.current_hp == initial_hp, "Escape cancel deals no damage/no cut-in")
-	_check(manager.state == BattleManager.BattleState.PLAYER_TURN, "Escape cancel returns to default select")
+	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "Escape does not cancel pending Ultimate")
+	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "locked Ultimate idle does not spend Energy before commit")
+	_check(manager.enemy.current_hp == initial_hp, "locked Ultimate idle deals no damage/no cut-in")
+	_check(manager.state == BattleManager.BattleState.PLAYER_TURN, "locked Ultimate idle keeps player turn bridge")
 
 	await _free_battle(battle)
 
@@ -190,8 +190,6 @@ func _test_queued_ultimate_ready_shows_no_panel() -> void:
 	)
 	_check(not manager.ultimate_command_panel.visible, "queued Ultimate ready idle shows no confirm/cancel panel")
 
-	manager.call("_cancel_ultimate_command")
-	await _wait_for_state(manager, BattleManager.BattleState.PLAYER_TURN, 5.0)
 	await _free_battle(battle)
 
 
@@ -252,7 +250,7 @@ func _test_queued_ultimate_target_click_commits() -> void:
 	await _free_battle(battle)
 
 
-func _test_queued_ultimate_basic_press_cancels_and_resumes_player_turn() -> void:
+func _test_queued_ultimate_basic_press_does_not_cancel() -> void:
 	var fixture := await _make_battle()
 	var battle := fixture["battle"] as Node
 	var manager := fixture["manager"] as BattleManager
@@ -268,19 +266,16 @@ func _test_queued_ultimate_basic_press_cancels_and_resumes_player_turn() -> void
 	)
 
 	manager.call("_on_attack_pressed")
+	await _idle_frames(3)
 
-	_check(
-		await _wait_for_state(manager, BattleManager.BattleState.PLAYER_TURN, 5.0),
-		"pressing Basic while a queued Ultimate is pending cancels it and resumes player turn"
-	)
-	_check(not manager.ultimate_command_adapter.has_pending_ultimate(), "Basic press clears the queued Ultimate")
-	_check(not manager.basic_command_adapter.has_pending_basic(), "Basic does not start in the same click that cancelled the queued Ultimate")
-	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "cancelling the queued Ultimate does not spend Energy")
+	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "Basic press does not cancel locked queued Ultimate")
+	_check(not manager.basic_command_adapter.has_pending_basic(), "Basic does not start while queued Ultimate is locked")
+	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "locked queued Ultimate does not spend Energy before commit")
 
 	await _free_battle(battle)
 
 
-func _test_queued_ultimate_skill_press_cancels_and_resumes_player_turn() -> void:
+func _test_queued_ultimate_skill_press_does_not_cancel() -> void:
 	var fixture := await _make_battle()
 	var battle := fixture["battle"] as Node
 	var manager := fixture["manager"] as BattleManager
@@ -296,19 +291,16 @@ func _test_queued_ultimate_skill_press_cancels_and_resumes_player_turn() -> void
 	)
 
 	manager.call("_on_skill_pressed")
+	await _idle_frames(3)
 
-	_check(
-		await _wait_for_state(manager, BattleManager.BattleState.PLAYER_TURN, 5.0),
-		"pressing Skill while a queued Ultimate is pending cancels it and resumes player turn"
-	)
-	_check(not manager.ultimate_command_adapter.has_pending_ultimate(), "Skill press clears the queued Ultimate")
-	_check(not manager.skill_command_adapter.has_pending_skill(), "Skill does not start in the same click that cancelled the queued Ultimate")
-	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "cancelling the queued Ultimate does not spend Energy")
+	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "Skill press does not cancel locked queued Ultimate")
+	_check(not manager.skill_command_adapter.has_pending_skill(), "Skill does not start while queued Ultimate is locked")
+	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "locked queued Ultimate does not spend Energy before commit")
 
 	await _free_battle(battle)
 
 
-func _test_queued_ultimate_escape_cancels_and_resumes_player_turn() -> void:
+func _test_queued_ultimate_escape_does_not_cancel() -> void:
 	var fixture := await _make_battle()
 	var battle := fixture["battle"] as Node
 	var manager := fixture["manager"] as BattleManager
@@ -324,13 +316,10 @@ func _test_queued_ultimate_escape_cancels_and_resumes_player_turn() -> void:
 	)
 
 	_simulate_ui_cancel(manager)
+	await _idle_frames(3)
 
-	_check(
-		await _wait_for_state(manager, BattleManager.BattleState.PLAYER_TURN, 5.0),
-		"Escape while a queued Ultimate is pending cancels it and resumes player turn"
-	)
-	_check(not manager.ultimate_command_adapter.has_pending_ultimate(), "Escape clears the queued Ultimate")
-	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "Escape cancel of a queued Ultimate does not spend Energy")
+	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "Escape does not cancel locked queued Ultimate")
+	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "locked queued Ultimate does not spend Energy before commit")
 
 	await _free_battle(battle)
 

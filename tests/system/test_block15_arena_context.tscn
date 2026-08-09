@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://b15_test_arena_context"]
+
+[ext_resource type="Script" path="res://tests/system/test_block15_arena_context.gd" id="1_test"]
+
+[node name="TestBlock15ArenaContext" type="Node"]
+script = ExtResource("1_test")

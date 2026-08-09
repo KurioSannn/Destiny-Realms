@@ -39,10 +39,27 @@ func _ready() -> void:
 	_setup_abyss_bgm()
 	_update_seal_objective(true)
 
+	GameFlowState.set_active_character(player)
+	if player.has_signal("interactable_target_changed"):
+		player.interactable_target_changed.connect(_on_interactable_target_changed)
+	_connect_testbed_content()
+
+	# Block 14: order matters here. Resolve any previously-defeated actors
+	# first, then this specific return (if any), then -- only once the
+	# active character, camera target (already valid via ExplorationCamera's
+	# own target_path resolving against this fresh scene), and encounter
+	# result are all settled -- hand input back. No earlier line may re-open
+	# input, or a battle-return frame could leak movement/attack/interact
+	# before the world has finished restoring itself.
+	_apply_persisted_enemy_defeats()
+	_consume_battle_return()
+	GameFlowState.set_context(GameFlowState.InputContext.EXPLORATION)
+
 
 func _process(delta: float) -> void:
 	_update_camera_occluders(delta)
 	_update_seal_objective()
+	_update_exploration_action_hud()
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -417,8 +434,97 @@ func _update_seal_objective(force: bool = false) -> void:
 		hud_explor.set_quest("Temukan jalan keluar Abyss Forest", "%d m menuju segel" % distance)
 
 
+## Block 14.5 Part I: the exploration HUD's action_two/action_one icons are
+## the field Basic Attack / Skill controls -- distinct from the battle
+## Basic/Skill commands. Every other slot (inventory, party, quests, etc.)
+## is out of scope here and keeps its existing debug-print placeholder.
 func _on_hud_slot_pressed(slot_name: StringName) -> void:
-	print("Abyss Forest HUD slot requested: %s" % slot_name)
+	match slot_name:
+		&"action_two":
+			player.call("try_exploration_attack")
+		&"action_one":
+			player.call("try_exploration_skill")
+		_:
+			print("Abyss Forest HUD slot requested: %s" % slot_name)
+
+
+func _update_exploration_action_hud() -> void:
+	if not is_instance_valid(player) or not is_instance_valid(hud_explor):
+		return
+	hud_explor.set_exploration_actions_ready(
+		player.call("is_exploration_attack_ready"), player.call("is_exploration_skill_ready")
+	)
+
+
+func _on_interactable_target_changed(interactable: Node) -> void:
+	if interactable != null and interactable.has_method("get_interaction_prompt"):
+		hud_explor.set_interaction_prompt(interactable.call("get_interaction_prompt"))
+	else:
+		hud_explor.clear_interaction_prompt()
+
+
+## Block 14: re-applies defeats that were won in a *previous* instance of
+## this scene. WorldProgress.defeated_world_actor_ids survives the full
+## scene reload that SceneTransition performs; the enemy node itself does not.
+func _apply_persisted_enemy_defeats() -> void:
+	for actor_variant in get_tree().get_nodes_in_group(&"exploration_enemy"):
+		var actor := actor_variant as ExplorationEnemy3D
+		if actor != null and WorldProgress.is_world_actor_defeated(actor.world_actor_id):
+			actor.apply_encounter_result(&"victory")
+
+
+## Block 14: the other half of BattleSessionCoordinator's round trip -- this
+## scene is what "the world scene is ready" (Part D) refers to. Consumes at
+## most once per load; safe/inert if this boot wasn't a return from battle.
+func _consume_battle_return() -> void:
+	var pending := BattleSessionCoordinator.consume_pending_return()
+	if pending.is_empty():
+		return
+
+	var result: StringName = pending.get("result", &"unknown")
+	var world_actor_id: StringName = pending.get("world_actor_id", &"")
+	if not world_actor_id.is_empty():
+		var resolved_actor: ExplorationEnemy3D = null
+		for actor_variant in get_tree().get_nodes_in_group(&"exploration_enemy"):
+			var actor := actor_variant as ExplorationEnemy3D
+			if actor != null and actor.world_actor_id == world_actor_id:
+				resolved_actor = actor
+				break
+		if resolved_actor != null:
+			resolved_actor.apply_encounter_result(result)
+		if result == &"victory":
+			WorldProgress.mark_world_actor_defeated(world_actor_id)
+
+	var return_position: Vector3 = pending.get("return_position", player.global_position)
+	player.global_position = return_position
+	player.call("set_exploration_enabled", true)
+
+
+## Minimal Block 12 verification content: one Interactable3D, one Pickup3D,
+## and one AreaTrigger3D, wired to print so the systems are observable without
+## any battle/economy/quest coupling. Not a redesign of Abyss Forest.
+func _connect_testbed_content() -> void:
+	var test_interactable := get_node_or_null("TestInteractable")
+	if test_interactable != null:
+		test_interactable.interacted.connect(_on_test_interactable_interacted)
+	var test_pickup := get_node_or_null("TestPickup")
+	if test_pickup != null:
+		test_pickup.collected.connect(_on_test_pickup_collected)
+	var test_trigger := get_node_or_null("TestTrigger")
+	if test_trigger != null:
+		test_trigger.trigger_entered.connect(_on_test_trigger_entered)
+
+
+func _on_test_interactable_interacted(character: Node3D) -> void:
+	print("Abyss Forest test interactable used by: %s" % character.name)
+
+
+func _on_test_pickup_collected(character: Node3D, resource_id: StringName, amount: int) -> void:
+	print("Abyss Forest test pickup collected by %s: %s x%d" % [character.name, resource_id, amount])
+
+
+func _on_test_trigger_entered(character: Node3D) -> void:
+	print("Abyss Forest test trigger entered by: %s" % character.name)
 
 
 func _setup_abyss_bgm() -> void:

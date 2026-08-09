@@ -64,6 +64,15 @@ const GRASSLANDS_SCENE_PATH: String = "res://scenes/grasslands/grasslands_scene.
 const BANDIT_ENCOUNTER_ID: StringName = &"clover_bandit"
 const BANDIT_BGM_PATH: String = "res://public/The_Clover_Clash.mp3"
 const BANDIT_BACKGROUND_PATH: String = "res://public/grasslands/old_stone_crossing.png"
+## Block 14: minimal enemy-id -> stats lookup so an EncounterContext's
+## battle_enemy_ids (StringName) can configure a battle without the
+## exploration side duplicating battle stats in its own resources. Existing
+## bandit configuration in _configure_encounter() is untouched and does not
+## use this table.
+const BATTLE_ENEMY_CATALOG: Dictionary = {
+	&"lesser_abyss": {"name": "Lesser Abyss", "max_hp": 120, "damage": 14},
+	&"clover_bandit": {"name": "Bandit Captain", "max_hp": 150, "damage": 12},
+}
 const ULTIMATE_FRAME_COUNT: int = 88
 const ULTIMATE_FRAME_RATE: float = 15.0
 const ULTIMATE_FRAME_PATH_FORMAT: String = "res://public/ultimate_frames/takashi_ultimate_%03d.jpg"
@@ -195,10 +204,16 @@ const UltimateCommandAdapterScript := preload(
 
 @onready var player: Combatant = $"../Player"
 @onready var enemy: Combatant = $"../Enemy"
+## Block 14.5: named formation slots for dynamically spawned encounter-group
+## enemies (EnemySlot0 mirrors the primary Enemy node's own position, for
+## reference only -- the primary node is never moved). Optional so this
+## still works if an older/duplicated battle_scene.tscn lacks the group.
+@onready var enemy_formation: Node2D = get_node_or_null("../EnemyFormation")
 @onready var ui: BattleUI = $"../CanvasLayer/BattleUI"
 @onready var timing_bar: TimingBar = $"../CanvasLayer/BattleUI/TimingBar"
 @onready var battle_scene: Node2D = $".."
 @onready var battle_camera: Camera2D = get_node_or_null("../BattleCamera") as Camera2D
+@onready var battle_presentation_3d: BattlePresentation3D = get_node_or_null("../BattlePresentation3D") as BattlePresentation3D
 ## Block 9H: the only fire-and-forget camera tween in this file (every
 ## other camera tween -- Ultimate zoom in/out, enemy impact zoom -- is
 ## always awaited by its caller before continuing). Tracked so
@@ -257,6 +272,8 @@ var takashi_ultimate_fvx_frame_elapsed: float = 0.0
 var battle_ui_visible_before_ultimate: bool = true
 var enemy_impact_fvx_sprite: Sprite2D
 var enemy_impact_fvx_glow_sprite: Sprite2D
+var _ultimate_cutscene_snapshot: Dictionary = {}
+var _global_selected_target: Combatant = null
 var basic_command_adapter
 var basic_target_highlight: Line2D
 var active_basic_command_token: int = 0
@@ -314,6 +331,11 @@ var encounter_intro_text: String = "BATTLE START"
 var encounter_bgm_path: String = ""
 var encounter_background_path: String = ""
 var is_bandit_encounter: bool = false
+## Block 14: battle_enemy_ids beyond the first, spawned as extra Combatant
+## siblings after enemy.setup() -- same pattern already proven safe by
+## tests/battle/test_multi_enemy_targeting_production.gd (no BattleManager
+## changes were needed for _all_enemies_defeated() to already support this).
+var _pending_extra_battle_enemy_ids: Array[StringName] = []
 
 
 func _ready() -> void:
@@ -323,6 +345,9 @@ func _ready() -> void:
 	_setup_battle_bgm()
 	player.setup("Takashi", PLAYER_MAX_HP, BASIC_ATTACK_DAMAGE)
 	enemy.setup(encounter_enemy_name, encounter_enemy_max_hp, encounter_enemy_damage)
+
+	if EncounterCoordinator.has_active_encounter():
+		GameFlowState.set_context(GameFlowState.InputContext.BATTLE)
 
 	ui.attack_pressed.connect(_on_attack_pressed)
 	ui.skill_pressed.connect(_on_skill_pressed)
@@ -344,7 +369,18 @@ func _ready() -> void:
 	_start_player_idle_animation()
 	_load_ultimate_frames()
 
+	if battle_presentation_3d != null:
+		# Block 15 fix: this reference was never being set, so
+		# BattlePresentation3D's own battle_manager stayed null forever --
+		# every battle_manager-gated step (enemy actor spawning, hiding the
+		# 2D layer, HP/target sync) silently no-op'd, leaving the 2D and 3D
+		# presentations rendered on top of each other simultaneously.
+		battle_presentation_3d.battle_manager = self
+
 	await get_tree().process_frame
+	_spawn_additional_encounter_enemies()
+	if battle_presentation_3d != null:
+		battle_presentation_3d.refresh_enemy_actor_roster()
 	_setup_battle_effects()
 	_apply_runtime_layout()
 	_setup_basic_command_runtime()
@@ -408,8 +444,8 @@ func _unhandled_input(event: InputEvent) -> void:
 
 	if _uses_new_ultimate_command_flow() and _has_pending_ultimate_command():
 		if event.is_action_pressed("ui_cancel"):
-			if _cancel_ultimate_command():
-				get_viewport().set_input_as_handled()
+			_show_ultimate_locked_message()
+			get_viewport().set_input_as_handled()
 		elif event.is_action_pressed("ui_left"):
 			if _cycle_ultimate_target(-1):
 				get_viewport().set_input_as_handled()
@@ -424,6 +460,108 @@ func _unhandled_input(event: InputEvent) -> void:
 				and _select_ultimate_target_at_position(mouse_event.position)
 			):
 				get_viewport().set_input_as_handled()
+		return
+
+	if state == BattleState.PLAYER_TURN and not _has_pending_basic_command() and not _has_pending_skill_command() and not _has_pending_ultimate_command():
+		if event.is_action_pressed("ui_left"):
+			_cycle_global_target(-1)
+			get_viewport().set_input_as_handled()
+		elif event.is_action_pressed("ui_right"):
+			_cycle_global_target(1)
+			get_viewport().set_input_as_handled()
+		elif event is InputEventMouseButton:
+			var mouse_event := event as InputEventMouseButton
+			if mouse_event.button_index == MOUSE_BUTTON_LEFT and mouse_event.pressed:
+				var closest_target := _pick_target_at_screen_position(
+					mouse_event.position,
+					_get_basic_attack_candidate_targets()
+				)
+				if closest_target != null:
+					_global_selected_target = closest_target
+					if basic_target_highlight != null and not _uses_3d_target_markers():
+						basic_target_highlight.visible = true
+					get_viewport().set_input_as_handled()
+		return
+
+func _cycle_global_target(direction: int) -> void:
+	var candidates := _get_basic_attack_candidate_targets()
+	if candidates.size() < 2:
+		return
+	var current_index := 0
+	if _global_selected_target != null:
+		current_index = candidates.find(_global_selected_target)
+		if current_index < 0:
+			current_index = 0
+	var next_index := wrapi(current_index + direction, 0, candidates.size())
+	_global_selected_target = candidates[next_index] as Combatant
+	if basic_target_highlight != null and not _uses_3d_target_markers():
+		basic_target_highlight.visible = true
+
+
+func _uses_3d_target_markers() -> bool:
+	return battle_presentation_3d != null and is_instance_valid(battle_presentation_3d)
+
+
+func _preselect_pending_target_without_commit(
+	command: PendingBattleCommand,
+	target: Combatant
+) -> bool:
+	if command == null or command.is_committed or command.is_cancelled:
+		return false
+	if target == null or not is_instance_valid(target) or target.is_defeated():
+		return false
+	return command.select_target(target)
+
+
+func get_current_target_marker_target() -> Combatant:
+	if _has_pending_basic_command():
+		return _selected_basic_target(basic_command_adapter.get_pending_command())
+	if _has_pending_skill_command():
+		return _selected_skill_target(skill_command_adapter.get_pending_command())
+	if _has_pending_ultimate_command():
+		return _selected_ultimate_target(ultimate_command_adapter.get_pending_command())
+	if state == BattleState.PLAYER_TURN:
+		return _global_selected_target
+	return null
+
+
+func _pick_target_at_screen_position(
+	screen_position: Vector2,
+	candidates: Array[Node]
+) -> Combatant:
+	if battle_presentation_3d != null:
+		var picked_3d := battle_presentation_3d.pick_enemy_combatant_at_screen_position(
+			screen_position,
+			candidates
+		)
+		if picked_3d != null:
+			return picked_3d
+
+	var closest_target: Combatant
+	var closest_distance := INF
+	for candidate in candidates:
+		var combatant := candidate as Combatant
+		if combatant == null:
+			continue
+		var distance := screen_position.distance_to(combatant.global_position)
+		if distance < closest_distance:
+			closest_distance = distance
+			closest_target = combatant
+	if closest_target == null or closest_distance > 170.0:
+		return null
+	return closest_target
+
+
+func _target_highlight_position(
+	target: Combatant,
+	fallback_offset: Vector2,
+	vertical_ratio: float
+) -> Vector2:
+	if battle_presentation_3d != null:
+		var projected := battle_presentation_3d.get_enemy_screen_position(target, vertical_ratio)
+		if not is_inf(projected.x) and not is_inf(projected.y):
+			return projected
+	return target.global_position + fallback_offset
 
 
 func _exit_tree() -> void:
@@ -447,6 +585,10 @@ func restart_battle() -> void:
 
 
 func _configure_encounter() -> void:
+	if EncounterCoordinator.has_active_encounter():
+		_configure_from_encounter_context(EncounterCoordinator.get_active_context())
+		return
+
 	var progress := get_node_or_null("/root/WorldProgress")
 	if progress == null:
 		return
@@ -466,12 +608,83 @@ func _configure_encounter() -> void:
 	encounter_background_path = BANDIT_BACKGROUND_PATH
 
 
-func _stop_exploration_music() -> void:
-	if not is_bandit_encounter:
+## Block 14: configures the encounter from an accepted EncounterContext
+## instead of the legacy WorldProgress.active_battle_id flag. Reuses every
+## existing field _apply_encounter_presentation()/UI already read from --
+## no new presentation plumbing.
+func _configure_from_encounter_context(context: EncounterContext) -> void:
+	if context == null or context.battle_enemy_ids.is_empty():
+		push_error("BattleManager: active EncounterContext is invalid (null or empty roster); using default encounter")
 		return
+	var primary_id: StringName = context.battle_enemy_ids[0]
+	var primary_data: Dictionary = BATTLE_ENEMY_CATALOG.get(primary_id, {})
+	if primary_data.is_empty():
+		push_error("BattleManager: unknown battle_enemy_id '%s'; using default encounter" % primary_id)
+		return
+
+	is_bandit_encounter = false
+	encounter_enemy_name = primary_data.get("name", encounter_enemy_name)
+	encounter_enemy_max_hp = primary_data.get("max_hp", ENEMY_MAX_HP)
+	encounter_enemy_damage = primary_data.get("damage", ENEMY_BASE_DAMAGE)
+	encounter_opening_log = "A %s blocks the path. Choose Takashi's first action." % encounter_enemy_name
+	encounter_victory_log = ""
+	encounter_victory_scene_path = (
+		context.source_world_scene if not context.source_world_scene.is_empty() else ENDING_SCENE_PATH
+	)
+	encounter_retry_scene_path = ""
+	encounter_intro_text = "ENCOUNTER"
+	encounter_bgm_path = ""
+	encounter_background_path = ""
+	_pending_extra_battle_enemy_ids = context.battle_enemy_ids.slice(1)
+
+
+## Block 14.5: extra roster members beyond the primary `enemy` node.
+## Duplicates `enemy` (script, visual body, HP bar, name label all included)
+## rather than a bare Combatant.new() -- a bare Combatant has no
+## PlaceholderVisual/HpBar children at all, which made every dynamically
+## spawned encounter-group enemy completely invisible with no HP display,
+## even though it was fully alive and targetable. Placed via the named
+## EnemyFormation marker slots in battle_scene.tscn (falls back to a
+## computed offset if an older scene copy lacks them) and scaled down
+## slightly so a 2-3 enemy group fits the stage without running off-screen.
+const ENCOUNTER_GROUP_SCALE: float = 0.62
+
+func _spawn_additional_encounter_enemies() -> void:
+	if _pending_extra_battle_enemy_ids.is_empty():
+		return
+	for index in range(_pending_extra_battle_enemy_ids.size()):
+		var extra_id: StringName = _pending_extra_battle_enemy_ids[index]
+		var data: Dictionary = BATTLE_ENEMY_CATALOG.get(extra_id, {})
+		if data.is_empty():
+			push_error("BattleManager: unknown extra battle_enemy_id '%s'; skipping roster slot" % extra_id)
+			continue
+		var extra_enemy := enemy.duplicate() as Combatant
+		extra_enemy.name = "EncounterEnemy%d" % (index + 2)
+		extra_enemy.position = _encounter_formation_slot_position(index)
+		extra_enemy.home_scale = Vector2.ONE * ENCOUNTER_GROUP_SCALE
+		get_parent().add_child(extra_enemy)
+		extra_enemy.set_home_position(extra_enemy.position)
+		extra_enemy.setup(
+			data.get("name", "Lesser Abyss"), data.get("max_hp", ENEMY_MAX_HP), data.get("damage", ENEMY_BASE_DAMAGE)
+		)
+	_pending_extra_battle_enemy_ids.clear()
+
+
+## `index` is 0-based across the *extra* roster (index 0 == the first enemy
+## beyond the primary), matching EnemySlot1, EnemySlot2, ... in
+## battle_scene.tscn's EnemyFormation group.
+func _encounter_formation_slot_position(index: int) -> Vector2:
+	if enemy_formation != null:
+		var slot := enemy_formation.get_node_or_null("EnemySlot%d" % (index + 1))
+		if slot is Node2D:
+			return (slot as Node2D).position
+	return enemy.position + Vector2(140.0 * float(index + 1), 0.0)
+
+
+func _stop_exploration_music() -> void:
 	var music_director := get_node_or_null("/root/MusicDirector")
 	if music_director != null:
-		music_director.call("stop_music", 0.35)
+		music_director.call("stop_music", 0.0)
 
 
 func _apply_encounter_presentation() -> void:
@@ -499,8 +712,11 @@ func _reset_battle_values() -> void:
 	enemy.reset_hp()
 	ultimate_energy = 0
 	skill_points = START_SKILL_POINTS
+	_apply_persisted_player_runtime_state()
+	_apply_opening_advantage_effects()
 	_reset_camera()
 	_hide_takashi_ultimate_glow_effect()
+	_global_selected_target = null
 	_reset_basic_command_runtime()
 	_reset_skill_command_runtime()
 	_reset_ultimate_command_runtime()
@@ -511,6 +727,50 @@ func _reset_battle_values() -> void:
 	_refresh_player_status_ui()
 	_refresh_energy_ui()
 	_refresh_skill_points_ui()
+
+
+## Block 14: HP/Energy must not silently reset just because a battle scene
+## loaded. PartyRuntimeState.ensure_initialized() is idempotent -- the first
+## battle of a session creates the state at full HP/starting Energy
+## (identical to today's behavior), every battle after that continues from
+## wherever the previous one left off.
+func _apply_persisted_player_runtime_state() -> void:
+	var state: CharacterRuntimeState = PartyRuntimeState.ensure_initialized(
+		&"takashi", PLAYER_MAX_HP, MAX_ULTIMATE_ENERGY, 0
+	)
+	player.current_hp = clampi(state.current_hp, 0, player.max_hp)
+	ultimate_energy = clampi(state.current_energy, 0, MAX_ULTIMATE_ENERGY)
+
+
+## Block 14 Part F: maps EncounterContext.opening_advantage onto the safest
+## existing seam (Combatant.take_damage(), already used everywhere in normal
+## combat resolution) rather than touching turn order/scheduling -- the
+## player already always acts first every battle (state defaults to
+## PLAYER_TURN), so "who goes first" cannot be the differentiator. NEUTRAL
+## changes nothing; PLAYER_ADVANTAGE/ENEMY_ADVANTAGE apply a modest opening
+## hit representing the field strike that decided who was ambushed.
+func _apply_opening_advantage_effects() -> void:
+	if not EncounterCoordinator.has_active_encounter():
+		return
+	var context: EncounterContext = EncounterCoordinator.get_active_context()
+	if context == null:
+		return
+	match context.opening_advantage:
+		EncounterContext.OpeningAdvantage.PLAYER_ADVANTAGE:
+			enemy.take_damage(roundi(float(enemy.max_hp) * 0.15))
+		EncounterContext.OpeningAdvantage.ENEMY_ADVANTAGE:
+			player.take_damage(roundi(float(player.max_hp) * 0.10))
+		_:
+			pass
+	_refresh_player_status_ui()
+
+
+## Block 14: writes the battle-concluded HP/Energy back as the new
+## authoritative runtime state. Called from both _win() and _lose() so the
+## legacy bandit encounter also benefits (a fresh PartyRuntimeState entry at
+## full HP means a first-ever battle is unaffected either way).
+func _persist_player_runtime_state() -> void:
+	PartyRuntimeState.apply_battle_result(&"takashi", player.current_hp, ultimate_energy, player.is_defeated())
 
 
 func _apply_runtime_layout() -> void:
@@ -647,7 +907,13 @@ func _begin_basic_attack_command() -> bool:
 		return false
 	if _has_pending_basic_command() or _has_pending_skill_command():
 		return false
-	return basic_command_adapter.begin_basic()
+	var preferred_target := _global_selected_target
+	var started = basic_command_adapter.begin_basic()
+	if started:
+		var command: PendingBattleCommand = basic_command_adapter.get_pending_command()
+		if _preselect_pending_target_without_commit(command, preferred_target):
+			_on_basic_command_target_changed(command, command.selected_targets.duplicate())
+	return started
 
 
 func _confirm_basic_attack_command() -> bool:
@@ -674,6 +940,9 @@ func _on_basic_command_target_changed(
 	command: PendingBattleCommand,
 	_targets: Array
 ) -> void:
+	var selected := _selected_basic_target(command)
+	if selected != null:
+		_global_selected_target = selected
 	if command.candidate_targets.size() <= 1:
 		return
 	_show_basic_target_highlight(command)
@@ -727,6 +996,8 @@ func _execute_committed_basic_attack(command: PendingBattleCommand) -> void:
 	active_basic_command_token = command.commit_token
 	state = BattleState.ACTION_RESOLUTION
 	_set_player_action_texture(TAKASHI_BASIC_TEXTURE)
+	if battle_presentation_3d != null:
+		battle_presentation_3d.play_party_attack()
 	ui.set_turn_text("Void Strike")
 	ui.set_battle_log("Void Strike!")
 	await _resolve_basic_attack(target, command)
@@ -873,17 +1144,8 @@ func _select_basic_target_at_position(screen_position: Vector2) -> bool:
 	var command: PendingBattleCommand = basic_command_adapter.get_pending_command()
 	command.candidate_targets.assign(_get_basic_attack_candidate_targets())
 	command.refresh_candidates()
-	var closest_target: Combatant
-	var closest_distance := INF
-	for candidate in command.candidate_targets:
-		var combatant := candidate as Combatant
-		if combatant == null:
-			continue
-		var distance := screen_position.distance_to(combatant.global_position)
-		if distance < closest_distance:
-			closest_distance = distance
-			closest_target = combatant
-	if closest_target == null or closest_distance > 170.0:
+	var closest_target := _pick_target_at_screen_position(screen_position, command.candidate_targets)
+	if closest_target == null:
 		return false
 	return basic_command_adapter.select_target(closest_target)
 
@@ -981,26 +1243,46 @@ func _create_basic_target_highlight() -> void:
 func _show_basic_target_highlight(command: PendingBattleCommand) -> void:
 	if basic_target_highlight == null:
 		return
+	if _uses_3d_target_markers():
+		basic_target_highlight.visible = false
+		return
 	basic_target_highlight.visible = _selected_basic_target(command) != null
 	_sync_basic_target_highlight()
 
 
 func _hide_basic_target_highlight() -> void:
-	if basic_target_highlight != null:
+	if basic_target_highlight == null:
+		return
+	if _uses_3d_target_markers():
+		basic_target_highlight.visible = false
+		return
+	if state == BattleState.PLAYER_TURN and not _has_pending_skill_command() and not _has_pending_ultimate_command() and _global_selected_target != null:
+		basic_target_highlight.visible = true
+	else:
 		basic_target_highlight.visible = false
 
 
 func _sync_basic_target_highlight() -> void:
-	if basic_target_highlight == null or not basic_target_highlight.visible:
+	if basic_target_highlight == null:
 		return
-	if not _has_pending_basic_command():
+	if _uses_3d_target_markers():
 		basic_target_highlight.visible = false
 		return
-	var target := _selected_basic_target(basic_command_adapter.get_pending_command())
-	if target == null:
+
+	var target: Combatant = null
+	if _has_pending_basic_command():
+		target = _selected_basic_target(basic_command_adapter.get_pending_command())
+	elif state == BattleState.PLAYER_TURN and not _has_pending_skill_command() and not _has_pending_ultimate_command():
+		target = _global_selected_target
+
+	if target == null or not is_instance_valid(target) or target.is_defeated():
+		if _global_selected_target == target:
+			_global_selected_target = null
 		basic_target_highlight.visible = false
 		return
-	basic_target_highlight.global_position = target.global_position + Vector2(0.0, -72.0)
+
+	basic_target_highlight.visible = true
+	basic_target_highlight.global_position = _target_highlight_position(target, Vector2(0.0, -72.0), 0.48)
 	basic_target_highlight.rotation += 0.008
 
 
@@ -1055,11 +1337,17 @@ func _begin_skill_command() -> bool:
 	if skill_points < SKILL_POINT_COST_SKILL:
 		ui.set_battle_log("Triangle Rift needs %d Skill Point." % SKILL_POINT_COST_SKILL)
 		return false
-	return skill_command_adapter.begin_skill(
+	var preferred_target := _global_selected_target
+	var started = skill_command_adapter.begin_skill(
 		&"triangle_rift",
 		PendingBattleCommand.TargetRule.SINGLE_ENEMY,
 		SKILL_POINT_COST_SKILL
 	)
+	if started:
+		var command: PendingBattleCommand = skill_command_adapter.get_pending_command()
+		if _preselect_pending_target_without_commit(command, preferred_target):
+			_on_skill_command_target_changed(command, command.selected_targets.duplicate())
+	return started
 
 
 func _confirm_skill_command() -> bool:
@@ -1095,6 +1383,8 @@ func _has_pending_skill_command() -> bool:
 ## multi-target pending already left buttons enabled (Block 8.5).
 func _on_skill_command_ready(command: PendingBattleCommand) -> void:
 	_start_skill_ready_idle()
+	if battle_presentation_3d != null:
+		battle_presentation_3d.camera_transition(BattleCamera3D.Preset.PLAYER_SKILL)
 	_update_action_buttons(true)
 	ui.set_battle_input_enabled(true)
 	ui.set_turn_text("Triangle Rift")
@@ -1106,6 +1396,9 @@ func _on_skill_command_target_changed(
 	command: PendingBattleCommand,
 	_targets: Array
 ) -> void:
+	var selected := _selected_skill_target(command)
+	if selected != null:
+		_global_selected_target = selected
 	_update_skill_command_panel(command)
 	_show_skill_target_highlight(command)
 
@@ -1114,6 +1407,8 @@ func _on_skill_command_cancelled(_command: PendingBattleCommand) -> void:
 	active_skill_command_token = 0
 	_stop_player_skill_animation()
 	_start_player_idle_animation()
+	if battle_presentation_3d != null:
+		battle_presentation_3d.camera_return_to_idle()
 	_hide_skill_target_highlight()
 	_set_skill_command_panel_visible(false)
 	ui.set_battle_input_enabled(true)
@@ -1137,6 +1432,8 @@ func _on_skill_command_failed(
 	active_skill_command_token = 0
 	_stop_player_skill_animation()
 	_start_player_idle_animation()
+	if battle_presentation_3d != null:
+		battle_presentation_3d.camera_return_to_idle()
 	_hide_skill_target_highlight()
 	_set_skill_command_panel_visible(false)
 	if _is_battle_over():
@@ -1170,6 +1467,8 @@ func _execute_committed_skill(command: PendingBattleCommand) -> void:
 	active_skill_command_token = command.commit_token
 	state = BattleState.ACTION_RESOLUTION
 	_set_player_action_texture(TAKASHI_SKILL_TEXTURE)
+	if battle_presentation_3d != null:
+		battle_presentation_3d.play_party_skill()
 	_play_skill_sfx()
 	_update_action_buttons(false)
 	ui.set_turn_text("Triangle Rift")
@@ -1318,17 +1617,8 @@ func _select_skill_target_at_position(screen_position: Vector2) -> bool:
 	var command: PendingBattleCommand = skill_command_adapter.get_pending_command()
 	command.candidate_targets.assign(_get_skill_candidate_targets())
 	command.refresh_candidates()
-	var closest_target: Combatant
-	var closest_distance := INF
-	for candidate in command.candidate_targets:
-		var combatant := candidate as Combatant
-		if combatant == null:
-			continue
-		var distance := screen_position.distance_to(combatant.global_position)
-		if distance < closest_distance:
-			closest_distance = distance
-			closest_target = combatant
-	if closest_target == null or closest_distance > 170.0:
+	var closest_target := _pick_target_at_screen_position(screen_position, command.candidate_targets)
+	if closest_target == null:
 		return false
 	return skill_command_adapter.select_target(closest_target)
 
@@ -1441,6 +1731,9 @@ func _create_skill_target_highlight() -> void:
 func _show_skill_target_highlight(command: PendingBattleCommand) -> void:
 	if skill_target_highlight == null:
 		return
+	if _uses_3d_target_markers():
+		skill_target_highlight.visible = false
+		return
 	skill_target_highlight.visible = _selected_skill_target(command) != null
 	_sync_skill_target_highlight()
 
@@ -1453,6 +1746,9 @@ func _hide_skill_target_highlight() -> void:
 func _sync_skill_target_highlight() -> void:
 	if skill_target_highlight == null or not skill_target_highlight.visible:
 		return
+	if _uses_3d_target_markers():
+		skill_target_highlight.visible = false
+		return
 	if not _has_pending_skill_command():
 		skill_target_highlight.visible = false
 		return
@@ -1460,7 +1756,7 @@ func _sync_skill_target_highlight() -> void:
 	if target == null:
 		skill_target_highlight.visible = false
 		return
-	skill_target_highlight.global_position = target.global_position + Vector2(0.0, -76.0)
+	skill_target_highlight.global_position = _target_highlight_position(target, Vector2(0.0, -76.0), 0.5)
 	skill_target_highlight.rotation -= 0.01
 
 
@@ -1945,11 +2241,17 @@ func _begin_ultimate_command() -> bool:
 	if ultimate_energy < MAX_ULTIMATE_ENERGY:
 		ui.set_battle_log("Octagram Fragment needs full Energy.")
 		return false
-	return ultimate_command_adapter.begin_ultimate(
+	var preferred_target := _global_selected_target
+	var started = ultimate_command_adapter.begin_ultimate(
 		&"octagram_fragment",
 		PendingBattleCommand.TargetRule.SINGLE_ENEMY,
 		MAX_ULTIMATE_ENERGY
 	)
+	if started:
+		var command: PendingBattleCommand = ultimate_command_adapter.get_pending_command()
+		if _preselect_pending_target_without_commit(command, preferred_target):
+			_on_ultimate_command_target_changed(command, command.selected_targets.duplicate())
+	return started
 
 
 func _confirm_ultimate_command() -> bool:
@@ -1962,7 +2264,8 @@ func _confirm_ultimate_command() -> bool:
 func _cancel_ultimate_command() -> bool:
 	if not _has_pending_ultimate_command():
 		return false
-	return ultimate_command_adapter.cancel_ultimate()
+	_show_ultimate_locked_message()
+	return false
 
 
 func _has_pending_ultimate_command() -> bool:
@@ -1981,14 +2284,14 @@ func _has_pending_ultimate_command() -> bool:
 ## documented in docs/battle_command_flow_implementation.md, "Block 9E";
 ## this handler deliberately no longer calls
 ## _set_ultimate_command_panel_visible(true).
-## Buttons stay enabled (not disabled like before Block 9E) during ready
-## idle -- committing lives with the Ultimate/target-click input handlers
-## now, and Basic/Skill must stay clickable so pressing them can cancel
-## this pending Ultimate (on-turn or queued) and return to default
-## select/player turn, matching how Basic's own multi-target pending
-## already left buttons enabled (Block 8.5).
+## Buttons stay enabled during ready idle so the same Ultimate button can
+## commit on a second press. Basic/Skill/Escape are deliberately locked
+## out while Ultimate is pending; unlike Skill, Ultimate ready idle cannot
+## be cancelled by changing commands.
 func _on_ultimate_command_ready(command: PendingBattleCommand) -> void:
 	_start_ultimate_ready_idle()
+	if battle_presentation_3d != null:
+		battle_presentation_3d.camera_transition(BattleCamera3D.Preset.PLAYER_ULTIMATE)
 	_update_action_buttons(true)
 	ui.set_battle_input_enabled(true)
 	ui.set_turn_text("Octagram Fragment")
@@ -2000,6 +2303,9 @@ func _on_ultimate_command_target_changed(
 	command: PendingBattleCommand,
 	_targets: Array
 ) -> void:
+	var selected := _selected_ultimate_target(command)
+	if selected != null:
+		_global_selected_target = selected
 	_update_ultimate_command_panel(command)
 	_show_ultimate_target_highlight(command)
 
@@ -2008,6 +2314,8 @@ func _on_ultimate_command_cancelled(command: PendingBattleCommand) -> void:
 	var was_interrupt := _is_interrupt_sourced(command)
 	active_ultimate_command_token = 0
 	_start_player_idle_animation()
+	if battle_presentation_3d != null:
+		battle_presentation_3d.camera_return_to_idle()
 	_hide_ultimate_target_highlight()
 	_set_ultimate_command_panel_visible(false)
 	if was_interrupt:
@@ -2038,6 +2346,9 @@ func _on_ultimate_command_failed(
 	var was_interrupt := _is_interrupt_sourced(command)
 	active_ultimate_command_token = 0
 	_start_player_idle_animation()
+	_exit_ultimate_cutscene_presentation()
+	if battle_presentation_3d != null:
+		battle_presentation_3d.camera_return_to_idle()
 	_hide_ultimate_target_highlight()
 	_set_ultimate_command_panel_visible(false)
 	if _is_battle_over():
@@ -2130,6 +2441,7 @@ func _abort_committed_ultimate_command(
 	reason: StringName
 ) -> void:
 	active_ultimate_command_token = 0
+	_abort_ultimate_cutscene_visuals()
 	if ultimate_command_adapter != null:
 		ultimate_command_adapter.fail_ultimate(command, reason)
 		ultimate_command_adapter.reset()
@@ -2255,17 +2567,8 @@ func _select_ultimate_target_at_position(screen_position: Vector2) -> bool:
 	var command: PendingBattleCommand = ultimate_command_adapter.get_pending_command()
 	command.candidate_targets.assign(_get_ultimate_candidate_targets())
 	command.refresh_candidates()
-	var closest_target: Combatant
-	var closest_distance := INF
-	for candidate in command.candidate_targets:
-		var combatant := candidate as Combatant
-		if combatant == null:
-			continue
-		var distance := screen_position.distance_to(combatant.global_position)
-		if distance < closest_distance:
-			closest_distance = distance
-			closest_target = combatant
-	if closest_target == null or closest_distance > 170.0:
+	var closest_target := _pick_target_at_screen_position(screen_position, command.candidate_targets)
+	if closest_target == null:
 		return false
 	return ultimate_command_adapter.select_target(closest_target)
 
@@ -2366,6 +2669,9 @@ func _create_ultimate_target_highlight() -> void:
 func _show_ultimate_target_highlight(command: PendingBattleCommand) -> void:
 	if ultimate_target_highlight == null:
 		return
+	if _uses_3d_target_markers():
+		ultimate_target_highlight.visible = false
+		return
 	ultimate_target_highlight.visible = _selected_ultimate_target(command) != null
 	_sync_ultimate_target_highlight()
 
@@ -2378,6 +2684,9 @@ func _hide_ultimate_target_highlight() -> void:
 func _sync_ultimate_target_highlight() -> void:
 	if ultimate_target_highlight == null or not ultimate_target_highlight.visible:
 		return
+	if _uses_3d_target_markers():
+		ultimate_target_highlight.visible = false
+		return
 	if not _has_pending_ultimate_command():
 		ultimate_target_highlight.visible = false
 		return
@@ -2385,7 +2694,7 @@ func _sync_ultimate_target_highlight() -> void:
 	if target == null:
 		ultimate_target_highlight.visible = false
 		return
-	ultimate_target_highlight.global_position = target.global_position + Vector2(0.0, -80.0)
+	ultimate_target_highlight.global_position = _target_highlight_position(target, Vector2(0.0, -80.0), 0.52)
 	ultimate_target_highlight.rotation += 0.012
 
 
@@ -2722,7 +3031,7 @@ func _on_attack_pressed() -> void:
 		_cancel_skill_command()
 		return
 	if _has_pending_ultimate_command():
-		_cancel_ultimate_command()
+		_show_ultimate_locked_message()
 		return
 
 	if _uses_new_basic_command_flow():
@@ -2828,7 +3137,7 @@ func _on_skill_pressed() -> void:
 		_cancel_basic_attack_command()
 		return
 	if _has_pending_ultimate_command():
-		_cancel_ultimate_command()
+		_show_ultimate_locked_message()
 		return
 
 	if _uses_new_skill_command_flow():
@@ -2858,7 +3167,8 @@ func _start_legacy_skill() -> void:
 ## confirm_pending_command(), which does not care whether the command was
 ## on-turn or interrupt-sourced). Pressing Ultimate while a *different*
 ## command (Basic/Skill) is pending only cancels that command and returns
-## to default select, matching _on_attack_pressed()/_on_skill_pressed().
+## to default select. The reverse is not true: once Ultimate itself is
+## pending, Basic/Skill/Escape only show the locked message.
 func _on_ultimate_pressed() -> void:
 	if _has_pending_ultimate_command():
 		_confirm_ultimate_command()
@@ -2888,6 +3198,11 @@ func _on_ultimate_pressed() -> void:
 	await _start_legacy_ultimate()
 
 
+func _show_ultimate_locked_message() -> void:
+	if ui != null:
+		ui.set_battle_log("Octagram Fragment is locked in. Press Ultimate again or choose a target.")
+
+
 func _start_legacy_ultimate() -> void:
 	state = BattleState.ACTION_RESOLUTION
 	_update_action_buttons(false)
@@ -2905,28 +3220,25 @@ func _run_ultimate_sequence(
 	if not _ultimate_execution_guard(command, target):
 		return
 
+	_enter_ultimate_cutscene_presentation(target)
 	_set_battle_ui_for_ultimate(false)
 	_start_ultimate_camera_zoom_in()
 	await _play_takashi_ultimate_fvx_intro()
 	if not _ultimate_execution_guard(command, target):
-		_hide_takashi_ultimate_glow_effect()
-		_set_battle_ui_for_ultimate(true)
+		_abort_ultimate_cutscene_visuals()
 		return
 	await _play_takashi_ulti_pre_animation()
 	if not _ultimate_execution_guard(command, target):
-		_hide_takashi_ultimate_glow_effect()
-		_set_battle_ui_for_ultimate(true)
+		_abort_ultimate_cutscene_visuals()
 		return
 	await _wait_for_remaining_ultimate_zoom_in()
 	if not _ultimate_execution_guard(command, target):
-		_hide_takashi_ultimate_glow_effect()
-		_set_battle_ui_for_ultimate(true)
+		_abort_ultimate_cutscene_visuals()
 		return
 
 	await _play_ultimate_sequence()
 	if not _ultimate_execution_guard(command, target):
-		_hide_takashi_ultimate_glow_effect()
-		_set_battle_ui_for_ultimate(true)
+		_abort_ultimate_cutscene_visuals()
 		return
 
 	_play_ultimate_shatter_sfx()
@@ -2937,30 +3249,28 @@ func _run_ultimate_sequence(
 	_shake_camera_with_strength(7.0)
 	await _play_takashi_ulti_post_animation()
 	if not _ultimate_execution_guard(command, target):
-		_hide_takashi_ultimate_glow_effect()
-		_set_battle_ui_for_ultimate(true)
+		_abort_ultimate_cutscene_visuals()
 		return
 
 	await _play_ultimate_camera_zoom_out()
 	_set_battle_ui_for_ultimate(true)
 	if not _ultimate_execution_guard(command, target):
-		_hide_takashi_ultimate_glow_effect()
+		_abort_ultimate_cutscene_visuals()
 		return
 
 	await player.play_ultimate_feedback()
 	if not _ultimate_execution_guard(command, target):
-		_hide_takashi_ultimate_glow_effect()
+		_abort_ultimate_cutscene_visuals()
 		return
 
 	await player.play_skill_movement(target)
 	if not _ultimate_execution_guard(command, target):
-		_hide_takashi_ultimate_glow_effect()
+		_abort_ultimate_cutscene_visuals()
 		return
 
-	await _play_enemy_octagram_impact()
+	await _play_enemy_octagram_impact(target)
 	if not _ultimate_execution_guard(command, target):
-		_hide_takashi_ultimate_glow_effect()
-		_hide_enemy_impact_fvx()
+		_abort_ultimate_cutscene_visuals()
 		return
 
 	if command != null and not ultimate_command_adapter.begin_resolution(command):
@@ -2981,13 +3291,71 @@ func _run_ultimate_sequence(
 		return
 	await _play_enemy_impact_camera_zoom_out()
 	if not _ultimate_execution_guard(command, target, false):
+		_abort_ultimate_cutscene_visuals()
 		return
+	_exit_ultimate_cutscene_presentation()
 	_shake_camera()
 	var log_text := "Octagram Fragment deals %d damage and consumes all energy." % ULTIMATE_DAMAGE
 	if command != null:
 		_finish_ultimate_command_resolution(command, log_text, _is_interrupt_sourced(command))
 	else:
 		_finish_player_action(log_text)
+
+
+func _abort_ultimate_cutscene_visuals() -> void:
+	_hide_takashi_ultimate_glow_effect()
+	_hide_enemy_impact_fvx()
+	if ultimate_frame_player != null:
+		ultimate_frame_player.texture = null
+		ultimate_frame_player.visible = false
+	if ultimate_audio_player != null:
+		ultimate_audio_player.stop()
+	_set_battle_ui_for_ultimate(true)
+	_exit_ultimate_cutscene_presentation()
+
+
+func _enter_ultimate_cutscene_presentation(target: Combatant) -> void:
+	if not _uses_3d_target_markers() or not _ultimate_cutscene_snapshot.is_empty():
+		return
+	_ultimate_cutscene_snapshot = {
+		"presentation_visible": battle_presentation_3d.visible,
+		"battle_camera_enabled": battle_camera.enabled if battle_camera != null else false,
+		"player_visible": player.visible if player != null else false,
+		"player_modulate": player.modulate if player != null else Color.WHITE,
+		"target": target,
+		"target_visible": target.visible if target != null else false,
+		"target_modulate": target.modulate if target != null else Color.WHITE,
+	}
+	battle_presentation_3d.visible = false
+	if battle_camera != null:
+		battle_camera.enabled = true
+	_show_combatant_for_ultimate_cutscene(player)
+	_show_combatant_for_ultimate_cutscene(target)
+
+
+func _exit_ultimate_cutscene_presentation() -> void:
+	if _ultimate_cutscene_snapshot.is_empty():
+		return
+	if battle_presentation_3d != null and is_instance_valid(battle_presentation_3d):
+		battle_presentation_3d.visible = bool(_ultimate_cutscene_snapshot.get("presentation_visible", true))
+		battle_presentation_3d.camera_return_to_idle()
+	if battle_camera != null:
+		battle_camera.enabled = bool(_ultimate_cutscene_snapshot.get("battle_camera_enabled", false))
+	if player != null and is_instance_valid(player):
+		player.visible = bool(_ultimate_cutscene_snapshot.get("player_visible", player.visible))
+		player.modulate = _ultimate_cutscene_snapshot.get("player_modulate", player.modulate)
+	var target := _ultimate_cutscene_snapshot.get("target") as Combatant
+	if target != null and is_instance_valid(target):
+		target.visible = bool(_ultimate_cutscene_snapshot.get("target_visible", target.visible))
+		target.modulate = _ultimate_cutscene_snapshot.get("target_modulate", target.modulate)
+	_ultimate_cutscene_snapshot.clear()
+
+
+func _show_combatant_for_ultimate_cutscene(combatant: Combatant) -> void:
+	if combatant == null or not is_instance_valid(combatant):
+		return
+	combatant.visible = true
+	combatant.modulate.a = 1.0
 
 
 func _set_battle_ui_for_ultimate(visible: bool) -> void:
@@ -3159,8 +3527,9 @@ func _setup_takashi_ultimate_effect_nodes() -> void:
 
 
 func _setup_enemy_impact_fvx_nodes() -> void:
-	if enemy == null:
+	if enemy == null and effect_layer == null:
 		return
+	var parent_node: Node = effect_layer if effect_layer != null else enemy
 
 	enemy_impact_fvx_glow_sprite = Sprite2D.new()
 	enemy_impact_fvx_glow_sprite.name = "RuntimeEnemyImpactFVXGlow"
@@ -3168,7 +3537,7 @@ func _setup_enemy_impact_fvx_nodes() -> void:
 	enemy_impact_fvx_glow_sprite.z_index = -3
 	enemy_impact_fvx_glow_sprite.centered = true
 	enemy_impact_fvx_glow_sprite.material = _create_png_glow_shader_material(Color(0.42, 0.88, 1.0, 1.0), 18.0, 1.5, 0.16)
-	enemy.add_child(enemy_impact_fvx_glow_sprite)
+	parent_node.add_child(enemy_impact_fvx_glow_sprite)
 
 	enemy_impact_fvx_sprite = Sprite2D.new()
 	enemy_impact_fvx_sprite.name = "RuntimeEnemyImpactFVX"
@@ -3176,8 +3545,8 @@ func _setup_enemy_impact_fvx_nodes() -> void:
 	enemy_impact_fvx_sprite.z_index = -2
 	enemy_impact_fvx_sprite.centered = true
 	enemy_impact_fvx_sprite.material = _create_additive_canvas_material()
-	enemy.add_child(enemy_impact_fvx_sprite)
-	_sync_enemy_impact_fvx_layout()
+	parent_node.add_child(enemy_impact_fvx_sprite)
+	_sync_enemy_impact_fvx_layout(enemy)
 
 
 func _create_additive_canvas_material() -> CanvasItemMaterial:
@@ -3401,13 +3770,13 @@ func _shrink_takashi_ultimate_fvx_for_enemy_focus() -> void:
 		tween.parallel().tween_property(takashi_ultimate_fvx_glow_sprite, "scale", takashi_ultimate_fvx_glow_sprite.scale * TAKASHI_ULTIMATE_FVX_ENEMY_FOCUS_SCALE, 0.3)
 
 
-func _play_enemy_octagram_impact() -> void:
+func _play_enemy_octagram_impact(target: Combatant) -> void:
 	_shrink_takashi_ultimate_fvx_for_enemy_focus()
-	_start_enemy_impact_camera_zoom_in()
+	_start_enemy_impact_camera_zoom_in(target)
 	_play_enemy_octagram_wind_sfx()
 	_play_ultimate_charge_rumble_sfx(0.7)
 	_play_octagram_chime_sfx()
-	await _play_enemy_octagram_fvx_buildup()
+	await _play_enemy_octagram_fvx_buildup(target)
 	if state != BattleState.ACTION_RESOLUTION:
 		_hide_enemy_impact_fvx()
 		return
@@ -3419,17 +3788,17 @@ func _play_enemy_octagram_impact() -> void:
 	_play_ultimate_deep_boom_sfx(1.05)
 	_play_screen_flash(Color(0.65, 0.92, 1.0, 0.4), 0.16)
 	_shake_camera_with_strength(9.0)
-	_spawn_triangle_rift_effect(enemy, true)
-	_spawn_hit_spark(enemy, Color(0.55, 0.92, 1.0, 1.0))
+	_spawn_triangle_rift_effect(target, true)
+	_spawn_hit_spark(target, Color(0.55, 0.92, 1.0, 1.0))
 	await get_tree().create_timer(0.05).timeout
 	await _fade_out_enemy_impact_fvx(0.22)
 
 
-func _start_enemy_impact_camera_zoom_in() -> void:
-	if battle_camera == null:
+func _start_enemy_impact_camera_zoom_in(target: Combatant) -> void:
+	if battle_camera == null or target == null:
 		return
 
-	var target_position: Vector2 = enemy.global_position + ENEMY_IMPACT_FOCUS_OFFSET
+	var target_position: Vector2 = target.global_position + ENEMY_IMPACT_FOCUS_OFFSET
 	var tween: Tween = create_tween()
 	tween.set_trans(Tween.TRANS_SINE)
 	tween.set_ease(Tween.EASE_IN_OUT)
@@ -3455,7 +3824,7 @@ func _play_enemy_impact_camera_zoom_out() -> void:
 	await tween.finished
 
 
-func _play_enemy_octagram_fvx_buildup() -> void:
+func _play_enemy_octagram_fvx_buildup(target: Combatant) -> void:
 	if takashi_ultimate_fvx_frames.is_empty():
 		return
 
@@ -3463,10 +3832,10 @@ func _play_enemy_octagram_fvx_buildup() -> void:
 	for frame_index in range(frame_count):
 		if state != BattleState.ACTION_RESOLUTION:
 			return
-		await _play_enemy_impact_fvx_step(frame_index, frame_index == frame_count - 1)
+		await _play_enemy_impact_fvx_step(frame_index, frame_index == frame_count - 1, target)
 
 
-func _play_enemy_impact_fvx_step(frame_index: int, keep_visible: bool) -> void:
+func _play_enemy_impact_fvx_step(frame_index: int, keep_visible: bool, target: Combatant) -> void:
 	if enemy_impact_fvx_sprite == null or enemy_impact_fvx_glow_sprite == null:
 		return
 	if frame_index < 0 or frame_index >= takashi_ultimate_fvx_frames.size():
@@ -3475,7 +3844,7 @@ func _play_enemy_impact_fvx_step(frame_index: int, keep_visible: bool) -> void:
 	var frame_texture: Texture2D = takashi_ultimate_fvx_frames[frame_index]
 	enemy_impact_fvx_sprite.texture = frame_texture
 	enemy_impact_fvx_glow_sprite.texture = frame_texture
-	_sync_enemy_impact_fvx_layout()
+	_sync_enemy_impact_fvx_layout(target)
 
 	var base_scale: Vector2 = _get_enemy_impact_fvx_scale(frame_texture)
 	enemy_impact_fvx_sprite.visible = true
@@ -3536,16 +3905,20 @@ func _hide_enemy_impact_fvx() -> void:
 		enemy_impact_fvx_glow_sprite.modulate = Color(0.6, 0.94, 1.0, 0.0)
 
 
-func _sync_enemy_impact_fvx_layout() -> void:
+func _sync_enemy_impact_fvx_layout(target: Combatant = null) -> void:
 	if enemy_impact_fvx_sprite == null:
 		return
 
 	var fvx_texture: Texture2D = enemy_impact_fvx_sprite.texture
 	var base_scale: Vector2 = _get_enemy_impact_fvx_scale(fvx_texture)
-	enemy_impact_fvx_sprite.position = ENEMY_IMPACT_FOCUS_OFFSET
+	var focus_target := target if target != null else enemy
+	var focus_position := ENEMY_IMPACT_FOCUS_OFFSET
+	if focus_target != null:
+		focus_position = focus_target.global_position + ENEMY_IMPACT_FOCUS_OFFSET
+	enemy_impact_fvx_sprite.global_position = focus_position
 	enemy_impact_fvx_sprite.scale = base_scale
 	if enemy_impact_fvx_glow_sprite != null:
-		enemy_impact_fvx_glow_sprite.position = ENEMY_IMPACT_FOCUS_OFFSET
+		enemy_impact_fvx_glow_sprite.global_position = focus_position
 		enemy_impact_fvx_glow_sprite.scale = base_scale * 1.5
 
 
@@ -4117,6 +4490,9 @@ func _hide_screen_flash() -> void:
 
 
 func _on_restart_pressed() -> void:
+	if EncounterCoordinator.has_active_encounter():
+		BattleSessionCoordinator.report_battle_result(&"victory" if state == BattleState.WIN else &"defeat")
+		return
 	if is_bandit_encounter:
 		if state == BattleState.WIN:
 			SceneTransition.change_to_file(encounter_victory_scene_path)
@@ -4160,12 +4536,17 @@ func _win(log_text: String) -> void:
 	ui.set_timing_mode(false)
 	_update_action_buttons(false)
 	ui.set_restart_visible(true)
+	_persist_player_runtime_state()
 	if is_bandit_encounter:
 		var progress := get_node_or_null("/root/WorldProgress")
 		if progress != null:
 			progress.call("complete_active_encounter")
 	await get_tree().create_timer(0.8).timeout
-	if state == BattleState.WIN:
+	if state != BattleState.WIN:
+		return
+	if EncounterCoordinator.has_active_encounter():
+		BattleSessionCoordinator.report_battle_result(&"victory")
+	else:
 		SceneTransition.change_to_file(encounter_victory_scene_path)
 
 
@@ -4197,6 +4578,7 @@ func _lose(log_text: String) -> void:
 	ui.set_timing_mode(false)
 	_update_action_buttons(false)
 	ui.set_restart_visible(true)
+	_persist_player_runtime_state()
 
 
 func _refresh_energy_ui() -> void:

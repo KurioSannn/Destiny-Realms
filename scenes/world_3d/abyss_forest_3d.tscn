@@ -1,7 +1,8 @@
 [gd_scene format=3 uid="uid://ccn2jk4ciyqqk"]
 
 [ext_resource type="Script" uid="uid://cmhc8x8pqd7yj" path="res://scripts/world_3d/abyss_forest_3d.gd" id="1_world"]
-[ext_resource type="Script" uid="uid://btbty8mfvchi8" path="res://scripts/world_3d/hybrid_player_3d.gd" id="2_player"]
+[ext_resource type="Script" path="res://scripts/world_3d/exploration_character_controller_3d.gd" id="2_player"]
+[ext_resource type="Resource" path="res://resources/characters/takashi_exploration_profile.tres" id="11_takashi_profile"]
 [ext_resource type="PackedScene" path="res://scenes/world_3d/components/exploration_camera_3d.tscn" id="3_camera"]
 [ext_resource type="Texture2D" uid="uid://cf75xeg1cgm78" path="res://public/idle_Takashi/1.png" id="4_idle_1"]
 [ext_resource type="Texture2D" uid="uid://c2lor0xxa82g5" path="res://public/idle_Takashi/2.png" id="5_idle_2"]
@@ -10,6 +11,14 @@
 [ext_resource type="PackedScene" path="res://scenes/ui/exploration/hud_explor_placeholder.tscn" id="8_hud"]
 [ext_resource type="AudioStream" uid="uid://c7kpy3hvmda7w" path="res://public/Under_the_Iron_Bough.mp3" id="9_bgm"]
 [ext_resource type="Texture2D" uid="uid://bloftkqexge0l" path="res://Asset HDRI/dikhololo_night_4k.hdr" id="10_night"]
+[ext_resource type="Script" path="res://scripts/world_3d/components/interactable_3d.gd" id="12_interactable"]
+[ext_resource type="Script" path="res://scripts/world_3d/components/pickup_3d.gd" id="13_pickup"]
+[ext_resource type="Script" path="res://scripts/world_3d/components/area_trigger_3d.gd" id="14_trigger"]
+[ext_resource type="Script" path="res://scripts/world_3d/enemies/exploration_enemy_3d.gd" id="15_enemy"]
+[ext_resource type="Script" path="res://scripts/world_3d/enemies/patrol_route_3d.gd" id="16_patrol_route"]
+[ext_resource type="Resource" path="res://resources/enemies/lesser_abyss_exploration_profile.tres" id="17_lesser_abyss_profile"]
+[ext_resource type="Resource" path="res://resources/encounter_groups/lesser_abyss_pair_encounter_group.tres" id="18_lesser_abyss_pair"]
+[ext_resource type="PackedScene" path="res://Asset 3d/drive-download-20260807T013239Z-1-001/Blob/glTF/GreenSpikyBlob.gltf" id="19_blob_visual"]
 
 [sub_resource type="PanoramaSkyMaterial" id="PanoramaSkyMaterial_abyss"]
 panorama = ExtResource("10_night")
@@ -96,6 +105,10 @@ size = Vector2(0.045, 0.045)
 radius = 0.32
 height = 1.2
 
+[sub_resource type="CapsuleShape3D" id="EnemyShape"]
+radius = 0.4
+height = 1.4
+
 [sub_resource type="StandardMaterial3D" id="ShadowMaterial"]
 transparency = 1
 shading_mode = 0
@@ -130,6 +143,15 @@ animations = [{
 
 [sub_resource type="BoxShape3D" id="SealAreaShape"]
 size = Vector3(5, 2.4, 3)
+
+[sub_resource type="SphereShape3D" id="TestInteractableShape"]
+radius = 1.4
+
+[sub_resource type="SphereShape3D" id="TestPickupShape"]
+radius = 1.1
+
+[sub_resource type="BoxShape3D" id="TestTriggerShape"]
+size = Vector3(3.0, 3.0, 3.0)
 
 [node name="AbyssForest3D" type="Node3D" unique_id=1334221133]
 script = ExtResource("1_world")
@@ -182,6 +204,7 @@ draw_pass_1 = SubResource("FireflyMesh")
 [node name="Player" type="CharacterBody3D" parent="." unique_id=1071383704]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.63, 13.5)
 script = ExtResource("2_player")
+profile = ExtResource("11_takashi_profile")
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="Player" unique_id=1145083010]
 shape = SubResource("PlayerShape")
@@ -244,3 +267,86 @@ volume_db = -9.0
 autoplay = true
 
 [node name="HudExplorPlaceholder" parent="." unique_id=2048638798 instance=ExtResource("8_hud")]
+
+[node name="TestInteractable" type="Area3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.63, 11.0)
+collision_layer = 0
+script = ExtResource("12_interactable")
+interaction_id = &"abyss_test_interactable"
+prompt_text = "[E] Examine"
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="TestInteractable"]
+shape = SubResource("TestInteractableShape")
+
+[node name="TestPickup" type="Area3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.5, 0.63, 9.0)
+collision_layer = 0
+script = ExtResource("13_pickup")
+resource_id = &"abyss_shard"
+amount = 1
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="TestPickup"]
+shape = SubResource("TestPickupShape")
+
+[node name="TestTrigger" type="Area3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.5, 0.63, 9.0)
+collision_layer = 0
+script = ExtResource("14_trigger")
+trigger_id = &"abyss_test_trigger"
+one_shot = true
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="TestTrigger"]
+shape = SubResource("TestTriggerShape")
+
+[node name="TestEnemyStationary" type="CharacterBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9.0, 0.63, 8.0)
+collision_layer = 1
+script = ExtResource("15_enemy")
+profile = ExtResource("17_lesser_abyss_profile")
+world_actor_id = &"abyss_lesser_stationary"
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="TestEnemyStationary"]
+shape = SubResource("EnemyShape")
+
+[node name="Visual" parent="TestEnemyStationary" instance=ExtResource("19_blob_visual")]
+transform = Transform3D(0.45, 0, 0, 0, 0.45, 0, 0, 0, 0.45, 0, 0, 0)
+
+[node name="PatrolRoute" type="Node3D" parent="."]
+script = ExtResource("16_patrol_route")
+
+[node name="Point0" type="Marker3D" parent="PatrolRoute"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6.0, 0.63, -5.0)
+
+[node name="Point1" type="Marker3D" parent="PatrolRoute"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6.0, 0.63, -10.0)
+
+[node name="Point2" type="Marker3D" parent="PatrolRoute"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.0, 0.63, -10.0)
+
+[node name="TestEnemyPatrol" type="CharacterBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 6.0, 0.63, -5.0)
+collision_layer = 1
+script = ExtResource("15_enemy")
+profile = ExtResource("17_lesser_abyss_profile")
+world_actor_id = &"abyss_lesser_patrol"
+patrol_route_path = NodePath("../PatrolRoute")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="TestEnemyPatrol"]
+shape = SubResource("EnemyShape")
+
+[node name="Visual" parent="TestEnemyPatrol" instance=ExtResource("19_blob_visual")]
+transform = Transform3D(0.45, 0, 0, 0, 0.45, 0, 0, 0, 0.45, 0, 0, 0)
+
+[node name="TestEnemyGroup" type="CharacterBody3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -6.0, 0.63, 8.0)
+collision_layer = 1
+script = ExtResource("15_enemy")
+profile = ExtResource("17_lesser_abyss_profile")
+world_actor_id = &"abyss_lesser_group"
+encounter_group = ExtResource("18_lesser_abyss_pair")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="TestEnemyGroup"]
+shape = SubResource("EnemyShape")
+
+[node name="Visual" parent="TestEnemyGroup" instance=ExtResource("19_blob_visual")]
+transform = Transform3D(0.45, 0, 0, 0, 0.45, 0, 0, 0, 0.45, 0, 0, 0)

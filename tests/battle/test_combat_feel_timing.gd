@@ -382,10 +382,13 @@ func _test_a1_ultimate_resume_policy_is_unchanged() -> void:
 	_check(await _wait_for_pending_ultimate(manager, 10.0), "queued Ultimate reaches ready idle at A1")
 
 	manager.call("_cancel_ultimate_command")
+	await _idle_frames(3)
+	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "A1 locked Ultimate ignores cancel input")
 
+	manager.call("_confirm_ultimate_command")
 	_check(
-		await _wait_for_player_hp_below(manager, initial_player_hp, 10.0),
-		"A1 resume policy is unchanged: cancelling still lets the enemy's own attack proceed"
+		await _wait_for_player_hp_below(manager, initial_player_hp, 45.0),
+		"A1 resume policy is unchanged after confirming locked Ultimate: enemy action proceeds afterward"
 	)
 	_check(
 		await _wait_for_state(manager, BattleManager.BattleState.PLAYER_TURN, 10.0),
@@ -408,12 +411,16 @@ func _test_window_b_ultimate_resume_policy_is_unchanged() -> void:
 	_check(await _wait_for_pending_ultimate(manager, 10.0), "queued Ultimate reaches ready idle at window B")
 
 	manager.call("_cancel_ultimate_command")
+	await _idle_frames(3)
+	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "window B locked Ultimate ignores cancel input")
+	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "locked Ultimate idle still spends no Energy before confirm")
 
+	manager.call("_confirm_ultimate_command")
 	_check(
-		await _wait_for_state(manager, BattleManager.BattleState.PLAYER_TURN, 10.0),
-		"window B resume policy is unchanged: cancelling still returns to a normal player turn"
+		await _wait_for_state(manager, BattleManager.BattleState.PLAYER_TURN, 45.0),
+		"window B resume policy is unchanged after confirming locked Ultimate: battle returns to player turn"
 	)
-	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "cancelling still spends no Energy")
+	_check(manager.ultimate_energy == 0, "confirming locked Ultimate spends Energy")
 
 	await _free_battle(battle)
 
@@ -494,8 +501,8 @@ func _test_enemy_recovery_precedes_window_b_processing() -> void:
 		"safe window B opens only after enemy recovery genuinely completes"
 	)
 
-	manager.call("_cancel_ultimate_command")
-	await _wait_for_state(manager, BattleManager.BattleState.PLAYER_TURN, 5.0)
+	manager.call("_confirm_ultimate_command")
+	await _wait_for_state(manager, BattleManager.BattleState.PLAYER_TURN, 45.0)
 	await _free_battle(battle)
 
 

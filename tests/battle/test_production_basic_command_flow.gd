@@ -170,7 +170,10 @@ func _test_multi_enemy_target_select_then_auto_commit() -> void:
 
 	_check(manager.basic_command_adapter.has_pending_basic(), "multi-enemy basic select creates a pending command")
 	_check(manager.state == BattleManager.BattleState.PLAYER_TURN, "multi-enemy basic select keeps player turn")
-	_check(manager.basic_target_highlight.visible, "multi-enemy basic select shows a target highlight")
+	_check(
+		manager.get_current_target_marker_target() == manager.enemy,
+		"multi-enemy basic select marks the default target"
+	)
 	var pending_before: PendingBattleCommand = manager.basic_command_adapter.get_pending_command()
 	_check(
 		pending_before != null and not pending_before.is_committed,
@@ -310,8 +313,8 @@ func _test_new_ultimate_defers_energy_until_commit() -> void:
 	manager.call("_cancel_ultimate_command")
 	await _idle_frames(3)
 
-	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "cancelled ultimate does not spend energy")
-	_check(not manager.ultimate_command_adapter.has_pending_ultimate(), "cancelled ultimate clears pending command")
+	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "locked ultimate idle does not spend energy")
+	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "cancel input does not clear locked ultimate pending command")
 
 	await _free_battle(battle)
 

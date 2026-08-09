@@ -5,7 +5,7 @@ extends Node
 ## only after it finishes (window B, Block 9B/9D). See
 ## docs/battle_system_spec.md, "Block 9F implementation status". This
 ## suite is specific to A1 timing; the general queued-Ultimate gesture
-## tests (second press / target click / cancel-and-resume) already live
+## tests (second press / target click / locked cancel inputs) already live
 ## in test_command_ux_no_panel.gd and test_ultimate_off_turn_interrupt.gd.
 
 const BATTLE_SCENE := preload("res://scenes/battle/battle_scene.tscn")
@@ -21,7 +21,7 @@ func _run() -> void:
 	await _test_a1_request_enters_queue_without_side_effects()
 	await _test_a1_ultimate_resolves_before_enemy_damage()
 	await _test_a1_commit_signals_fire_exactly_once()
-	await _test_a1_cancel_lets_enemy_attack_proceed()
+	await _test_a1_cancel_input_is_locked_until_confirm()
 	await _test_a1_survived_confirm_lets_enemy_attack_proceed()
 	await _test_a1_lethal_confirm_wins_before_enemy_attacks()
 	await _test_a1_processed_request_not_processed_again_at_b()
@@ -55,8 +55,8 @@ func _test_a1_request_enters_queue_without_side_effects() -> void:
 
 	# Let it settle (A1 will pick it up) before freeing the scene.
 	await _wait_for_pending_ultimate(manager, 10.0)
-	manager.call("_cancel_ultimate_command")
-	await _wait_for_state(manager, BattleManager.BattleState.PLAYER_TURN, 10.0)
+	manager.call("_confirm_ultimate_command")
+	await _wait_for_interrupt_processing_cleared(manager, 45.0)
 	await _free_battle(battle)
 
 
@@ -136,7 +136,7 @@ func _test_a1_commit_signals_fire_exactly_once() -> void:
 	await _free_battle(battle)
 
 
-func _test_a1_cancel_lets_enemy_attack_proceed() -> void:
+func _test_a1_cancel_input_is_locked_until_confirm() -> void:
 	var fixture := await _make_battle()
 	var battle := fixture["battle"] as Node
 	var manager := fixture["manager"] as BattleManager
@@ -151,13 +151,20 @@ func _test_a1_cancel_lets_enemy_attack_proceed() -> void:
 	_check(await _wait_for_pending_ultimate(manager, 10.0), "queued Ultimate reaches ready idle at A1")
 
 	manager.call("_cancel_ultimate_command")
+	await _idle_frames(3)
 
+	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "cancel input does not clear locked A1 Ultimate")
+	_check(manager.player.current_hp == initial_player_hp, "enemy still waits while locked A1 Ultimate is pending")
+	_check(manager.enemy.current_hp == initial_enemy_hp, "locked A1 Ultimate deals no damage before confirm")
+	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "locked A1 Ultimate does not spend Energy before confirm")
+
+	manager.call("_on_ultimate_pressed")
 	_check(
 		await _wait_for_player_hp_below(manager, initial_player_hp, 10.0),
-		"cancelling the A1 Ultimate lets the enemy's own attack proceed normally"
+		"confirming the locked A1 Ultimate lets the enemy's own attack proceed afterward"
 	)
-	_check(manager.enemy.current_hp == initial_enemy_hp, "cancelling the A1 Ultimate deals no damage to the enemy")
-	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "cancelling the A1 Ultimate does not spend Energy")
+	_check(manager.enemy.current_hp == initial_enemy_hp - BattleManager.ULTIMATE_DAMAGE, "locked A1 Ultimate deals damage on confirm")
+	_check(manager.ultimate_energy == 0, "locked A1 Ultimate spends Energy on confirm")
 	_check(
 		await _wait_for_state(manager, BattleManager.BattleState.PLAYER_TURN, 10.0),
 		"the battle returns to a normal player turn after the enemy's attack completes"
@@ -231,7 +238,7 @@ func _test_a1_lethal_confirm_wins_before_enemy_attacks() -> void:
 
 
 ## Confirms the same request can never be picked up twice -- once A1
-## consumes it (here, via cancel), the queue must be empty and window B's
+## consumes it (here, via confirm), the queue must be empty and window B's
 ## later check must find nothing to process.
 func _test_a1_processed_request_not_processed_again_at_b() -> void:
 	var fixture := await _make_battle()
@@ -245,10 +252,10 @@ func _test_a1_processed_request_not_processed_again_at_b() -> void:
 	manager.request_off_turn_ultimate(manager.player)
 	_check(await _wait_for_pending_ultimate(manager, 10.0), "queued Ultimate reaches ready idle at A1")
 
-	manager.call("_cancel_ultimate_command")
-	await _wait_for_interrupt_processing_cleared(manager, 5.0)
+	manager.call("_confirm_ultimate_command")
+	await _wait_for_interrupt_processing_cleared(manager, 45.0)
 
-	_check(manager.ultimate_interrupt_queue.is_empty(), "the A1-cancelled request is gone from the queue, not requeued")
+	_check(manager.ultimate_interrupt_queue.is_empty(), "the A1-confirmed request is gone from the queue, not requeued")
 
 	# Let the enemy attack finish and reach window B with an empty queue --
 	# no second Ultimate ready idle should ever appear.
@@ -288,8 +295,8 @@ func _test_late_request_after_a1_is_held_until_b() -> void:
 		await _wait_for_pending_ultimate(manager, 10.0),
 		"the late request is picked up at window B, after the enemy's attack fully resolves"
 	)
-	manager.call("_cancel_ultimate_command")
-	await _wait_for_state(manager, BattleManager.BattleState.PLAYER_TURN, 5.0)
+	manager.call("_confirm_ultimate_command")
+	await _wait_for_state(manager, BattleManager.BattleState.PLAYER_TURN, 45.0)
 	await _free_battle(battle)
 
 
@@ -318,8 +325,8 @@ func _test_late_request_during_enemy_recovery_is_held_until_b() -> void:
 		await _wait_for_pending_ultimate(manager, 10.0),
 		"the request is picked up at window B once recovery completes"
 	)
-	manager.call("_cancel_ultimate_command")
-	await _wait_for_state(manager, BattleManager.BattleState.PLAYER_TURN, 5.0)
+	manager.call("_confirm_ultimate_command")
+	await _wait_for_state(manager, BattleManager.BattleState.PLAYER_TURN, 45.0)
 	await _free_battle(battle)
 
 

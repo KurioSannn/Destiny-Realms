@@ -1,0 +1,12 @@
+[gd_resource type="Resource" script_class="ActorVisualProfile" format=3]
+
+[ext_resource type="Script" path="res://scripts/system/actor_visual_profile.gd" id="1_visual"]
+
+[resource]
+script = ExtResource("1_visual")
+actor_id = &"lesser_abyss"
+display_name = "Lesser Abyss"
+model_scene = "res://Asset 3d/drive-download-20260807T013239Z-1-001/Blob/glTF/GreenSpikyBlob.gltf"
+world_height = 1.55
+model_yaw_offset_degrees = 0.0
+billboard_texture = null

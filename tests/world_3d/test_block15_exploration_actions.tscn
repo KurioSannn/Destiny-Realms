@@ -1,0 +1,6 @@
+[gd_scene format=3 uid="uid://b15_test_exploration_actions"]
+
+[ext_resource type="Script" path="res://tests/world_3d/test_block15_exploration_actions.gd" id="1_test"]
+
+[node name="TestBlock15ExplorationActions" type="Node"]
+script = ExtResource("1_test")

@@ -65,6 +65,9 @@ func stop_music(fade_duration: float = 0.45) -> void:
 
 	if playing_channels.is_empty():
 		return
+	if fade_duration <= 0.0:
+		_stop_all_channels()
+		return
 
 	_fade_tween = create_tween().set_parallel(true)
 	_fade_tween.set_trans(Tween.TRANS_SINE).set_ease(Tween.EASE_IN)
@@ -76,6 +79,7 @@ func stop_music(fade_duration: float = 0.45) -> void:
 func _stop_all_channels() -> void:
 	for player in _players:
 		player.stop()
+		player.volume_db = SILENT_VOLUME_DB
 
 
 func _on_music_channel_finished(player: AudioStreamPlayer) -> void:

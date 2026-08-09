@@ -50,7 +50,7 @@ func _run() -> void:
 	await _test_skill_commit_spends_sp_once()
 	# Ultimate
 	await _test_ultimate_selected_target_receives_damage_only()
-	await _test_ultimate_cancel_preserves_energy()
+	await _test_ultimate_locked_idle_preserves_energy()
 	await _test_ultimate_target_dies_before_commit_does_not_spend_energy()
 	await _test_ultimate_commit_spends_energy_once()
 	# Target stability
@@ -303,7 +303,7 @@ func _test_ultimate_selected_target_receives_damage_only() -> void:
 	await _free_battle(battle)
 
 
-func _test_ultimate_cancel_preserves_energy() -> void:
+func _test_ultimate_locked_idle_preserves_energy() -> void:
 	var fixture := await _make_multi_enemy_battle()
 	var battle := fixture["battle"] as Node
 	var manager := fixture["manager"] as BattleManager
@@ -315,8 +315,8 @@ func _test_ultimate_cancel_preserves_energy() -> void:
 	manager.call("_cancel_ultimate_command")
 	await _idle_frames(3)
 
-	_check(not manager.ultimate_command_adapter.has_pending_ultimate(), "cancel clears the pending Ultimate")
-	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "cancel does not spend Energy")
+	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "cancel input does not clear locked Ultimate")
+	_check(manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY, "locked Ultimate idle does not spend Energy")
 
 	await _free_battle(battle)
 

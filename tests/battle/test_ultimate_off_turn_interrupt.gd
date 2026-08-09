@@ -214,18 +214,24 @@ func _test_safe_window_b_cancel_returns_to_player_turn() -> void:
 	)
 
 	manager.call("_cancel_ultimate_command")
+	await _idle_frames(3)
 
-	_check(
-		await _wait_for_state(manager, BattleManager.BattleState.PLAYER_TURN, 5.0),
-		"cancelling the queued Ultimate returns to player turn"
-	)
+	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "cancel input does not clear locked queued Ultimate")
+	_check(manager.is_processing_interrupt_queue, "locked queued Ultimate keeps the processing flag until commit")
 	_check(
 		manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY,
-		"cancelling the queued Ultimate does not spend Energy"
+		"locked queued Ultimate does not spend Energy before commit"
 	)
-	_check(manager.enemy.current_hp == initial_enemy_hp, "cancelling the queued Ultimate deals no damage")
-	_check(not manager.is_processing_interrupt_queue, "cancel clears the processing flag")
-	_check(manager.ultimate_interrupt_queue.is_empty(), "cancel leaves no request behind in the queue")
+	_check(manager.enemy.current_hp == initial_enemy_hp, "locked queued Ultimate deals no damage before commit")
+
+	manager.call("_confirm_ultimate_command")
+	_check(
+		await _wait_for_interrupt_processing_cleared(manager, 40.0),
+		"confirming the locked queued Ultimate resolves and resumes"
+	)
+	_check(manager.enemy.current_hp == initial_enemy_hp - BattleManager.ULTIMATE_DAMAGE, "locked queued Ultimate deals damage on confirm")
+	_check(manager.ultimate_energy == 0, "locked queued Ultimate spends Energy on confirm")
+	_check(manager.ultimate_interrupt_queue.is_empty(), "locked queued Ultimate leaves no request behind after confirm")
 
 	await _free_battle(battle)
 
@@ -325,15 +331,19 @@ func _test_bandit_safe_window_b_cancel_returns_to_player_turn() -> void:
 	)
 
 	manager.call("_cancel_ultimate_command")
+	await _idle_frames(3)
 
-	_check(
-		await _wait_for_state(manager, BattleManager.BattleState.PLAYER_TURN, 5.0),
-		"cancelling the queued Ultimate returns to player turn against Bandit Captain"
-	)
-	_check(manager.enemy.current_hp == initial_enemy_hp, "cancelling deals no damage to Bandit Captain")
+	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "cancel input does not clear locked queued Ultimate against Bandit Captain")
+	_check(manager.enemy.current_hp == initial_enemy_hp, "locked queued Ultimate deals no damage before confirm against Bandit Captain")
 	_check(
 		manager.ultimate_energy == BattleManager.MAX_ULTIMATE_ENERGY,
-		"cancelling does not spend Energy against Bandit Captain"
+		"locked queued Ultimate does not spend Energy before confirm against Bandit Captain"
+	)
+
+	manager.call("_confirm_ultimate_command")
+	_check(
+		await _wait_for_interrupt_processing_cleared(manager, 40.0),
+		"confirming locked queued Ultimate resolves against Bandit Captain"
 	)
 
 	await _free_battle(battle)

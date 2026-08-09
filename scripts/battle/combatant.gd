@@ -7,6 +7,11 @@ class_name Combatant
 
 var current_hp: int = 1
 var home_position: Vector2 = Vector2.ZERO
+## Block 14.5: reset_feedback() runs after nearly every hit/attack animation,
+## so a one-time scale change (e.g. a formation-shrunk encounter-group
+## enemy) needs a stable baseline to return to -- otherwise the very next
+## feedback reset would snap it back to full size mid-battle.
+var home_scale: Vector2 = Vector2.ONE
 
 @onready var placeholder_visual: CanvasItem = get_node_or_null("PlaceholderVisual") as CanvasItem
 @onready var action_sprite: CanvasItem = get_node_or_null("ActionSprite") as CanvasItem
@@ -66,7 +71,7 @@ func get_hp_text() -> String:
 
 func reset_feedback() -> void:
 	position = home_position
-	scale = Vector2.ONE
+	scale = home_scale
 	modulate = Color.WHITE
 	if placeholder_visual != null:
 		placeholder_visual.modulate = Color.WHITE

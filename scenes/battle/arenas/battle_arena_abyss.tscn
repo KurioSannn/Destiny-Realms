@@ -1,0 +1,43 @@
+[gd_scene format=3 uid="uid://b15_battle_arena_abyss"]
+
+[ext_resource type="Script" path="res://scripts/battle/battle_arena_abyss.gd" id="1_arena"]
+[ext_resource type="Texture2D" uid="uid://bloftkqexge0l" path="res://Asset HDRI/dikhololo_night_4k.hdr" id="2_night"]
+
+[sub_resource type="PanoramaSkyMaterial" id="PanoramaSkyMaterial_arena"]
+panorama = ExtResource("2_night")
+energy_multiplier = 0.32
+
+[sub_resource type="Sky" id="Sky_arena"]
+sky_material = SubResource("PanoramaSkyMaterial_arena")
+process_mode = 2
+
+[sub_resource type="Environment" id="Environment_arena"]
+background_mode = 2
+background_energy_multiplier = 0.42
+sky = SubResource("Sky_arena")
+ambient_light_source = 3
+ambient_light_color = Color(0.18, 0.34, 0.38, 1)
+ambient_light_energy = 0.72
+reflected_light_source = 2
+tonemap_mode = 2
+tonemap_exposure = 1.15
+glow_enabled = true
+fog_enabled = true
+fog_light_color = Color(0.08, 0.25, 0.29, 1)
+fog_light_energy = 0.72
+fog_density = 0.025
+fog_sky_affect = 0.7
+fog_height = -0.4
+fog_height_density = 0.12
+volumetric_fog_enabled = true
+volumetric_fog_density = 0.018
+volumetric_fog_albedo = Color(0.2, 0.47, 0.48, 1)
+volumetric_fog_emission = Color(0.01, 0.04, 0.045, 1)
+volumetric_fog_emission_energy = 0.35
+volumetric_fog_length = 32.0
+
+[node name="BattleArenaAbyss" type="Node3D"]
+script = ExtResource("1_arena")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_arena")

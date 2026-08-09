@@ -19,7 +19,7 @@ func _ready() -> void:
 
 func _run() -> void:
 	await _test_confirm_clears_active_interrupt_request()
-	await _test_cancel_clears_active_interrupt_request()
+	await _test_cancel_input_keeps_active_interrupt_request_until_confirm()
 	await _test_stale_discard_never_sets_active_interrupt_request()
 	await _test_interrupt_resume_token_cannot_be_reused()
 	await _test_queue_clears_on_win_including_resume_token_history()
@@ -70,7 +70,7 @@ func _test_confirm_clears_active_interrupt_request() -> void:
 	await _free_battle(battle)
 
 
-func _test_cancel_clears_active_interrupt_request() -> void:
+func _test_cancel_input_keeps_active_interrupt_request_until_confirm() -> void:
 	var fixture := await _make_battle()
 	var battle := fixture["battle"] as Node
 	var manager := fixture["manager"] as BattleManager
@@ -87,13 +87,19 @@ func _test_cancel_clears_active_interrupt_request() -> void:
 	)
 
 	manager.call("_cancel_ultimate_command")
+	await _idle_frames(3)
 
+	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "cancel input does not clear locked queued Ultimate")
+	_check(manager.active_interrupt_request != null, "locked queued Ultimate keeps active_interrupt_request until confirm")
+	_check(manager.is_processing_interrupt_queue, "locked queued Ultimate keeps is_processing_interrupt_queue until confirm")
+
+	manager.call("_confirm_ultimate_command")
 	_check(
-		await _wait_for_state(manager, BattleManager.BattleState.PLAYER_TURN, 5.0),
-		"cancel returns to player turn"
+		await _wait_for_interrupt_processing_cleared(manager, 40.0),
+		"confirm resolves the locked queued Ultimate"
 	)
-	_check(manager.active_interrupt_request == null, "cancel clears active_interrupt_request")
-	_check(not manager.is_processing_interrupt_queue, "cancel clears is_processing_interrupt_queue")
+	_check(manager.active_interrupt_request == null, "confirm clears active_interrupt_request")
+	_check(not manager.is_processing_interrupt_queue, "confirm clears is_processing_interrupt_queue")
 
 	await _free_battle(battle)
 
@@ -293,8 +299,8 @@ func _test_external_request_during_interrupt_processing_rejected() -> void:
 	)
 	_check(manager.ultimate_interrupt_queue.is_empty(), "the rejected concurrent request never enters the queue")
 
-	manager.call("_cancel_ultimate_command")
-	await _wait_for_state(manager, BattleManager.BattleState.PLAYER_TURN, 5.0)
+	manager.call("_confirm_ultimate_command")
+	await _wait_for_state(manager, BattleManager.BattleState.PLAYER_TURN, 40.0)
 	await _free_battle(battle)
 
 

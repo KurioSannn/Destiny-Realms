@@ -1,0 +1,28 @@
+[gd_resource type="Resource" script_class="ExplorationEnemyProfile" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/world_3d/enemies/exploration_enemy_profile.gd" id="1_profile"]
+
+[resource]
+script = ExtResource("1_profile")
+enemy_id = &"lesser_abyss"
+display_name = "Lesser Abyss"
+battle_enemy_id = &"lesser_abyss"
+enemy_tags = Array[StringName]([&"abyss", &"lesser"])
+source_area_id = &"abyss_forest"
+patrol_speed = 2.0
+chase_speed = 4.2
+acceleration = 12.0
+detection_range = 10.0
+lose_target_range = 15.0
+detection_angle_degrees = 110.0
+alert_delay = 0.4
+use_line_of_sight = false
+engage_range = 1.6
+leash_distance = 16.0
+return_tolerance = 0.75
+exploration_attackable = true
+player_attack_opening_advantage_allowed = true
+enemy_ambush_allowed = false
+idle_animation = &"idle"
+move_animation = &"move"
+alert_animation = &"alert"

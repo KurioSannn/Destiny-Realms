@@ -19,6 +19,8 @@ func change_to_file(scene_path: String, fade_out_seconds: float = DEFAULT_FADE_O
 
 	_is_transitioning = true
 	get_tree().paused = false
+	_stop_active_scene_audio()
+	_stop_global_music()
 	await _fade_to_black(fade_out_seconds)
 	get_tree().change_scene_to_file(scene_path)
 	await get_tree().process_frame
@@ -33,6 +35,8 @@ func reload_current(fade_out_seconds: float = DEFAULT_FADE_OUT_SECONDS, fade_in_
 
 	_is_transitioning = true
 	get_tree().paused = false
+	_stop_active_scene_audio()
+	_stop_global_music()
 	await _fade_to_black(fade_out_seconds)
 	get_tree().reload_current_scene()
 	await get_tree().process_frame
@@ -74,3 +78,19 @@ func _tween_fade_alpha(target_alpha: float, duration: float) -> void:
 	tween.set_ease(Tween.EASE_IN_OUT)
 	tween.tween_property(_fade_rect, "modulate:a", target_alpha, duration)
 	await tween.finished
+
+
+func _stop_active_scene_audio() -> void:
+	var current_scene := get_tree().current_scene
+	if current_scene == null:
+		return
+	for node in current_scene.find_children("*", "AudioStreamPlayer", true, false):
+		var audio_player := node as AudioStreamPlayer
+		if audio_player != null and audio_player.playing:
+			audio_player.stop()
+
+
+func _stop_global_music() -> void:
+	var music_director := get_node_or_null("/root/MusicDirector")
+	if music_director != null and music_director.has_method("stop_music"):
+		music_director.call("stop_music", 0.0)

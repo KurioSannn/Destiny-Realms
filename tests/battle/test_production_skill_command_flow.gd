@@ -48,7 +48,10 @@ func _test_lesser_skill_select_ready_and_cancel() -> void:
 	_check(manager.skill_command_adapter.has_pending_skill(), "skill select creates pending command")
 	_check(manager.skill_animation_playing, "skill select starts ready idle")
 	_check(manager.skill_animation_looping, "skill ready idle loops")
-	_check(manager.skill_target_highlight.visible, "skill select shows target highlight")
+	_check(
+		manager.get_current_target_marker_target() == manager.enemy,
+		"skill select marks the default target"
+	)
 	_check(not manager.skill_command_panel.visible, "Block 9E: skill ready idle does not show a confirm/cancel panel")
 
 	manager.call("_cancel_skill_command")
@@ -222,7 +225,10 @@ func _test_skill_switching_with_basic() -> void:
 		basic_pending != null and not basic_pending.is_committed,
 		"Basic waits for a target choice (multiple live enemies) instead of a confirm panel"
 	)
-	_check(manager.basic_target_highlight.visible, "Basic shows target selection after switching from Skill")
+	_check(
+		manager.get_current_target_marker_target() == manager.enemy,
+		"Basic marks the default target after switching from Skill"
+	)
 
 	manager.call("_on_skill_pressed")
 	await _idle_frames(3)
