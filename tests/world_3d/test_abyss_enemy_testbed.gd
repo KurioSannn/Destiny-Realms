@@ -5,7 +5,10 @@ extends Node
 ## interactable, trigger, seal).
 
 const ABYSS_SCENE := preload("res://scenes/world_3d/abyss_forest_3d.tscn")
-const EXPECTED_ASSET_COUNT := 201  # unchanged from Block 11/12 -- enemies are not _spawn_asset() content
+## Updated after the Abyss remake pass added landmark exclusion zones so
+## undergrowth/trees stop spawning inside rocks/ruins -- a handful of
+## undergrowth spots that used to succeed are now intentionally skipped.
+const EXPECTED_ASSET_COUNT := 194
 
 
 func _ready() -> void:

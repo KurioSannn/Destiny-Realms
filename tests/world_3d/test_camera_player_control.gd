@@ -218,6 +218,17 @@ func _ready() -> void:
 	camera.call("apply_camera_preset", 2, false)
 	await _settle(world, 240)
 
+	# The occluder-fade sweep above orbits yaw to whatever angle first finds
+	# a blocking tree, then leaves it there -- it never claimed to restore
+	# yaw to 0. That was harmless while it happened to land near 0, but the
+	# exact angle depends on where trees are, and the Abyss remake pass
+	# (landmark exclusion zones + minimum tree spacing) moved them, so the
+	# sweep now stops at 180 degrees. Reset explicitly so the F1 isolation
+	# check below depends only on F1 behavior, not on incidental leftover
+	# yaw from an unrelated, tree-layout-sensitive test above it.
+	_send_key(KEY_R)
+	await _settle(world, 240)
+
 	# --- F1 must remain completely unaffected by mouse camera control ---
 	_send_key(KEY_F1)
 	await _settle(world, 45)
