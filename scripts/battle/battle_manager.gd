@@ -219,6 +219,7 @@ var _camera_shake_tween: Tween:
 @onready var enemy_placeholder_visual: CanvasItem = get_node_or_null("../Enemy/PlaceholderVisual") as CanvasItem
 @onready var enemy_title_label: Label = get_node_or_null("../CanvasLayer/BattleUI/EnemyStatusPanel/EnemyTitleLabel") as Label
 @onready var encounter_label: Label = get_node_or_null("../CanvasLayer/BattleUI/BattleHeaderPanel/EncounterLabel") as Label
+@onready var encounter_count_label: Label = get_node_or_null("../CanvasLayer/BattleUI/BattleHeaderPanel/SpeedLabel") as Label
 @onready var canvas_layer: CanvasLayer = get_node_or_null("../CanvasLayer") as CanvasLayer
 @onready var bottom_vignette: Polygon2D = get_node_or_null("../StageGroundEffects/BottomVignette") as Polygon2D
 @onready var player_ground_shadow: Polygon2D = get_node_or_null("../StageGroundEffects/PlayerGroundShadow") as Polygon2D

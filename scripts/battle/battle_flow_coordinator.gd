@@ -77,6 +77,9 @@ func apply_encounter_presentation(manager: Node) -> void:
 		manager.enemy_title_label.text = manager.encounter_enemy_name
 	if manager.encounter_label != null:
 		manager.encounter_label.text = manager.encounter_enemy_name
+	if manager.encounter_count_label != null:
+		var enemy_count: int = 1 + manager._pending_extra_battle_enemy_ids.size()
+		manager.encounter_count_label.text = "x%d" % enemy_count
 	if manager.battle_intro_label != null:
 		manager.battle_intro_label.text = manager.encounter_intro_text
 
