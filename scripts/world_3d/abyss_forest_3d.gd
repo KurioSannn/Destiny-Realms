@@ -2,11 +2,34 @@ extends Node3D
 class_name AbyssForest3D
 
 const LOGIN_SCENE_PATH := "res://scenes/login/login_scene.tscn"
-const WERDONIA_OUTSKIRTS_SCENE_PATH := "res://scenes/world/world_scene.tscn"
+const WERDONIA_OUTSKIRTS_SCENE_PATH := "res://scenes/world_3d/werdonia_outskirts_3d.tscn"
 const NATURE_ROOT := "res://Asset 3d/Stylized Nature MegaKit[Standard]/glTF/"
 const VILLAGE_ROOT := "res://Asset 3d/Medieval Village MegaKit[Standard]/Medieval Village MegaKit[Standard]/glTF/"
 const PROPS_ROOT := "res://Asset 3d/Fantasy Props MegaKit[Standard]/Exports/glTF/"
 const SEAL_POSITION := Vector3(0.0, 0.0, -15.2)
+
+## Hoisted so tree/undergrowth scattering can avoid overlapping these before
+## _scatter_rocks_and_relics() and _build_ruin_clusters() actually spawn them.
+const RUIN_POSITIONS: Array[Vector3] = [
+	Vector3(-10.5, 0.0, 7.0), Vector3(-11.5, 0.0, 4.8),
+	Vector3(10.8, 0.0, 1.0), Vector3(11.7, 0.0, -1.2),
+	Vector3(-12.0, 0.0, -8.8), Vector3(11.5, 0.0, -10.0)
+]
+const ROCK_POSITIONS: Array[Vector3] = [
+	Vector3(-5.8, 0.0, 12.0), Vector3(5.2, 0.0, 10.0),
+	Vector3(-8.5, 0.0, 1.5), Vector3(8.4, 0.0, 5.0),
+	Vector3(-7.0, 0.0, -5.5), Vector3(7.5, 0.0, -7.5),
+	Vector3(-14.5, 0.0, 12.0), Vector3(14.0, 0.0, 13.0),
+	Vector3(-15.0, 0.0, -3.5), Vector3(15.5, 0.0, -5.0)
+]
+## Small standalone props (cage, cauldron, candles, lantern, pond, etc.) that
+## also deserve breathing room so undergrowth doesn't spawn on top of them.
+const POINT_PROP_POSITIONS: Array[Vector3] = [
+	Vector3(-9.4, 0.0, 5.6), Vector3(-8.6, 0.0, 5.2),
+	Vector3(9.5, 0.0, -0.5), Vector3(10.2, 0.0, -1.2),
+	Vector3(3.0, 0.0, 2.5), Vector3(-4.2, 0.0, -2.0), Vector3(5.8, 0.0, -11.0),
+	Vector3(-8.5, 0.0, -11.5)
+]
 
 ## Trees stay on the default collision layer only (player movement still
 ## collides with trunks) but are excluded from this bit so the exploration
@@ -136,18 +159,31 @@ func _build_abyss_seal() -> void:
 	_add_box_collider(generated_world, Vector3(2.0, 4.2, 0.8), Vector3(2.65, 2.1, -16.2))
 
 
+## True if `position` is at least `min_dist` away from every hand-placed
+## landmark (ruins, rocks, point props, the seal). Used to keep procedurally
+## scattered trees/undergrowth from spawning inside/on top of curated set
+## pieces -- the main source of the "berantakan" (cluttered/overlapping)
+## look before this pass.
+func _is_clear_of_landmarks(position: Vector3, min_dist: float) -> bool:
+	if position.distance_to(SEAL_POSITION) < min_dist + 3.0:
+		return false
+	for zone in RUIN_POSITIONS:
+		if position.distance_to(zone) < min_dist + 1.6:
+			return false
+	for zone in ROCK_POSITIONS:
+		if position.distance_to(zone) < min_dist:
+			return false
+	for zone in POINT_PROP_POSITIONS:
+		if position.distance_to(zone) < min_dist:
+			return false
+	return true
+
+
 func _build_ruin_clusters() -> void:
-	var ruin_data: Array[Array] = [
-		[Vector3(-10.5, 0.0, 7.0), -0.45],
-		[Vector3(-11.5, 0.0, 4.8), 1.05],
-		[Vector3(10.8, 0.0, 1.0), 0.55],
-		[Vector3(11.7, 0.0, -1.2), -1.1],
-		[Vector3(-12.0, 0.0, -8.8), 0.18],
-		[Vector3(11.5, 0.0, -10.0), -0.28]
-	]
-	for index in range(ruin_data.size()):
-		var position: Vector3 = ruin_data[index][0]
-		var yaw: float = ruin_data[index][1]
+	var ruin_yaws: Array[float] = [-0.45, 1.05, 0.55, -1.1, 0.18, -0.28]
+	for index in range(RUIN_POSITIONS.size()):
+		var position: Vector3 = RUIN_POSITIONS[index]
+		var yaw: float = ruin_yaws[index]
 		var wall_name := "Wall_UnevenBrick_Straight" if index % 2 == 0 else "Wall_BottomCover"
 		_spawn_asset(
 			VILLAGE_ROOT + wall_name + ".gltf",
@@ -173,7 +209,8 @@ func _build_twisted_tree_line() -> void:
 	]
 	var placed := 0
 	var attempts := 0
-	while placed < 34 and attempts < 120:
+	var placed_positions: Array[Vector3] = []
+	while placed < 34 and attempts < 220:
 		attempts += 1
 		var position := Vector3(
 			rng.randf_range(-21.5, 21.5),
@@ -182,8 +219,16 @@ func _build_twisted_tree_line() -> void:
 		)
 		if absf(position.x - _path_x_at(position.z)) < 3.4:
 			continue
-		if position.distance_to(SEAL_POSITION) < 5.0:
+		if not _is_clear_of_landmarks(position, 2.0):
 			continue
+		var too_close_to_tree := false
+		for placed_position in placed_positions:
+			if position.distance_to(placed_position) < 2.6:
+				too_close_to_tree = true
+				break
+		if too_close_to_tree:
+			continue
+		placed_positions.append(position)
 		var asset_name := tree_names[rng.randi_range(0, tree_names.size() - 1)]
 		var tree_scale := rng.randf_range(0.68, 1.03)
 		var tree := _spawn_asset(
@@ -236,6 +281,8 @@ func _scatter_undergrowth() -> void:
 		)
 		if absf(position.x - _path_x_at(position.z)) < 2.15:
 			continue
+		if not _is_clear_of_landmarks(position, 1.1):
+			continue
 		var asset_name := undergrowth[rng.randi_range(0, undergrowth.size() - 1)]
 		_spawn_asset(
 			NATURE_ROOT + asset_name + ".gltf",
@@ -247,15 +294,8 @@ func _scatter_undergrowth() -> void:
 
 
 func _scatter_rocks_and_relics() -> void:
-	var rock_positions: Array[Vector3] = [
-		Vector3(-5.8, 0.0, 12.0), Vector3(5.2, 0.0, 10.0),
-		Vector3(-8.5, 0.0, 1.5), Vector3(8.4, 0.0, 5.0),
-		Vector3(-7.0, 0.0, -5.5), Vector3(7.5, 0.0, -7.5),
-		Vector3(-14.5, 0.0, 12.0), Vector3(14.0, 0.0, 13.0),
-		Vector3(-15.0, 0.0, -3.5), Vector3(15.5, 0.0, -5.0)
-	]
-	for index in range(rock_positions.size()):
-		var position := rock_positions[index]
+	for index in range(ROCK_POSITIONS.size()):
+		var position := ROCK_POSITIONS[index]
 		var scale_value := 0.72 + float(index % 4) * 0.12
 		_spawn_asset(
 			NATURE_ROOT + "Rock_Medium_%d.gltf" % ((index % 3) + 1),
