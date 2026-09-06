@@ -16,6 +16,11 @@ var _profiles: Dictionary = {}
 ## Pre-loaded profiles keyed by area_id StringName.
 ## Block 15 ships with Abyss Forest. Future areas extend this list.
 const ABYSS_FOREST_PROFILE_PATH: String = "res://resources/battle_arenas/abyss_forest_arena_profile.tres"
+## Manually-authored template arena -- see scenes/battle/arenas/README_werdonia_outskirts.md.
+## Not yet used by any live encounter (no exploration enemy currently tags
+## source_area_id = "werdonia_outskirts"), so registering it here is inert
+## until that tagging exists -- safe to ship ahead of time.
+const WERDONIA_OUTSKIRTS_PROFILE_PATH: String = "res://resources/battle_arenas/werdonia_outskirts_arena_profile.tres"
 
 
 func _ready() -> void:
@@ -24,6 +29,7 @@ func _ready() -> void:
 
 func _load_built_in_profiles() -> void:
 	_try_register(ABYSS_FOREST_PROFILE_PATH)
+	_try_register(WERDONIA_OUTSKIRTS_PROFILE_PATH)
 
 
 func _try_register(path: String) -> void:
