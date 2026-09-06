@@ -1,0 +1,10 @@
+[gd_resource type="Resource" script_class="BattleEnemyProfile" load_steps=2 format=3]
+
+[ext_resource type="Script" path="res://scripts/battle/battle_enemy_profile.gd" id="1_battle_profile"]
+
+[resource]
+script = ExtResource("1_battle_profile")
+enemy_id = &"lesser_abyss"
+display_name = "Lesser Abyss"
+max_hp = 120
+base_damage = 14

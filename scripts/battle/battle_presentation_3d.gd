@@ -589,6 +589,11 @@ func camera_snap(preset: int) -> void:
 		battle_camera_3d.snap_to(preset)
 
 
+func camera_shake(strength: float) -> void:
+	if battle_camera_3d != null:
+		battle_camera_3d.shake(strength)
+
+
 # --- Actor API (called by battle scene owner) --------------------------------
 
 func play_party_attack(slot: int = 0) -> void:

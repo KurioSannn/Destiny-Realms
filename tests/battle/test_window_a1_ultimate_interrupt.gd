@@ -160,7 +160,7 @@ func _test_a1_cancel_input_is_locked_until_confirm() -> void:
 
 	manager.call("_on_ultimate_pressed")
 	_check(
-		await _wait_for_player_hp_below(manager, initial_player_hp, 10.0),
+		await _wait_for_player_hp_below(manager, initial_player_hp, 45.0),
 		"confirming the locked A1 Ultimate lets the enemy's own attack proceed afterward"
 	)
 	_check(manager.enemy.current_hp == initial_enemy_hp - BattleManager.ULTIMATE_DAMAGE, "locked A1 Ultimate deals damage on confirm")

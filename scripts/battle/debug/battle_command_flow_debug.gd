@@ -62,11 +62,15 @@ func _ready() -> void:
 	debug_panel.fill_energy_requested.connect(_fill_energy)
 	debug_panel.invalidate_target_requested.connect(_invalidate_selected_target)
 
-	_setup_takashi_idle_frames()
-	_setup_takashi_basic_frames()
-	_setup_takashi_skill_frames()
-	_setup_takashi_ulti_pre_frames()
-	_setup_takashi_ulti_post_frames()
+	takashi_animator = TakashiBattleAnimatorScript.new()
+	takashi_animator.name = "TakashiBattleAnimator"
+	add_child(takashi_animator)
+	takashi_animator.setup(player_action_sprite)
+	takashi_idle_frames = takashi_animator.takashi_idle_frames
+	takashi_basic_frames = takashi_animator.takashi_basic_frames
+	takashi_skill_frames = takashi_animator.takashi_skill_frames
+	takashi_ulti_pre_frames = takashi_animator.takashi_ulti_pre_frames
+	takashi_ulti_post_frames = takashi_animator.takashi_ulti_post_frames
 	_setup_takashi_ultimate_fvx_frames()
 	_load_ultimate_frames()
 	_setup_battle_bgm()
@@ -336,7 +340,7 @@ func _execute_ultimate(command: PendingBattleCommand) -> void:
 	await player.play_skill_movement(target)
 	if not _execution_is_valid(command, target):
 		return
-	await _play_enemy_octagram_impact()
+	await _play_enemy_octagram_impact(target)
 	if not _execution_is_valid(command, target):
 		return
 	if not command_flow.begin_resolution(command):

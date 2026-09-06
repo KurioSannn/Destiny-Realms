@@ -165,29 +165,14 @@ func _test_multi_enemy_target_select_then_auto_commit() -> void:
 	var initial_hp_b := second_enemy.current_hp
 	var initial_sp := manager.skill_points
 
+	manager._global_selected_target = second_enemy
 	manager.call("_on_attack_pressed")
 	await _idle_frames(3)
 
-	_check(manager.basic_command_adapter.has_pending_basic(), "multi-enemy basic select creates a pending command")
-	_check(manager.state == BattleManager.BattleState.PLAYER_TURN, "multi-enemy basic select keeps player turn")
-	_check(
-		manager.get_current_target_marker_target() == manager.enemy,
-		"multi-enemy basic select marks the default target"
-	)
-	var pending_before: PendingBattleCommand = manager.basic_command_adapter.get_pending_command()
-	_check(
-		pending_before != null and not pending_before.is_committed,
-		"multi-enemy basic select waits for the player to choose a target"
-	)
-	_check(manager.enemy.current_hp == initial_hp_a, "multi-enemy basic select does not deal damage yet (target A)")
-	_check(second_enemy.current_hp == initial_hp_b, "multi-enemy basic select does not deal damage yet (target B)")
-
-	var selected := bool(manager.basic_command_adapter.select_target(second_enemy))
-	_check(selected, "player can select target B")
 	var pending_after: PendingBattleCommand = manager.basic_command_adapter.get_pending_command()
 	_check(
 		pending_after != null and pending_after.is_committed,
-		"selecting a target commits immediately, no separate confirm step"
+		"single-press attack commits immediately on the selected target"
 	)
 	_check(not manager.basic_target_highlight.visible, "target highlight clears immediately after selection")
 
@@ -211,27 +196,18 @@ func _test_multi_enemy_cancel_before_target_selected() -> void:
 	var manager := fixture["manager"] as BattleManager
 
 	var second_enemy := _spawn_mock_enemy(battle, manager, "Mock Enemy B")
-	var initial_hp_a := manager.enemy.current_hp
-	var initial_hp_b := second_enemy.current_hp
-	var initial_sp := manager.skill_points
-
+	manager._global_selected_target = second_enemy
 	manager.call("_on_attack_pressed")
 	await _idle_frames(3)
+
+	var command: PendingBattleCommand = manager.basic_command_adapter.get_pending_command()
 	_check(
-		manager.basic_command_adapter.has_pending_basic(),
-		"multi-enemy basic select creates a pending command before cancel"
+		command != null and command.is_committed,
+		"multi-enemy basic commits immediately on 1x press"
 	)
 
 	var cancelled := bool(manager.call("_cancel_basic_attack_command"))
-	await _idle_frames(3)
-
-	_check(cancelled, "multi-enemy basic select can be cancelled before a target is chosen")
-	_check(not manager.basic_command_adapter.has_pending_basic(), "cancel clears the pending Basic command")
-	_check(not manager.basic_target_highlight.visible, "cancel hides the target highlight")
-	_check(manager.enemy.current_hp == initial_hp_a, "cancel does not deal damage (target A)")
-	_check(second_enemy.current_hp == initial_hp_b, "cancel does not deal damage (target B)")
-	_check(manager.skill_points == initial_sp, "cancel does not grant SP")
-	_check(manager.state == BattleManager.BattleState.PLAYER_TURN, "cancel keeps player turn")
+	_check(not cancelled, "committed basic attack cannot be cancelled")
 
 	await _free_battle(battle)
 

@@ -90,12 +90,10 @@ func _test_basic_with_two_enemies_waits_for_target() -> void:
 	manager.call("_on_attack_pressed")
 	await _idle_frames(3)
 
-	_check(manager.basic_command_adapter.has_pending_basic(), "Basic with two live enemies creates a pending command")
 	var command: PendingBattleCommand = manager.basic_command_adapter.get_pending_command()
-	_check(command != null and not command.is_committed, "Basic waits for a target choice instead of auto-committing")
-	_check(manager.enemy.current_hp == primary_hp, "no damage before a target is chosen")
-	_check(mock_enemy.current_hp == mock_hp, "no damage to the second enemy before a target is chosen")
-	_check(manager.skill_points == initial_sp, "no SP gain before Basic commits")
+	_check(command != null and command.is_committed, "Basic with two live enemies auto-commits on 1x press to active target")
+	_check(await _wait_for_combatant_hp(manager.enemy, primary_hp - BattleManager.BASIC_ATTACK_DAMAGE, 5.0), "Basic damages default target")
+	_check(mock_enemy.current_hp == mock_hp, "second enemy untouched")
 
 	await _free_battle(battle)
 
@@ -108,12 +106,11 @@ func _test_basic_selected_target_is_only_enemy_damaged() -> void:
 	var primary_hp := manager.enemy.current_hp
 	var expected_mock_hp := mock_enemy.current_hp - BattleManager.BASIC_ATTACK_DAMAGE
 
+	manager._global_selected_target = mock_enemy
 	manager.call("_on_attack_pressed")
 	await _idle_frames(3)
-	var committed := bool(manager.call("_select_basic_target_at_position", mock_enemy.global_position))
 
-	_check(committed, "clicking the second enemy commits Basic to it")
-	_check(await _wait_for_combatant_hp(mock_enemy, expected_mock_hp, 5.0), "Basic deals damage to the clicked enemy")
+	_check(await _wait_for_combatant_hp(mock_enemy, expected_mock_hp, 5.0), "Basic deals damage to the targeted enemy on 1x press")
 	_check(manager.enemy.current_hp == primary_hp, "Basic does not also damage the primary enemy")
 
 	await _free_battle(battle)
@@ -145,12 +142,8 @@ func _test_basic_invalid_target_does_not_commit() -> void:
 	var primary_hp := manager.enemy.current_hp
 	var initial_sp := manager.skill_points
 
-	manager.call("_on_attack_pressed")
-	await _idle_frames(3)
-	var committed := bool(manager.call("_select_basic_target_at_position", Vector2(-9999.0, -9999.0)))
-
-	_check(not committed, "clicking empty space (no valid target nearby) does not commit Basic")
-	_check(manager.basic_command_adapter.has_pending_basic(), "Basic stays pending after an invalid click")
+	var selected := bool(manager.call("_select_basic_target_at_position", Vector2(-9999.0, -9999.0)))
+	_check(not selected, "clicking empty space does not select any target")
 	_check(manager.enemy.current_hp == primary_hp, "an invalid click deals no damage")
 	_check(manager.skill_points == initial_sp, "an invalid click does not gain SP")
 
@@ -165,9 +158,9 @@ func _test_basic_sp_gain_occurs_once_after_selected_target_hit() -> void:
 	var initial_sp := manager.skill_points
 	var expected_mock_hp := mock_enemy.current_hp - BattleManager.BASIC_ATTACK_DAMAGE
 
+	manager._global_selected_target = mock_enemy
 	manager.call("_on_attack_pressed")
 	await _idle_frames(3)
-	manager.call("_select_basic_target_at_position", mock_enemy.global_position)
 
 	_check(await _wait_for_combatant_hp(mock_enemy, expected_mock_hp, 5.0), "Basic hit resolves")
 	await _idle_frames(3)

@@ -69,10 +69,25 @@ const BANDIT_BACKGROUND_PATH: String = "res://public/grasslands/old_stone_crossi
 ## exploration side duplicating battle stats in its own resources. Existing
 ## bandit configuration in _configure_encounter() is untouched and does not
 ## use this table.
-const BATTLE_ENEMY_CATALOG: Dictionary = {
+const BATTLE_ENEMY_RESOURCES: Dictionary = {
+	&"lesser_abyss": preload("res://resources/battle_enemies/lesser_abyss.tres"),
+	&"clover_bandit": preload("res://resources/battle_enemies/clover_bandit.tres"),
+}
+const BATTLE_ENEMY_FALLBACK_CATALOG: Dictionary = {
 	&"lesser_abyss": {"name": "Lesser Abyss", "max_hp": 120, "damage": 14},
 	&"clover_bandit": {"name": "Bandit Captain", "max_hp": 150, "damage": 12},
 }
+const BATTLE_ENEMY_CATALOG: Dictionary = BATTLE_ENEMY_FALLBACK_CATALOG
+
+const BattleEnemyProfileScript = preload("res://scripts/battle/battle_enemy_profile.gd")
+
+static func get_enemy_battle_profile_data(enemy_id: StringName) -> Dictionary:
+	if BATTLE_ENEMY_RESOURCES.has(enemy_id):
+		var profile = BATTLE_ENEMY_RESOURCES[enemy_id]
+		if profile is BattleEnemyProfileScript or (profile != null and profile.has_method("to_dict")):
+			return profile.to_dict()
+	return BATTLE_ENEMY_FALLBACK_CATALOG.get(enemy_id, {})
+
 const ULTIMATE_FRAME_COUNT: int = 88
 const ULTIMATE_FRAME_RATE: float = 15.0
 const ULTIMATE_FRAME_PATH_FORMAT: String = "res://public/ultimate_frames/takashi_ultimate_%03d.jpg"
@@ -124,58 +139,8 @@ const TAKASHI_ULTIMATE_FVX_FRAME_PATHS: Array[String] = [
 	"res://public/fvx/FVX2.png",
 	"res://public/fvx/FVX3.png"
 ]
-const TAKASHI_ULTIMATE_GLOW_SHADER_CODE: String = """
-shader_type canvas_item;
-render_mode blend_add, unshaded;
+const TAKASHI_ULTIMATE_GLOW_SHADER: Shader = preload("res://shaders/battle/takashi_ultimate_glow.gdshader")
 
-uniform vec4 glow_color : source_color = vec4(0.45, 0.9, 1.0, 1.0);
-uniform float glow_radius = 7.0;
-uniform float glow_strength = 1.4;
-uniform float core_alpha = 0.16;
-
-void fragment() {
-	vec4 source = texture(TEXTURE, UV);
-	vec2 near_offset = TEXTURE_PIXEL_SIZE * glow_radius;
-	vec2 mid_offset = near_offset * 2.2;
-	vec2 far_offset = near_offset * 3.8;
-
-	float near_ring = (
-		texture(TEXTURE, UV + vec2(near_offset.x, 0.0)).a +
-		texture(TEXTURE, UV + vec2(-near_offset.x, 0.0)).a +
-		texture(TEXTURE, UV + vec2(0.0, near_offset.y)).a +
-		texture(TEXTURE, UV + vec2(0.0, -near_offset.y)).a +
-		texture(TEXTURE, UV + near_offset).a +
-		texture(TEXTURE, UV + vec2(-near_offset.x, near_offset.y)).a +
-		texture(TEXTURE, UV + vec2(near_offset.x, -near_offset.y)).a +
-		texture(TEXTURE, UV - near_offset).a
-	) / 8.0;
-	float mid_ring = (
-		texture(TEXTURE, UV + vec2(mid_offset.x, 0.0)).a +
-		texture(TEXTURE, UV + vec2(-mid_offset.x, 0.0)).a +
-		texture(TEXTURE, UV + vec2(0.0, mid_offset.y)).a +
-		texture(TEXTURE, UV + vec2(0.0, -mid_offset.y)).a +
-		texture(TEXTURE, UV + mid_offset).a +
-		texture(TEXTURE, UV + vec2(-mid_offset.x, mid_offset.y)).a +
-		texture(TEXTURE, UV + vec2(mid_offset.x, -mid_offset.y)).a +
-		texture(TEXTURE, UV - mid_offset).a
-	) / 8.0;
-	float far_ring = (
-		texture(TEXTURE, UV + vec2(far_offset.x, 0.0)).a +
-		texture(TEXTURE, UV + vec2(-far_offset.x, 0.0)).a +
-		texture(TEXTURE, UV + vec2(0.0, far_offset.y)).a +
-		texture(TEXTURE, UV + vec2(0.0, -far_offset.y)).a +
-		texture(TEXTURE, UV + far_offset).a +
-		texture(TEXTURE, UV + vec2(-far_offset.x, far_offset.y)).a +
-		texture(TEXTURE, UV + vec2(far_offset.x, -far_offset.y)).a +
-		texture(TEXTURE, UV - far_offset).a
-	) / 8.0;
-	float outer = (near_ring * 0.5) + (mid_ring * 0.32) + (far_ring * 0.18);
-
-	float raw_aura = (outer * glow_strength) + (source.a * core_alpha);
-	float aura = 1.0 - exp(-raw_aura * 1.6);
-	COLOR = vec4(glow_color.rgb, aura * glow_color.a);
-}
-"""
 const ULTIMATE_CAMERA_ZOOM: Vector2 = Vector2(1.85, 1.85)
 const ULTIMATE_CAMERA_FOCUS_OFFSET: Vector2 = Vector2(12.0, -92.0)
 const ULTIMATE_ZOOM_DURATION: float = 0.6
@@ -197,6 +162,9 @@ const SkillCommandAdapterScript := preload(
 const UltimateCommandAdapterScript := preload(
 	"res://scripts/battle/command/ultimate_command_adapter.gd"
 )
+const BattleVfxScript := preload("res://scripts/battle/battle_vfx.gd")
+const TakashiBattleAnimatorScript := preload("res://scripts/battle/takashi_battle_animator.gd")
+
 
 @export var use_new_basic_command_flow: bool = true
 @export var use_new_skill_command_flow: bool = true
@@ -248,16 +216,27 @@ var ultimate_frames: Array[Texture2D] = []
 var effect_layer: Node2D
 var screen_flash: ColorRect
 var battle_sfx: BattleSfx
+var battle_vfx: Node
+var takashi_animator: Node
 var takashi_idle_frames: Array[Texture2D] = []
-var idle_animation_playing: bool = false
+## Block 15.1: real animation state now lives on takashi_animator
+## (TakashiBattleAnimator) since the frame-ticking extraction. These stay as
+## read-only mirrors -- rather than plain stored bools that nothing updates
+## -- so any code (or test) still reading BattleManager's own
+## idle/basic/skill_animation_playing/looping sees the real, current state
+## instead of a permanently-false leftover.
+var idle_animation_playing: bool:
+	get: return takashi_animator.idle_animation_playing if takashi_animator != null else false
 var idle_frame_index: int = 0
 var idle_frame_elapsed: float = 0.0
 var takashi_basic_frames: Array[Texture2D] = []
-var basic_animation_playing: bool = false
+var basic_animation_playing: bool:
+	get: return takashi_animator.basic_animation_playing if takashi_animator != null else false
 var basic_frame_index: int = 0
 var basic_frame_elapsed: float = 0.0
 var takashi_skill_frames: Array[Texture2D] = []
-var skill_animation_playing: bool = false
+var skill_animation_playing: bool:
+	get: return takashi_animator.skill_animation_playing if takashi_animator != null else false
 var skill_frame_index: int = 0
 var skill_frame_elapsed: float = 0.0
 var takashi_ulti_pre_frames: Array[Texture2D] = []
@@ -360,11 +339,16 @@ func _ready() -> void:
 		ultimate_frame_player.visible = false
 	if ultimate_audio_player != null:
 		ultimate_audio_player.stream = load(ULTIMATE_AUDIO_PATH) as AudioStream
-	_setup_takashi_idle_frames()
-	_setup_takashi_basic_frames()
-	_setup_takashi_skill_frames()
-	_setup_takashi_ulti_pre_frames()
-	_setup_takashi_ulti_post_frames()
+	takashi_animator = TakashiBattleAnimatorScript.new()
+	takashi_animator.name = "TakashiBattleAnimator"
+	add_child(takashi_animator)
+	takashi_animator.setup(player_action_sprite)
+	takashi_animator.frame_changed.connect(func(_tex): _sync_takashi_ultimate_glow_frame())
+	takashi_idle_frames = takashi_animator.takashi_idle_frames
+	takashi_basic_frames = takashi_animator.takashi_basic_frames
+	takashi_skill_frames = takashi_animator.takashi_skill_frames
+	takashi_ulti_pre_frames = takashi_animator.takashi_ulti_pre_frames
+	takashi_ulti_post_frames = takashi_animator.takashi_ulti_post_frames
 	_setup_takashi_ultimate_fvx_frames()
 	_start_player_idle_animation()
 	_load_ultimate_frames()
@@ -392,9 +376,8 @@ func _ready() -> void:
 
 
 func _process(delta: float) -> void:
-	_advance_player_idle_animation(delta)
-	_advance_player_basic_animation(delta)
-	_advance_player_skill_animation(delta)
+	if takashi_animator != null:
+		takashi_animator.advance(delta)
 	_advance_takashi_ultimate_fvx(delta)
 	_sync_basic_target_highlight()
 	_sync_skill_target_highlight()
@@ -617,7 +600,7 @@ func _configure_from_encounter_context(context: EncounterContext) -> void:
 		push_error("BattleManager: active EncounterContext is invalid (null or empty roster); using default encounter")
 		return
 	var primary_id: StringName = context.battle_enemy_ids[0]
-	var primary_data: Dictionary = BATTLE_ENEMY_CATALOG.get(primary_id, {})
+	var primary_data: Dictionary = get_enemy_battle_profile_data(primary_id)
 	if primary_data.is_empty():
 		push_error("BattleManager: unknown battle_enemy_id '%s'; using default encounter" % primary_id)
 		return
@@ -654,7 +637,7 @@ func _spawn_additional_encounter_enemies() -> void:
 		return
 	for index in range(_pending_extra_battle_enemy_ids.size()):
 		var extra_id: StringName = _pending_extra_battle_enemy_ids[index]
-		var data: Dictionary = BATTLE_ENEMY_CATALOG.get(extra_id, {})
+		var data: Dictionary = get_enemy_battle_profile_data(extra_id)
 		if data.is_empty():
 			push_error("BattleManager: unknown extra battle_enemy_id '%s'; skipping roster slot" % extra_id)
 			continue
@@ -845,23 +828,9 @@ func _apply_stage_grounding(viewport_size: Vector2, player_home_position: Vector
 
 
 func _apply_player_action_sprite_grounding() -> void:
-	if player_action_sprite == null:
-		return
+	if takashi_animator != null:
+		takashi_animator.apply_grounding()
 
-	player_action_sprite.scale = PLAYER_ACTION_SPRITE_SCALE
-	if player_action_sprite.texture == null:
-		return
-
-	var texture_size: Vector2 = player_action_sprite.texture.get_size()
-	var visual_bottom: float = texture_size.y
-	var image: Image = player_action_sprite.texture.get_image()
-	if image != null:
-		var used_rect: Rect2i = image.get_used_rect()
-		if used_rect.size.y > 0:
-			visual_bottom = float(used_rect.position.y + used_rect.size.y)
-
-	var visual_bottom_from_center: float = visual_bottom - texture_size.y * 0.5
-	player_action_sprite.position.y = PLAYER_ACTION_SPRITE_GROUND_Y - visual_bottom_from_center * PLAYER_ACTION_SPRITE_SCALE.y
 
 
 func _setup_basic_command_runtime() -> void:
@@ -911,8 +880,17 @@ func _begin_basic_attack_command() -> bool:
 	var started = basic_command_adapter.begin_basic()
 	if started:
 		var command: PendingBattleCommand = basic_command_adapter.get_pending_command()
-		if _preselect_pending_target_without_commit(command, preferred_target):
-			_on_basic_command_target_changed(command, command.selected_targets.duplicate())
+		if (
+			not command.is_committed
+			and not command.is_cancelled
+			and preferred_target != null
+			and is_instance_valid(preferred_target)
+			and not preferred_target.is_defeated()
+		):
+			if _preselect_pending_target_without_commit(command, preferred_target):
+				_on_basic_command_target_changed(command, command.selected_targets.duplicate())
+		if command != null and not command.is_committed and not command.is_cancelled:
+			_confirm_basic_attack_command()
 	return started
 
 
@@ -2846,6 +2824,10 @@ func _begin_player_turn(log_text: String = "Your turn. Choose an action.") -> vo
 		return
 
 	state = BattleState.PLAYER_TURN
+	if _global_selected_target == null or not is_instance_valid(_global_selected_target) or _global_selected_target.is_defeated():
+		var candidates := _get_basic_attack_candidate_targets()
+		if not candidates.is_empty():
+			_global_selected_target = candidates[0] as Combatant
 	ui.set_battle_input_enabled(true)
 	ui.set_turn_text("Player Turn")
 	ui.set_battle_log(log_text)
@@ -3032,6 +3014,10 @@ func _on_attack_pressed() -> void:
 		return
 	if _has_pending_ultimate_command():
 		_show_ultimate_locked_message()
+		return
+
+	if _has_pending_basic_command():
+		_confirm_basic_attack_command()
 		return
 
 	if _uses_new_basic_command_flow():
@@ -3492,6 +3478,12 @@ func _setup_battle_effects() -> void:
 	battle_sfx.name = "BattleSfx"
 	battle_scene.add_child(battle_sfx)
 	battle_sfx.setup()
+
+	battle_vfx = BattleVfxScript.new()
+	battle_vfx.name = "BattleVfx"
+	battle_scene.add_child(battle_vfx)
+	battle_vfx.setup(effect_layer, screen_flash, battle_scene)
+
 	_setup_takashi_ultimate_effect_nodes()
 
 
@@ -3556,10 +3548,8 @@ func _create_additive_canvas_material() -> CanvasItemMaterial:
 
 
 func _create_png_glow_shader_material(glow_color: Color, glow_radius: float, glow_strength: float, core_alpha: float) -> ShaderMaterial:
-	var shader: Shader = Shader.new()
-	shader.code = TAKASHI_ULTIMATE_GLOW_SHADER_CODE
 	var material: ShaderMaterial = ShaderMaterial.new()
-	material.shader = shader
+	material.shader = TAKASHI_ULTIMATE_GLOW_SHADER
 	material.set_shader_parameter("glow_color", glow_color)
 	material.set_shader_parameter("glow_radius", glow_radius)
 	material.set_shader_parameter("glow_strength", glow_strength)
@@ -4040,90 +4030,38 @@ func _play_cetar_sfx(hit_index: int) -> void:
 
 
 func _spawn_basic_slash_effect(target: Node2D) -> void:
+	if effect_layer == null or battle_vfx == null or target == null:
+		return
 	var start_position: Vector2 = player.global_position + Vector2(0.0, -118.0)
 	var end_position: Vector2 = target.global_position + Vector2(-10.0, -118.0)
-	_spawn_slash_projectile(start_position, end_position, Color(1.0, 0.97, 0.86, 0.92), 1.0)
+	battle_vfx.spawn_slash_projectile(start_position, end_position, Color(1.0, 0.97, 0.86, 0.92), 1.0)
 
 
 func _spawn_enemy_claw_effect(target: Node2D) -> void:
+	if effect_layer == null or battle_vfx == null or target == null:
+		return
 	var start_position: Vector2 = enemy.global_position + Vector2(0.0, -112.0)
 	var end_position: Vector2 = target.global_position + Vector2(10.0, -112.0)
-	_spawn_slash_projectile(start_position, end_position, Color(1.0, 0.5, 0.58, 0.88), 0.85)
+	battle_vfx.spawn_slash_projectile(start_position, end_position, Color(1.0, 0.5, 0.58, 0.88), 0.85)
 
 
 func _spawn_slash_projectile(start_position: Vector2, end_position: Vector2, color: Color, scale_multiplier: float) -> void:
-	if effect_layer == null:
+	if effect_layer == null or battle_vfx == null:
 		return
-
-	var slash: Sprite2D = Sprite2D.new()
-	slash.texture = EFFECT_SLASH_TEXTURE
-	slash.flip_h = true
-	slash.position = start_position
-	slash.rotation = (end_position - start_position).angle()
-	slash.modulate = color
-	var start_scale: float = 0.07 * scale_multiplier
-	slash.scale = Vector2(start_scale, start_scale)
-	effect_layer.add_child(slash)
-
-	var end_scale: float = 0.14 * scale_multiplier
-	var tween: Tween = create_tween()
-	tween.set_trans(Tween.TRANS_QUAD)
-	tween.set_ease(Tween.EASE_OUT)
-	tween.tween_property(slash, "position", end_position, 0.16)
-	tween.parallel().tween_property(slash, "scale", Vector2(end_scale, end_scale), 0.16)
-	tween.parallel().tween_property(slash, "modulate:a", 0.0, 0.2)
-	tween.tween_callback(slash.queue_free)
+	battle_vfx.spawn_slash_projectile(start_position, end_position, color, scale_multiplier)
 
 
 func _spawn_skill_charge_effect(origin: Node2D) -> void:
-	if effect_layer == null:
+	if effect_layer == null or battle_vfx == null or origin == null:
 		return
-
-	var charge_position: Vector2 = origin.global_position + Vector2(6.0, -132.0)
-	for index in range(2):
-		var particle: Sprite2D = Sprite2D.new()
-		particle.texture = EFFECT_PARTICLE_TEXTURE
-		particle.position = charge_position
-		particle.rotation = float(index) * 0.55
-		particle.modulate = Color(0.6, 0.9, 1.0, 0.62 - (float(index) * 0.18))
-		particle.scale = Vector2(0.08, 0.08)
-		effect_layer.add_child(particle)
-
-		var end_scale: float = 0.16 + (float(index) * 0.04)
-		var tween: Tween = create_tween()
-		tween.set_trans(Tween.TRANS_QUAD)
-		tween.set_ease(Tween.EASE_OUT)
-		tween.tween_property(particle, "scale", Vector2(end_scale, end_scale), 0.24)
-		tween.parallel().tween_property(particle, "rotation", particle.rotation + 1.1, 0.24)
-		tween.parallel().tween_property(particle, "modulate:a", 0.0, 0.24)
-		tween.tween_callback(particle.queue_free)
+	battle_vfx.spawn_skill_charge_effect(origin.global_position + Vector2(6.0, -132.0))
 
 
 func _spawn_triangle_rift_effect(target: Node2D, large: bool) -> void:
-	if effect_layer == null:
+	if effect_layer == null or battle_vfx == null or target == null:
 		return
+	battle_vfx.spawn_triangle_rift_effect(target.global_position + Vector2(0.0, -118.0), large)
 
-	var rift_position: Vector2 = target.global_position + Vector2(0.0, -118.0)
-	var ring_count: int = 3 if large else 2
-	for index in range(ring_count):
-		var particle: Sprite2D = Sprite2D.new()
-		particle.texture = EFFECT_PARTICLE_TEXTURE
-		particle.position = rift_position
-		particle.rotation = -0.65 + (float(index) * 0.42)
-		particle.modulate = Color(0.55, 0.95, 1.0, 0.82 - (float(index) * 0.16))
-		particle.scale = Vector2(0.09, 0.09)
-		effect_layer.add_child(particle)
-
-		var end_scale: float = 0.2 + (float(index) * 0.05)
-		if large:
-			end_scale += 0.08
-		var tween: Tween = create_tween()
-		tween.set_trans(Tween.TRANS_QUAD)
-		tween.set_ease(Tween.EASE_OUT)
-		tween.tween_property(particle, "scale", Vector2(end_scale, end_scale), 0.22)
-		tween.parallel().tween_property(particle, "rotation", particle.rotation + 1.25, 0.22)
-		tween.parallel().tween_property(particle, "modulate:a", 0.0, 0.22)
-		tween.tween_callback(particle.queue_free)
 
 
 func _execute_triangle_rift(
@@ -4196,29 +4134,12 @@ func _resolve_triangle_rift_damage(
 
 
 func _spawn_triangle_rift_projectile(origin: Node2D, target: Node2D) -> void:
-	if effect_layer == null or origin == null or target == null:
+	if effect_layer == null or battle_vfx == null or origin == null or target == null:
 		return
-
 	var start_position: Vector2 = origin.global_position + Vector2(28.0, -128.0)
 	var end_position: Vector2 = target.global_position + Vector2(-8.0, -118.0)
+	battle_vfx.spawn_triangle_rift_projectile(start_position, end_position, SKILL_RIFT_PROJECTILE_DURATION)
 
-	var projectile: Sprite2D = Sprite2D.new()
-	projectile.texture = EFFECT_PARTICLE_TEXTURE
-	projectile.position = start_position
-	projectile.rotation = (end_position - start_position).angle()
-	projectile.modulate = Color(0.45, 0.95, 1.0, 0.95)
-	projectile.scale = Vector2(0.08, 0.08)
-	projectile.z_index = 18
-	effect_layer.add_child(projectile)
-
-	var tween: Tween = create_tween()
-	tween.set_trans(Tween.TRANS_QUAD)
-	tween.set_ease(Tween.EASE_OUT)
-	tween.tween_property(projectile, "position", end_position, SKILL_RIFT_PROJECTILE_DURATION)
-	tween.parallel().tween_property(projectile, "scale", Vector2(0.18, 0.18), SKILL_RIFT_PROJECTILE_DURATION)
-	tween.parallel().tween_property(projectile, "rotation", projectile.rotation + 0.8, SKILL_RIFT_PROJECTILE_DURATION)
-	tween.parallel().tween_property(projectile, "modulate:a", 0.0, SKILL_RIFT_PROJECTILE_DURATION + 0.04)
-	tween.tween_callback(projectile.queue_free)
 
 
 func _play_triangle_rift_impact(
@@ -4252,111 +4173,28 @@ func _play_triangle_rift_impact(
 
 
 func _spawn_triangle_rift_break(target: Node2D, pulse_index: int) -> void:
-	if effect_layer == null or target == null:
+	if effect_layer == null or battle_vfx == null or target == null:
 		return
-
-	var impact_position: Vector2 = target.global_position + Vector2(0.0, -118.0)
-
-	var burst: Sprite2D = Sprite2D.new()
-	burst.texture = EFFECT_PARTICLE_TEXTURE
-	burst.position = impact_position
-	burst.rotation = randf_range(-0.45, 0.45)
-	burst.modulate = Color(0.42, 0.95, 1.0, 0.92)
-	burst.scale = Vector2(0.08, 0.08)
-	burst.z_index = 19
-	effect_layer.add_child(burst)
-
-	var end_scale: float = 0.26 + float(pulse_index) * 0.05
-	var tween: Tween = create_tween()
-	tween.set_trans(Tween.TRANS_BACK)
-	tween.set_ease(Tween.EASE_OUT)
-	tween.tween_property(burst, "scale", Vector2(end_scale, end_scale), 0.10)
-	tween.parallel().tween_property(burst, "rotation", burst.rotation + randf_range(-1.4, 1.4), 0.16)
-	tween.parallel().tween_property(burst, "modulate:a", 0.0, 0.18)
-	tween.tween_callback(burst.queue_free)
+	battle_vfx.spawn_triangle_rift_break(target.global_position + Vector2(0.0, -118.0), pulse_index)
 
 
 func _spawn_rift_crack_slashes(target: Node2D, pulse_index: int) -> void:
-	if effect_layer == null or target == null:
+	if effect_layer == null or battle_vfx == null or target == null:
 		return
-
-	var impact_position: Vector2 = target.global_position + Vector2(0.0, -118.0)
-	var slash_count: int = 3
-
-	for index in range(slash_count):
-		var slash: Sprite2D = Sprite2D.new()
-		slash.texture = EFFECT_SLASH_TEXTURE
-		slash.position = impact_position + Vector2(randf_range(-18.0, 18.0), randf_range(-16.0, 12.0))
-		slash.rotation = deg_to_rad(randf_range(-58.0, 58.0))
-		slash.modulate = Color(0.68, 0.96, 1.0, 0.78)
-		slash.scale = Vector2(0.04, 0.04)
-		slash.z_index = 20
-		effect_layer.add_child(slash)
-
-		var end_scale: float = 0.12 + float(pulse_index) * 0.025
-		var tween: Tween = create_tween()
-		tween.set_trans(Tween.TRANS_QUAD)
-		tween.set_ease(Tween.EASE_OUT)
-		tween.tween_property(slash, "scale", Vector2(end_scale, end_scale), 0.08)
-		tween.parallel().tween_property(slash, "modulate:a", 0.0, 0.14)
-		tween.parallel().tween_property(slash, "rotation", slash.rotation + deg_to_rad(randf_range(-16.0, 16.0)), 0.14)
-		tween.tween_callback(slash.queue_free)
+	battle_vfx.spawn_rift_crack_slashes(target.global_position + Vector2(0.0, -118.0), pulse_index)
 
 
 func _spawn_rift_after_particles(target: Node2D, pulse_index: int) -> void:
-	if effect_layer == null or target == null:
+	if effect_layer == null or battle_vfx == null or target == null:
 		return
-
-	var impact_position: Vector2 = target.global_position + Vector2(0.0, -118.0)
-	var particle_count: int = 9 + pulse_index * 2
-
-	for index in range(particle_count):
-		var particle: Sprite2D = Sprite2D.new()
-		particle.texture = EFFECT_PARTICLE_TEXTURE
-		particle.position = impact_position + Vector2(randf_range(-10.0, 10.0), randf_range(-10.0, 10.0))
-		particle.rotation = randf_range(-PI, PI)
-		particle.modulate = Color(
-			randf_range(0.35, 0.7),
-			randf_range(0.86, 1.0),
-			1.0,
-			randf_range(0.58, 0.9)
-		)
-		var start_scale: float = randf_range(0.03, 0.065)
-		particle.scale = Vector2(start_scale, start_scale)
-		particle.z_index = 21
-		effect_layer.add_child(particle)
-
-		var angle: float = randf_range(-PI, PI)
-		var distance: float = randf_range(24.0, 66.0) + float(pulse_index) * 8.0
-		var end_position: Vector2 = impact_position + Vector2(cos(angle), sin(angle)) * distance
-
-		var tween: Tween = create_tween()
-		tween.set_trans(Tween.TRANS_QUAD)
-		tween.set_ease(Tween.EASE_OUT)
-		tween.tween_property(particle, "position", end_position, 0.24)
-		tween.parallel().tween_property(particle, "rotation", particle.rotation + randf_range(-2.0, 2.0), 0.24)
-		tween.parallel().tween_property(particle, "modulate:a", 0.0, 0.24)
-		tween.tween_callback(particle.queue_free)
+	battle_vfx.spawn_rift_after_particles(target.global_position + Vector2(0.0, -118.0), pulse_index)
 
 
 func _spawn_hit_spark(target: Node2D, color: Color) -> void:
-	if effect_layer == null:
+	if effect_layer == null or battle_vfx == null or target == null:
 		return
+	battle_vfx.spawn_hit_spark(target.global_position + Vector2(0.0, -110.0), color)
 
-	var spark_position: Vector2 = target.global_position + Vector2(0.0, -110.0)
-	var spark: Sprite2D = Sprite2D.new()
-	spark.texture = EFFECT_SPLASH_TEXTURE
-	spark.position = spark_position
-	spark.modulate = color
-	spark.scale = Vector2(0.05, 0.05)
-	effect_layer.add_child(spark)
-
-	var tween: Tween = create_tween()
-	tween.set_trans(Tween.TRANS_QUAD)
-	tween.set_ease(Tween.EASE_OUT)
-	tween.tween_property(spark, "scale", Vector2(0.2, 0.2), 0.11)
-	tween.parallel().tween_property(spark, "modulate:a", 0.0, 0.16)
-	tween.tween_callback(spark.queue_free)
 
 
 func _play_basic_cetar_impact(
@@ -4387,106 +4225,33 @@ func _play_basic_cetar_impact(
 
 
 func _spawn_cetar_slash_cross(target: Node2D, burst_index: int) -> void:
-	if effect_layer == null:
+	if effect_layer == null or battle_vfx == null or target == null:
 		return
-
-	var center_position: Vector2 = target.global_position + Vector2(0.0, -112.0)
-	var angles: Array[float] = [-0.72, 0.68, -0.08]
-	var colors: Array[Color] = [
-		Color(1.0, 0.96, 0.68, 0.9),
-		Color(0.68, 0.96, 1.0, 0.72),
-		Color(1.0, 1.0, 1.0, 0.78)
-	]
-
-	for slash_index in range(angles.size()):
-		var slash: Sprite2D = Sprite2D.new()
-		slash.texture = EFFECT_SLASH_TEXTURE
-		slash.flip_h = slash_index % 2 == 0
-		slash.position = center_position + Vector2(randf_range(-8.0, 8.0), randf_range(-8.0, 8.0))
-		slash.rotation = angles[slash_index] + float(burst_index) * 0.14
-		slash.modulate = colors[slash_index]
-		var start_scale: float = 0.09 + float(burst_index) * 0.012 + float(slash_index) * 0.01
-		slash.scale = Vector2(start_scale, start_scale)
-		effect_layer.add_child(slash)
-
-		var end_scale: float = start_scale + 0.13
-		var tween: Tween = create_tween()
-		tween.set_trans(Tween.TRANS_QUAD)
-		tween.set_ease(Tween.EASE_OUT)
-		tween.tween_property(slash, "scale", Vector2(end_scale, end_scale), 0.11)
-		tween.parallel().tween_property(slash, "modulate:a", 0.0, 0.13)
-		tween.parallel().tween_property(slash, "position", slash.position + Vector2(randf_range(-14.0, 14.0), randf_range(-10.0, 10.0)), 0.13)
-		tween.tween_callback(slash.queue_free)
+	battle_vfx.spawn_cetar_slash_cross(target.global_position + Vector2(0.0, -112.0), burst_index)
 
 
 func _spawn_cetar_triangle_shards(target: Node2D, burst_index: int) -> void:
-	if effect_layer == null:
+	if effect_layer == null or battle_vfx == null or target == null:
 		return
-
-	var shard_origin: Vector2 = target.global_position + Vector2(0.0, -112.0)
-	var shard_count: int = 7 + burst_index
-	for shard_index in range(shard_count):
-		var particle: Sprite2D = Sprite2D.new()
-		particle.texture = EFFECT_PARTICLE_TEXTURE
-		particle.position = shard_origin + Vector2(randf_range(-10.0, 10.0), randf_range(-8.0, 8.0))
-		particle.rotation = randf_range(-PI, PI)
-		particle.modulate = Color(0.78, 0.96, 1.0, 0.78)
-		var start_scale: float = randf_range(0.035, 0.055)
-		particle.scale = Vector2(start_scale, start_scale)
-		effect_layer.add_child(particle)
-
-		var direction: Vector2 = Vector2.RIGHT.rotated(randf_range(-PI, PI))
-		var distance: float = randf_range(28.0, 62.0) + float(burst_index) * 6.0
-		var end_position: Vector2 = particle.position + direction * distance
-		var tween: Tween = create_tween()
-		tween.set_trans(Tween.TRANS_QUAD)
-		tween.set_ease(Tween.EASE_OUT)
-		tween.tween_property(particle, "position", end_position, 0.18)
-		tween.parallel().tween_property(particle, "rotation", particle.rotation + randf_range(-2.4, 2.4), 0.18)
-		tween.parallel().tween_property(particle, "scale", Vector2(start_scale * 1.65, start_scale * 1.65), 0.12)
-		tween.parallel().tween_property(particle, "modulate:a", 0.0, 0.2)
-		tween.tween_callback(particle.queue_free)
+	battle_vfx.spawn_cetar_triangle_shards(target.global_position + Vector2(0.0, -112.0), burst_index)
 
 
 func _spawn_cetar_text(target: Node2D, text_value: String, color: Color) -> void:
-	var label: Label = Label.new()
-	label.text = text_value
-	label.z_index = 22
-	label.add_theme_font_size_override("font_size", 16)
-	label.add_theme_color_override("font_color", color)
-	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.78))
-	label.add_theme_constant_override("shadow_offset_x", 2)
-	label.add_theme_constant_override("shadow_offset_y", 2)
-	battle_scene.add_child(label)
-
+	if battle_vfx == null or target == null:
+		return
 	var start_position: Vector2 = target.position + Vector2(randf_range(-34.0, 18.0), randf_range(-142.0, -112.0))
-	label.position = start_position
-	label.rotation = randf_range(-0.12, 0.12)
-
-	var tween: Tween = create_tween()
-	tween.set_trans(Tween.TRANS_QUAD)
-	tween.set_ease(Tween.EASE_OUT)
-	tween.tween_property(label, "position", start_position + Vector2(randf_range(-8.0, 8.0), -BASIC_CETAR_TEXT_RISE), 0.28)
-	tween.parallel().tween_property(label, "modulate:a", 0.0, 0.28)
-	tween.tween_callback(label.queue_free)
+	battle_vfx.spawn_cetar_text(start_position, text_value, color, BASIC_CETAR_TEXT_RISE)
 
 
 func _play_screen_flash(color: Color, duration: float) -> void:
-	if screen_flash == null:
-		return
-
-	screen_flash.visible = true
-	screen_flash.color = color
-	screen_flash.modulate = Color.WHITE
-	var tween: Tween = create_tween()
-	tween.tween_property(screen_flash, "modulate:a", 0.0, duration)
-	tween.tween_callback(Callable(self, "_hide_screen_flash"))
+	if battle_vfx != null:
+		battle_vfx.play_screen_flash(color, duration)
 
 
 func _hide_screen_flash() -> void:
-	if screen_flash != null:
-		screen_flash.visible = false
-		screen_flash.modulate = Color.WHITE
+	if battle_vfx != null:
+		battle_vfx.hide_screen_flash()
+
 
 
 func _on_restart_pressed() -> void:
@@ -4682,6 +4447,10 @@ func _shake_camera() -> void:
 
 
 func _shake_camera_with_strength(strength: float) -> void:
+	if battle_presentation_3d != null and is_instance_valid(battle_presentation_3d):
+		battle_presentation_3d.camera_shake(strength)
+		return
+
 	if battle_camera == null:
 		return
 
@@ -4728,18 +4497,9 @@ func _reset_camera() -> void:
 
 
 func _set_player_action_texture(texture: Texture2D) -> void:
-	if texture == TAKASHI_IDLE_TEXTURE:
-		_start_player_idle_animation()
+	if takashi_animator != null:
+		takashi_animator.set_action_texture(texture)
 		return
-
-	if texture == TAKASHI_BASIC_TEXTURE:
-		_start_player_basic_animation()
-		return
-
-	if texture == TAKASHI_SKILL_TEXTURE:
-		_start_player_skill_animation()
-		return
-
 	_stop_player_idle_animation()
 	_stop_player_basic_animation()
 	_stop_player_skill_animation()
@@ -4748,32 +4508,12 @@ func _set_player_action_texture(texture: Texture2D) -> void:
 
 
 func _set_player_action_frame(texture: Texture2D) -> void:
-	if player_action_sprite == null or texture == null:
-		return
-
-	player_action_sprite.texture = texture
-	_apply_player_action_sprite_grounding()
-	_sync_takashi_ultimate_glow_frame()
-
-
-func _setup_takashi_idle_frames() -> void:
-	takashi_idle_frames = _load_texture_frames(TAKASHI_IDLE_FRAME_PATHS)
-
-
-func _setup_takashi_basic_frames() -> void:
-	takashi_basic_frames = _load_texture_frames(TAKASHI_BASIC_FRAME_PATHS)
-
-
-func _setup_takashi_skill_frames() -> void:
-	takashi_skill_frames = _load_texture_frames(TAKASHI_SKILL_FRAME_PATHS)
-
-
-func _setup_takashi_ulti_pre_frames() -> void:
-	takashi_ulti_pre_frames = _load_texture_frames(TAKASHI_ULTI_PRE_FRAME_PATHS)
-
-
-func _setup_takashi_ulti_post_frames() -> void:
-	takashi_ulti_post_frames = _load_texture_frames(TAKASHI_ULTI_POST_FRAME_PATHS)
+	if takashi_animator != null:
+		takashi_animator.set_action_frame(texture)
+	elif player_action_sprite != null and texture != null:
+		player_action_sprite.texture = texture
+		_apply_player_action_sprite_grounding()
+		_sync_takashi_ultimate_glow_frame()
 
 
 func _setup_takashi_ultimate_fvx_frames() -> void:
@@ -4793,116 +4533,46 @@ func _load_texture_frames(frame_paths: Array[String]) -> Array[Texture2D]:
 
 
 func _start_player_idle_animation() -> void:
-	if player_action_sprite == null:
-		return
-
-	_stop_player_basic_animation()
-	_stop_player_skill_animation()
-	if takashi_idle_frames.is_empty():
-		_set_player_action_frame(TAKASHI_IDLE_TEXTURE)
-		return
-
-	idle_animation_playing = true
-	idle_frame_index = 0
-	idle_frame_elapsed = 0.0
-	_set_player_action_frame(takashi_idle_frames[idle_frame_index])
+	if takashi_animator != null:
+		takashi_animator.start_idle()
 
 
 func _stop_player_idle_animation() -> void:
-	if not idle_animation_playing:
-		return
-
-	idle_animation_playing = false
+	if takashi_animator != null:
+		takashi_animator.stop_idle()
 
 
 func _start_player_basic_animation() -> void:
-	if player_action_sprite == null:
-		return
-
-	_stop_player_idle_animation()
-	_stop_player_skill_animation()
-	if takashi_basic_frames.is_empty():
-		_set_player_action_frame(TAKASHI_BASIC_TEXTURE)
-		return
-
-	basic_animation_playing = true
-	basic_frame_index = 0
-	basic_frame_elapsed = 0.0
-	_set_player_action_frame(takashi_basic_frames[basic_frame_index])
+	if takashi_animator != null:
+		takashi_animator.start_basic()
 
 
 func _stop_player_basic_animation() -> void:
-	if not basic_animation_playing:
-		return
-
-	basic_animation_playing = false
+	if takashi_animator != null:
+		takashi_animator.stop_basic()
 
 
 func _start_player_skill_animation(loop_animation: bool = false) -> void:
-	if player_action_sprite == null:
-		return
-
-	_stop_player_idle_animation()
-	_stop_player_basic_animation()
-	skill_animation_looping = loop_animation
-	if takashi_skill_frames.is_empty():
-		_set_player_action_frame(TAKASHI_SKILL_TEXTURE)
-		return
-
-	skill_animation_playing = true
-	skill_frame_index = 0
-	skill_frame_elapsed = 0.0
-	_set_player_action_frame(takashi_skill_frames[skill_frame_index])
+	if takashi_animator != null:
+		takashi_animator.start_skill(loop_animation)
 
 
 func _stop_player_skill_animation() -> void:
-	if not skill_animation_playing:
-		skill_animation_looping = false
-		return
-
-	skill_animation_playing = false
-	skill_animation_looping = false
+	if takashi_animator != null:
+		takashi_animator.stop_skill()
 
 
 func _advance_player_idle_animation(delta: float) -> void:
-	if not idle_animation_playing or player_action_sprite == null or takashi_idle_frames.is_empty():
-		return
-
-	idle_frame_elapsed += delta
-	var frame_duration: float = 1.0 / TAKASHI_IDLE_FRAME_RATE
-	while idle_frame_elapsed >= frame_duration:
-		idle_frame_elapsed -= frame_duration
-		idle_frame_index = (idle_frame_index + 1) % takashi_idle_frames.size()
-		_set_player_action_frame(takashi_idle_frames[idle_frame_index])
+	if takashi_animator != null:
+		takashi_animator.advance(delta)
 
 
 func _advance_player_basic_animation(delta: float) -> void:
-	if not basic_animation_playing or player_action_sprite == null or takashi_basic_frames.is_empty():
-		return
-
-	basic_frame_elapsed += delta
-	var frame_duration: float = 1.0 / TAKASHI_BASIC_FRAME_RATE
-	while basic_frame_elapsed >= frame_duration:
-		basic_frame_elapsed -= frame_duration
-		basic_frame_index = (basic_frame_index + 1) % takashi_basic_frames.size()
-		_set_player_action_frame(takashi_basic_frames[basic_frame_index])
+	if takashi_animator != null:
+		takashi_animator.advance(delta)
 
 
 func _advance_player_skill_animation(delta: float) -> void:
-	if not skill_animation_playing or player_action_sprite == null or takashi_skill_frames.is_empty():
-		return
+	if takashi_animator != null:
+		takashi_animator.advance(delta)
 
-	skill_frame_elapsed += delta
-	var frame_duration: float = 1.0 / TAKASHI_SKILL_FRAME_RATE
-	while skill_frame_elapsed >= frame_duration:
-		skill_frame_elapsed -= frame_duration
-		if skill_frame_index >= takashi_skill_frames.size() - 1:
-			if skill_animation_looping:
-				skill_frame_index = 0
-				_set_player_action_frame(takashi_skill_frames[skill_frame_index])
-				continue
-			skill_animation_playing = false
-			return
-
-		skill_frame_index += 1
-		_set_player_action_frame(takashi_skill_frames[skill_frame_index])

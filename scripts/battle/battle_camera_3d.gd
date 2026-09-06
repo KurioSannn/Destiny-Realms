@@ -122,6 +122,9 @@ func transition_to(preset: Preset) -> void:
 
 
 func snap_to(preset: Preset) -> void:
+	if _tween != null and _tween.is_running():
+		_tween.kill()
+	_look_tween_start = false
 	_current_preset = preset
 	_apply_preset_immediate(preset)
 
@@ -138,6 +141,21 @@ func get_camera() -> Camera3D:
 	return _camera
 
 
+var _shake_tween: Tween
+
+
+func shake(strength: float, duration: float = 0.12) -> void:
+	if _camera == null:
+		return
+	if _shake_tween != null and _shake_tween.is_running():
+		_shake_tween.kill()
+	var shake_magnitude: float = clampf(strength * 0.025, 0.04, 0.35)
+	_shake_tween = create_tween()
+	_shake_tween.tween_property(_camera, "h_offset", shake_magnitude, duration * 0.25).set_trans(Tween.TRANS_SINE)
+	_shake_tween.tween_property(_camera, "h_offset", -shake_magnitude * 0.7, duration * 0.35).set_trans(Tween.TRANS_SINE)
+	_shake_tween.tween_property(_camera, "h_offset", 0.0, duration * 0.4).set_trans(Tween.TRANS_SINE)
+
+
 func _apply_preset_immediate(preset: Preset) -> void:
 	if _camera == null:
 		return
@@ -152,6 +170,7 @@ func _animate_to_preset(preset: Preset, duration: float) -> void:
 		return
 	if _tween != null and _tween.is_running():
 		_tween.kill()
+	_look_tween_start = false
 
 	var cfg := _preset_config(preset)
 	var target_pos: Vector3 = arena_center + cfg["pos"]
