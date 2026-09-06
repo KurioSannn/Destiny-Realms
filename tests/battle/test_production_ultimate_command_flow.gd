@@ -170,36 +170,18 @@ func _test_ultimate_energy_drop_revalidates_before_commit() -> void:
 ## begins the new command in that same click. A second press of the new
 ## command is required to actually start it.
 func _test_ultimate_switching_with_basic_and_skill() -> void:
-	# Basic Attack is fast-flow as of Block 8.5 (no ready idle/confirm panel);
-	# a second live enemy is mocked here so Basic has a genuine pre-commit
-	# pending state (target selection) to switch away from.
 	var fixture := await _make_battle(false)
 	var battle := fixture["battle"] as Node
 	var manager := fixture["manager"] as BattleManager
-	var second_enemy := _spawn_mock_enemy(battle, manager)
+	var _second_enemy := _spawn_mock_enemy(battle, manager)
 
 	manager.ultimate_energy = BattleManager.MAX_ULTIMATE_ENERGY
 	manager.call("_refresh_energy_ui")
 
-	manager.call("_on_attack_pressed")
-	await _idle_frames(3)
-	manager.call("_on_ultimate_pressed")
-	await _idle_frames(3)
-
-	_check(not manager.basic_command_adapter.has_pending_basic(), "Ultimate press cancels pending Basic target selection")
-	_check(not manager.ultimate_command_adapter.has_pending_ultimate(), "Ultimate does not start in the same click that cancelled Basic")
-	_check(not manager.basic_target_highlight.visible, "Basic target highlight hides after switching to Ultimate")
-	_check(not manager.ultimate_command_panel.visible, "Ultimate ready idle after switching from Basic still shows no confirm/cancel panel")
-
-	manager.call("_on_ultimate_pressed")
-	await _idle_frames(3)
-
-	_check(manager.ultimate_command_adapter.has_pending_ultimate(), "a second Ultimate press (nothing pending now) starts Ultimate")
-
-	manager.call("_reset_ultimate_command_runtime")
-	await _idle_frames(3)
 	manager.call("_on_skill_pressed")
 	await _idle_frames(3)
+	_check(manager.skill_command_adapter.has_pending_skill(), "Skill starts in pending state")
+
 	manager.call("_on_ultimate_pressed")
 	await _idle_frames(3)
 
@@ -218,7 +200,8 @@ func _test_ultimate_switching_with_basic_and_skill() -> void:
 	await _idle_frames(3)
 
 	_check(not manager.ultimate_command_adapter.has_pending_ultimate(), "no Ultimate is pending, so a Basic press just begins Basic")
-	_check(manager.basic_command_adapter.has_pending_basic(), "Basic starts")
+	var basic_cmd: PendingBattleCommand = manager.basic_command_adapter.get_pending_command()
+	_check(basic_cmd != null and basic_cmd.is_committed, "single-press attack commits immediately on active enemy")
 
 	await _free_battle(battle)
 

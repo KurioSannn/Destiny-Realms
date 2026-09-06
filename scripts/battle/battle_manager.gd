@@ -164,6 +164,7 @@ const UltimateCommandAdapterScript := preload(
 )
 const BattleVfxScript := preload("res://scripts/battle/battle_vfx.gd")
 const TakashiBattleAnimatorScript := preload("res://scripts/battle/takashi_battle_animator.gd")
+const TakashiUltimateEffectsScript := preload("res://scripts/battle/takashi_ultimate_effects.gd")
 
 
 @export var use_new_basic_command_flow: bool = true
@@ -218,6 +219,7 @@ var screen_flash: ColorRect
 var battle_sfx: BattleSfx
 var battle_vfx: Node
 var takashi_animator: Node
+var takashi_ultimate_effects: Node
 var takashi_idle_frames: Array[Texture2D] = []
 ## Block 15.1: real animation state now lives on takashi_animator
 ## (TakashiBattleAnimator) since the frame-ticking extraction. These stay as
@@ -241,16 +243,23 @@ var skill_frame_index: int = 0
 var skill_frame_elapsed: float = 0.0
 var takashi_ulti_pre_frames: Array[Texture2D] = []
 var takashi_ulti_post_frames: Array[Texture2D] = []
-var takashi_ultimate_fvx_frames: Array[Texture2D] = []
-var takashi_ultimate_fvx_sprite: Sprite2D
-var takashi_ultimate_fvx_glow_sprite: Sprite2D
-var takashi_ultimate_character_glow_sprite: Sprite2D
-var takashi_ultimate_fvx_playing: bool = false
+var takashi_ultimate_fvx_frames: Array[Texture2D]:
+	get: return takashi_ultimate_effects.takashi_ultimate_fvx_frames if takashi_ultimate_effects != null else []
+var takashi_ultimate_fvx_sprite: Sprite2D:
+	get: return takashi_ultimate_effects.takashi_ultimate_fvx_sprite if takashi_ultimate_effects != null else null
+var takashi_ultimate_fvx_glow_sprite: Sprite2D:
+	get: return takashi_ultimate_effects.takashi_ultimate_fvx_glow_sprite if takashi_ultimate_effects != null else null
+var takashi_ultimate_character_glow_sprite: Sprite2D:
+	get: return takashi_ultimate_effects.takashi_ultimate_character_glow_sprite if takashi_ultimate_effects != null else null
+var takashi_ultimate_fvx_playing: bool:
+	get: return takashi_ultimate_effects.takashi_ultimate_fvx_playing if takashi_ultimate_effects != null else false
 var takashi_ultimate_fvx_frame_index: int = 0
 var takashi_ultimate_fvx_frame_elapsed: float = 0.0
 var battle_ui_visible_before_ultimate: bool = true
-var enemy_impact_fvx_sprite: Sprite2D
-var enemy_impact_fvx_glow_sprite: Sprite2D
+var enemy_impact_fvx_sprite: Sprite2D:
+	get: return takashi_ultimate_effects.enemy_impact_fvx_sprite if takashi_ultimate_effects != null else null
+var enemy_impact_fvx_glow_sprite: Sprite2D:
+	get: return takashi_ultimate_effects.enemy_impact_fvx_glow_sprite if takashi_ultimate_effects != null else null
 var _ultimate_cutscene_snapshot: Dictionary = {}
 var _global_selected_target: Combatant = null
 var basic_command_adapter
@@ -270,7 +279,11 @@ var active_skill_command_token: int = 0
 var skill_recovery_tokens: Dictionary = {}
 var skill_turn_completion_tokens: Dictionary = {}
 var skill_hit_tokens: Dictionary = {}
-var skill_animation_looping: bool = false
+var skill_animation_looping: bool:
+	get: return takashi_animator.skill_animation_looping if takashi_animator != null else false
+	set(value):
+		if takashi_animator != null:
+			takashi_animator.skill_animation_looping = value
 var ultimate_command_adapter
 var ultimate_target_highlight: Line2D
 var ultimate_command_panel: Panel
@@ -3401,30 +3414,13 @@ func _play_ultimate_camera_zoom_out() -> void:
 
 
 func _play_takashi_ulti_pre_animation() -> void:
-	if player_action_sprite == null or takashi_ulti_pre_frames.is_empty():
-		return
-
-	_stop_player_idle_animation()
-	_stop_player_basic_animation()
-	_stop_player_skill_animation()
-	var frame_duration: float = 1.0 / TAKASHI_ULTI_PRE_FRAME_RATE
-	for frame_texture in takashi_ulti_pre_frames:
-		if state != BattleState.ACTION_RESOLUTION:
-			return
-		_set_player_action_frame(frame_texture)
-		await get_tree().create_timer(frame_duration).timeout
+	if takashi_animator != null:
+		await takashi_animator.play_ulti_pre_animation(get_tree(), func(): return state == BattleState.ACTION_RESOLUTION)
 
 
 func _play_takashi_ulti_post_animation() -> void:
-	if player_action_sprite == null or takashi_ulti_post_frames.is_empty():
-		return
-
-	var frame_duration: float = 1.0 / TAKASHI_ULTI_POST_FRAME_RATE
-	for frame_texture in takashi_ulti_post_frames:
-		if state != BattleState.ACTION_RESOLUTION:
-			return
-		_set_player_action_frame(frame_texture)
-		await get_tree().create_timer(frame_duration).timeout
+	if takashi_animator != null:
+		await takashi_animator.play_ulti_post_animation(get_tree(), func(): return state == BattleState.ACTION_RESOLUTION)
 
 
 func _load_ultimate_frames() -> void:
@@ -3484,61 +3480,18 @@ func _setup_battle_effects() -> void:
 	battle_scene.add_child(battle_vfx)
 	battle_vfx.setup(effect_layer, screen_flash, battle_scene)
 
-	_setup_takashi_ultimate_effect_nodes()
+	takashi_ultimate_effects = TakashiUltimateEffectsScript.new()
+	takashi_ultimate_effects.name = "TakashiUltimateEffects"
+	battle_scene.add_child(takashi_ultimate_effects)
+	takashi_ultimate_effects.setup(player, enemy, effect_layer, player_action_sprite)
 
 
 func _setup_takashi_ultimate_effect_nodes() -> void:
-	if player == null:
-		return
-
-	takashi_ultimate_fvx_glow_sprite = Sprite2D.new()
-	takashi_ultimate_fvx_glow_sprite.name = "RuntimeTakashiUltimateFVXGlow"
-	takashi_ultimate_fvx_glow_sprite.visible = false
-	takashi_ultimate_fvx_glow_sprite.z_index = -3
-	takashi_ultimate_fvx_glow_sprite.centered = true
-	takashi_ultimate_fvx_glow_sprite.material = _create_png_glow_shader_material(Color(0.44, 0.9, 1.0, 1.0), 18.0, 1.5, 0.16)
-	player.add_child(takashi_ultimate_fvx_glow_sprite)
-
-	takashi_ultimate_fvx_sprite = Sprite2D.new()
-	takashi_ultimate_fvx_sprite.name = "RuntimeTakashiUltimateFVX"
-	takashi_ultimate_fvx_sprite.visible = false
-	takashi_ultimate_fvx_sprite.z_index = -2
-	takashi_ultimate_fvx_sprite.centered = true
-	takashi_ultimate_fvx_sprite.material = _create_additive_canvas_material()
-	player.add_child(takashi_ultimate_fvx_sprite)
-
-	takashi_ultimate_character_glow_sprite = Sprite2D.new()
-	takashi_ultimate_character_glow_sprite.name = "RuntimeTakashiUltimateCharacterGlow"
-	takashi_ultimate_character_glow_sprite.visible = false
-	takashi_ultimate_character_glow_sprite.z_index = -1
-	takashi_ultimate_character_glow_sprite.centered = true
-	takashi_ultimate_character_glow_sprite.material = _create_png_glow_shader_material(Color(0.5, 0.92, 1.0, 1.0), 13.0, 1.3, 0.14)
-	player.add_child(takashi_ultimate_character_glow_sprite)
-	_sync_takashi_ultimate_effect_layout()
-	_setup_enemy_impact_fvx_nodes()
+	pass
 
 
 func _setup_enemy_impact_fvx_nodes() -> void:
-	if enemy == null and effect_layer == null:
-		return
-	var parent_node: Node = effect_layer if effect_layer != null else enemy
-
-	enemy_impact_fvx_glow_sprite = Sprite2D.new()
-	enemy_impact_fvx_glow_sprite.name = "RuntimeEnemyImpactFVXGlow"
-	enemy_impact_fvx_glow_sprite.visible = false
-	enemy_impact_fvx_glow_sprite.z_index = -3
-	enemy_impact_fvx_glow_sprite.centered = true
-	enemy_impact_fvx_glow_sprite.material = _create_png_glow_shader_material(Color(0.42, 0.88, 1.0, 1.0), 18.0, 1.5, 0.16)
-	parent_node.add_child(enemy_impact_fvx_glow_sprite)
-
-	enemy_impact_fvx_sprite = Sprite2D.new()
-	enemy_impact_fvx_sprite.name = "RuntimeEnemyImpactFVX"
-	enemy_impact_fvx_sprite.visible = false
-	enemy_impact_fvx_sprite.z_index = -2
-	enemy_impact_fvx_sprite.centered = true
-	enemy_impact_fvx_sprite.material = _create_additive_canvas_material()
-	parent_node.add_child(enemy_impact_fvx_sprite)
-	_sync_enemy_impact_fvx_layout(enemy)
+	pass
 
 
 func _create_additive_canvas_material() -> CanvasItemMaterial:
@@ -3558,370 +3511,124 @@ func _create_png_glow_shader_material(glow_color: Color, glow_radius: float, glo
 
 
 func _play_takashi_ultimate_fvx_intro() -> void:
-	if takashi_ultimate_fvx_frames.is_empty():
-		_show_takashi_ultimate_character_glow()
-		_play_ultimate_charge_rumble_sfx(0.75)
-		return
-
-	_show_takashi_ultimate_character_glow()
-	_play_ultimate_charge_rumble_sfx(0.9)
-	var frame_count: int = mini(takashi_ultimate_fvx_frames.size(), 3)
-	for frame_index in range(frame_count):
-		if state != BattleState.ACTION_RESOLUTION:
-			return
-		await _play_takashi_ultimate_fvx_step(frame_index, frame_index == frame_count - 1)
-
-	_hold_takashi_ultimate_fvx()
+	if takashi_ultimate_effects != null:
+		await takashi_ultimate_effects.play_takashi_ultimate_fvx_intro(
+			func(): return state == BattleState.ACTION_RESOLUTION,
+			func(kind, arg1 = null, arg2 = null):
+				match kind:
+					&"rumble": _play_ultimate_charge_rumble_sfx(arg1 if arg1 != null else 0.9)
+					&"step": _play_ultimate_fvx_step_sfx(arg1, arg2)
+		)
 
 
 func _play_takashi_ultimate_fvx_step(frame_index: int, keep_visible: bool) -> void:
-	if takashi_ultimate_fvx_sprite == null or takashi_ultimate_fvx_glow_sprite == null:
-		return
-	if frame_index < 0 or frame_index >= takashi_ultimate_fvx_frames.size():
-		return
-
-	_play_ultimate_fvx_step_sfx(frame_index, keep_visible)
-	takashi_ultimate_fvx_playing = false
-	var frame_texture: Texture2D = takashi_ultimate_fvx_frames[frame_index]
-	takashi_ultimate_fvx_frame_index = frame_index
-	takashi_ultimate_fvx_sprite.texture = frame_texture
-	takashi_ultimate_fvx_glow_sprite.texture = frame_texture
-	_sync_takashi_ultimate_effect_layout()
-
-	var base_scale: Vector2 = _get_takashi_ultimate_fvx_scale(frame_texture)
-	takashi_ultimate_fvx_sprite.visible = true
-	takashi_ultimate_fvx_glow_sprite.visible = true
-	takashi_ultimate_fvx_sprite.modulate = Color(0.55, 0.92, 1.0, 0.0)
-	takashi_ultimate_fvx_glow_sprite.modulate = Color(0.6, 0.95, 1.0, 0.0)
-	takashi_ultimate_fvx_sprite.scale = base_scale * 0.84
-	takashi_ultimate_fvx_glow_sprite.scale = base_scale * 1.28
-	takashi_ultimate_fvx_sprite.rotation = -0.32
-	takashi_ultimate_fvx_glow_sprite.rotation = -0.32
-
-	var tween: Tween = create_tween()
-	tween.set_trans(Tween.TRANS_SINE)
-	tween.set_ease(Tween.EASE_IN_OUT)
-	tween.tween_property(takashi_ultimate_fvx_sprite, "modulate:a", 0.78, 0.2)
-	tween.parallel().tween_property(takashi_ultimate_fvx_glow_sprite, "modulate:a", 0.78, 0.2)
-	tween.parallel().tween_property(takashi_ultimate_fvx_sprite, "scale", base_scale, 0.24)
-	tween.parallel().tween_property(takashi_ultimate_fvx_glow_sprite, "scale", base_scale * 1.55, 0.24)
-	tween.parallel().tween_property(takashi_ultimate_fvx_sprite, "rotation", 0.42, 0.4)
-	tween.parallel().tween_property(takashi_ultimate_fvx_glow_sprite, "rotation", 0.42, 0.4)
-	tween.tween_interval(0.08)
-	if keep_visible:
-		tween.tween_property(takashi_ultimate_fvx_sprite, "modulate:a", 0.68, 0.14)
-		tween.parallel().tween_property(takashi_ultimate_fvx_glow_sprite, "modulate:a", 0.64, 0.14)
-	else:
-		var rest_alpha: float = 0.14 + (float(frame_index) * 0.1)
-		tween.tween_property(takashi_ultimate_fvx_sprite, "modulate:a", rest_alpha, 0.18)
-		tween.parallel().tween_property(takashi_ultimate_fvx_glow_sprite, "modulate:a", rest_alpha, 0.18)
-	await tween.finished
+	if takashi_ultimate_effects != null:
+		await takashi_ultimate_effects.play_takashi_ultimate_fvx_step(
+			frame_index,
+			keep_visible,
+			func(kind, idx, keep): _play_ultimate_fvx_step_sfx(idx, keep)
+		)
 
 
 func _show_takashi_ultimate_character_glow() -> void:
-	if player_action_sprite != null:
-		player_action_sprite.self_modulate = Color(1.0, 1.12, 1.22, 1.0)
-	if takashi_ultimate_character_glow_sprite == null:
-		return
-
-	_sync_takashi_ultimate_glow_frame()
-	takashi_ultimate_character_glow_sprite.visible = true
-	takashi_ultimate_character_glow_sprite.modulate = Color(0.56, 0.9, 1.0, 0.0)
-	var tween: Tween = create_tween()
-	tween.set_trans(Tween.TRANS_SINE)
-	tween.set_ease(Tween.EASE_IN_OUT)
-	tween.tween_property(takashi_ultimate_character_glow_sprite, "modulate:a", 0.62, 0.28)
+	if takashi_ultimate_effects != null:
+		takashi_ultimate_effects.show_takashi_ultimate_character_glow()
 
 
 func _hold_takashi_ultimate_fvx() -> void:
-	takashi_ultimate_fvx_playing = true
-	takashi_ultimate_fvx_frame_elapsed = 0.0
-	if not takashi_ultimate_fvx_frames.is_empty():
-		var hold_index: int = mini(2, takashi_ultimate_fvx_frames.size() - 1)
-		var hold_texture: Texture2D = takashi_ultimate_fvx_frames[hold_index]
-		takashi_ultimate_fvx_frame_index = hold_index
-		if takashi_ultimate_fvx_sprite != null:
-			takashi_ultimate_fvx_sprite.texture = hold_texture
-			takashi_ultimate_fvx_sprite.visible = true
-		if takashi_ultimate_fvx_glow_sprite != null:
-			takashi_ultimate_fvx_glow_sprite.texture = hold_texture
-			takashi_ultimate_fvx_glow_sprite.visible = true
-	_sync_takashi_ultimate_effect_layout()
+	if takashi_ultimate_effects != null:
+		takashi_ultimate_effects.hold_takashi_ultimate_fvx()
 
 
 func _advance_takashi_ultimate_fvx(delta: float) -> void:
-	if not takashi_ultimate_fvx_playing:
-		return
-	if takashi_ultimate_fvx_sprite == null or takashi_ultimate_fvx_glow_sprite == null:
-		return
-
-	takashi_ultimate_fvx_frame_elapsed += delta
-	var flicker: float = 0.72 + 0.28 * sin(takashi_ultimate_fvx_frame_elapsed * TAKASHI_ULTIMATE_FVX_FRAME_RATE * 0.85)
-	takashi_ultimate_fvx_sprite.rotation += delta * 0.5
-	takashi_ultimate_fvx_glow_sprite.rotation = takashi_ultimate_fvx_sprite.rotation
-	takashi_ultimate_fvx_sprite.modulate = Color(0.58, 0.94, 1.0, 0.58 + flicker * 0.24)
-	takashi_ultimate_fvx_glow_sprite.modulate = Color(0.62, 0.96, 1.0, 0.46 + flicker * 0.36)
-	if takashi_ultimate_character_glow_sprite != null:
-		takashi_ultimate_character_glow_sprite.modulate = Color(0.56, 0.9, 1.0, 0.42 + flicker * 0.28)
+	if takashi_ultimate_effects != null:
+		takashi_ultimate_effects.advance(delta)
 
 
 func _fade_out_takashi_ultimate_glow_effect(duration: float) -> void:
-	takashi_ultimate_fvx_playing = false
-	if player_action_sprite != null:
-		player_action_sprite.self_modulate = Color.WHITE
-
-	var tween: Tween = create_tween()
-	var has_tween_target: bool = false
-	if takashi_ultimate_fvx_sprite != null and takashi_ultimate_fvx_sprite.visible:
-		tween.tween_property(takashi_ultimate_fvx_sprite, "modulate:a", 0.0, duration)
-		has_tween_target = true
-	if takashi_ultimate_fvx_glow_sprite != null and takashi_ultimate_fvx_glow_sprite.visible:
-		if has_tween_target:
-			tween.parallel().tween_property(takashi_ultimate_fvx_glow_sprite, "modulate:a", 0.0, duration)
-		else:
-			tween.tween_property(takashi_ultimate_fvx_glow_sprite, "modulate:a", 0.0, duration)
-		has_tween_target = true
-	if takashi_ultimate_character_glow_sprite != null and takashi_ultimate_character_glow_sprite.visible:
-		if has_tween_target:
-			tween.parallel().tween_property(takashi_ultimate_character_glow_sprite, "modulate:a", 0.0, duration)
-		else:
-			tween.tween_property(takashi_ultimate_character_glow_sprite, "modulate:a", 0.0, duration)
-		has_tween_target = true
-
-	if has_tween_target:
-		await tween.finished
-	_hide_takashi_ultimate_glow_effect()
+	if takashi_ultimate_effects != null:
+		await takashi_ultimate_effects.fade_out_takashi_ultimate_glow_effect(duration)
 
 
 func _hide_takashi_ultimate_glow_effect() -> void:
-	takashi_ultimate_fvx_playing = false
-	takashi_ultimate_fvx_frame_elapsed = 0.0
-	if player_action_sprite != null:
-		player_action_sprite.self_modulate = Color.WHITE
-	if takashi_ultimate_fvx_sprite != null:
-		takashi_ultimate_fvx_sprite.visible = false
-		takashi_ultimate_fvx_sprite.rotation = 0.0
-		takashi_ultimate_fvx_sprite.modulate = Color(0.58, 0.94, 1.0, 0.0)
-	if takashi_ultimate_fvx_glow_sprite != null:
-		takashi_ultimate_fvx_glow_sprite.visible = false
-		takashi_ultimate_fvx_glow_sprite.rotation = 0.0
-		takashi_ultimate_fvx_glow_sprite.modulate = Color(0.62, 0.96, 1.0, 0.0)
-	if takashi_ultimate_character_glow_sprite != null:
-		takashi_ultimate_character_glow_sprite.visible = false
-		takashi_ultimate_character_glow_sprite.modulate = Color(0.56, 0.9, 1.0, 0.0)
+	if takashi_ultimate_effects != null:
+		takashi_ultimate_effects.hide_takashi_ultimate_glow_effect()
 
 
 func _sync_takashi_ultimate_effect_layout() -> void:
-	_sync_takashi_ultimate_glow_frame()
-	if takashi_ultimate_fvx_sprite == null:
-		return
-
-	var fvx_texture: Texture2D = takashi_ultimate_fvx_sprite.texture
-	var base_scale: Vector2 = _get_takashi_ultimate_fvx_scale(fvx_texture)
-	var fvx_position: Vector2 = TAKASHI_ULTIMATE_FVX_OFFSET
-	if player_action_sprite != null:
-		fvx_position += player_action_sprite.position
-
-	takashi_ultimate_fvx_sprite.position = fvx_position
-	takashi_ultimate_fvx_sprite.scale = base_scale
-	if takashi_ultimate_fvx_glow_sprite != null:
-		takashi_ultimate_fvx_glow_sprite.position = fvx_position
-		takashi_ultimate_fvx_glow_sprite.scale = base_scale * 1.5
+	if takashi_ultimate_effects != null:
+		takashi_ultimate_effects.sync_effect_layout()
 
 
 func _sync_takashi_ultimate_glow_frame() -> void:
-	if takashi_ultimate_character_glow_sprite == null or player_action_sprite == null:
-		return
-
-	takashi_ultimate_character_glow_sprite.texture = player_action_sprite.texture
-	takashi_ultimate_character_glow_sprite.position = player_action_sprite.position
-	takashi_ultimate_character_glow_sprite.scale = player_action_sprite.scale * 1.18
+	if takashi_ultimate_effects != null:
+		takashi_ultimate_effects.sync_takashi_ultimate_glow_frame()
 
 
 func _get_takashi_ultimate_fvx_scale(texture: Texture2D) -> Vector2:
-	if texture == null:
-		return Vector2.ONE
-
-	var texture_size: Vector2 = texture.get_size()
-	if texture_size.y <= 0.0:
-		return Vector2.ONE
-
-	var scale_value: float = TAKASHI_ULTIMATE_FVX_TARGET_HEIGHT / texture_size.y
-	return Vector2(scale_value, scale_value)
+	if takashi_ultimate_effects != null:
+		return takashi_ultimate_effects.get_takashi_ultimate_fvx_scale(texture)
+	return Vector2.ONE
 
 
 func _shrink_takashi_ultimate_fvx_for_enemy_focus() -> void:
-	var tween: Tween = create_tween()
-	tween.set_trans(Tween.TRANS_SINE)
-	tween.set_ease(Tween.EASE_IN_OUT)
-	if takashi_ultimate_fvx_sprite != null and takashi_ultimate_fvx_sprite.visible:
-		tween.tween_property(takashi_ultimate_fvx_sprite, "scale", takashi_ultimate_fvx_sprite.scale * TAKASHI_ULTIMATE_FVX_ENEMY_FOCUS_SCALE, 0.3)
-	if takashi_ultimate_fvx_glow_sprite != null and takashi_ultimate_fvx_glow_sprite.visible:
-		tween.parallel().tween_property(takashi_ultimate_fvx_glow_sprite, "scale", takashi_ultimate_fvx_glow_sprite.scale * TAKASHI_ULTIMATE_FVX_ENEMY_FOCUS_SCALE, 0.3)
+	if takashi_ultimate_effects != null:
+		takashi_ultimate_effects.shrink_takashi_ultimate_fvx_for_enemy_focus()
 
 
 func _play_enemy_octagram_impact(target: Combatant) -> void:
-	_shrink_takashi_ultimate_fvx_for_enemy_focus()
-	_start_enemy_impact_camera_zoom_in(target)
-	_play_enemy_octagram_wind_sfx()
-	_play_ultimate_charge_rumble_sfx(0.7)
-	_play_octagram_chime_sfx()
-	await _play_enemy_octagram_fvx_buildup(target)
-	if state != BattleState.ACTION_RESOLUTION:
-		_hide_enemy_impact_fvx()
-		return
-
-	_play_ultimate_shatter_sfx()
-	_play_ultimate_enemy_hit_sfx()
-	_play_ultimate_glass_burst_sfx(1.15)
-	_play_ultimate_cring_noise_sfx(1.25)
-	_play_ultimate_deep_boom_sfx(1.05)
-	_play_screen_flash(Color(0.65, 0.92, 1.0, 0.4), 0.16)
-	_shake_camera_with_strength(9.0)
-	_spawn_triangle_rift_effect(target, true)
-	_spawn_hit_spark(target, Color(0.55, 0.92, 1.0, 1.0))
-	await get_tree().create_timer(0.05).timeout
-	await _fade_out_enemy_impact_fvx(0.22)
+	if takashi_ultimate_effects != null:
+		await takashi_ultimate_effects.play_enemy_octagram_impact(
+			target,
+			battle_camera,
+			func(): return state == BattleState.ACTION_RESOLUTION,
+			func(kind):
+				match kind:
+					&"enemy_wind": _play_enemy_octagram_wind_sfx()
+					&"chime": _play_octagram_chime_sfx()
+		)
 
 
 func _start_enemy_impact_camera_zoom_in(target: Combatant) -> void:
-	if battle_camera == null or target == null:
-		return
-
-	var target_position: Vector2 = target.global_position + ENEMY_IMPACT_FOCUS_OFFSET
-	var tween: Tween = create_tween()
-	tween.set_trans(Tween.TRANS_SINE)
-	tween.set_ease(Tween.EASE_IN_OUT)
-	tween.tween_property(battle_camera, "position", target_position, ENEMY_IMPACT_ZOOM_DURATION)
-	tween.parallel().tween_property(battle_camera, "zoom", ULTIMATE_CAMERA_ZOOM, ENEMY_IMPACT_ZOOM_DURATION)
-	tween.parallel().tween_property(battle_camera, "offset", Vector2.ZERO, ENEMY_IMPACT_ZOOM_DURATION)
+	if takashi_ultimate_effects != null:
+		takashi_ultimate_effects.start_enemy_impact_camera_zoom_in(target, battle_camera)
 
 
 func _play_enemy_impact_camera_zoom_out() -> void:
-	if battle_camera == null:
-		return
-
-	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
-	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
-		viewport_size = BASE_VIEWPORT_SIZE
-
-	var tween: Tween = create_tween()
-	tween.set_trans(Tween.TRANS_SINE)
-	tween.set_ease(Tween.EASE_IN_OUT)
-	tween.tween_property(battle_camera, "position", viewport_size * 0.5, ENEMY_IMPACT_ZOOM_OUT_DURATION)
-	tween.parallel().tween_property(battle_camera, "zoom", Vector2.ONE, ENEMY_IMPACT_ZOOM_OUT_DURATION)
-	tween.parallel().tween_property(battle_camera, "offset", Vector2.ZERO, ENEMY_IMPACT_ZOOM_OUT_DURATION)
-	await tween.finished
+	if takashi_ultimate_effects != null:
+		var vp_size: Vector2 = get_viewport().get_visible_rect().size if get_viewport() != null else BASE_VIEWPORT_SIZE
+		await takashi_ultimate_effects.play_enemy_impact_camera_zoom_out(battle_camera, vp_size)
 
 
 func _play_enemy_octagram_fvx_buildup(target: Combatant) -> void:
-	if takashi_ultimate_fvx_frames.is_empty():
-		return
-
-	var frame_count: int = mini(takashi_ultimate_fvx_frames.size(), 3)
-	for frame_index in range(frame_count):
-		if state != BattleState.ACTION_RESOLUTION:
-			return
-		await _play_enemy_impact_fvx_step(frame_index, frame_index == frame_count - 1, target)
+	if takashi_ultimate_effects != null:
+		await takashi_ultimate_effects.play_enemy_octagram_fvx_buildup(target, func(): return state == BattleState.ACTION_RESOLUTION)
 
 
 func _play_enemy_impact_fvx_step(frame_index: int, keep_visible: bool, target: Combatant) -> void:
-	if enemy_impact_fvx_sprite == null or enemy_impact_fvx_glow_sprite == null:
-		return
-	if frame_index < 0 or frame_index >= takashi_ultimate_fvx_frames.size():
-		return
-
-	var frame_texture: Texture2D = takashi_ultimate_fvx_frames[frame_index]
-	enemy_impact_fvx_sprite.texture = frame_texture
-	enemy_impact_fvx_glow_sprite.texture = frame_texture
-	_sync_enemy_impact_fvx_layout(target)
-
-	var base_scale: Vector2 = _get_enemy_impact_fvx_scale(frame_texture)
-	enemy_impact_fvx_sprite.visible = true
-	enemy_impact_fvx_glow_sprite.visible = true
-	enemy_impact_fvx_sprite.modulate = Color(0.55, 0.9, 1.0, 0.0)
-	enemy_impact_fvx_glow_sprite.modulate = Color(0.6, 0.94, 1.0, 0.0)
-	enemy_impact_fvx_sprite.scale = base_scale * 0.8
-	enemy_impact_fvx_glow_sprite.scale = base_scale * 1.24
-	enemy_impact_fvx_sprite.rotation = 0.3
-	enemy_impact_fvx_glow_sprite.rotation = 0.3
-
-	var tween: Tween = create_tween()
-	tween.set_trans(Tween.TRANS_SINE)
-	tween.set_ease(Tween.EASE_IN_OUT)
-	tween.tween_property(enemy_impact_fvx_sprite, "modulate:a", 0.8, 0.16)
-	tween.parallel().tween_property(enemy_impact_fvx_glow_sprite, "modulate:a", 0.78, 0.16)
-	tween.parallel().tween_property(enemy_impact_fvx_sprite, "scale", base_scale, 0.18)
-	tween.parallel().tween_property(enemy_impact_fvx_glow_sprite, "scale", base_scale * 1.5, 0.18)
-	tween.parallel().tween_property(enemy_impact_fvx_sprite, "rotation", -0.36, 0.28)
-	tween.parallel().tween_property(enemy_impact_fvx_glow_sprite, "rotation", -0.36, 0.28)
-	tween.tween_interval(0.04)
-	if keep_visible:
-		tween.tween_property(enemy_impact_fvx_sprite, "modulate:a", 0.92, 0.08)
-		tween.parallel().tween_property(enemy_impact_fvx_glow_sprite, "modulate:a", 0.86, 0.08)
-	else:
-		var rest_alpha: float = 0.16 + (float(frame_index) * 0.12)
-		tween.tween_property(enemy_impact_fvx_sprite, "modulate:a", rest_alpha, 0.14)
-		tween.parallel().tween_property(enemy_impact_fvx_glow_sprite, "modulate:a", rest_alpha, 0.14)
-	await tween.finished
+	if takashi_ultimate_effects != null:
+		await takashi_ultimate_effects.play_enemy_impact_fvx_step(frame_index, keep_visible, target)
 
 
 func _fade_out_enemy_impact_fvx(duration: float) -> void:
-	var tween: Tween = create_tween()
-	var has_tween_target: bool = false
-	if enemy_impact_fvx_sprite != null and enemy_impact_fvx_sprite.visible:
-		tween.tween_property(enemy_impact_fvx_sprite, "modulate:a", 0.0, duration)
-		has_tween_target = true
-	if enemy_impact_fvx_glow_sprite != null and enemy_impact_fvx_glow_sprite.visible:
-		if has_tween_target:
-			tween.parallel().tween_property(enemy_impact_fvx_glow_sprite, "modulate:a", 0.0, duration)
-		else:
-			tween.tween_property(enemy_impact_fvx_glow_sprite, "modulate:a", 0.0, duration)
-		has_tween_target = true
-
-	if has_tween_target:
-		await tween.finished
-	_hide_enemy_impact_fvx()
+	if takashi_ultimate_effects != null:
+		await takashi_ultimate_effects.fade_out_enemy_impact_fvx(duration)
 
 
 func _hide_enemy_impact_fvx() -> void:
-	if enemy_impact_fvx_sprite != null:
-		enemy_impact_fvx_sprite.visible = false
-		enemy_impact_fvx_sprite.rotation = 0.0
-		enemy_impact_fvx_sprite.modulate = Color(0.55, 0.9, 1.0, 0.0)
-	if enemy_impact_fvx_glow_sprite != null:
-		enemy_impact_fvx_glow_sprite.visible = false
-		enemy_impact_fvx_glow_sprite.rotation = 0.0
-		enemy_impact_fvx_glow_sprite.modulate = Color(0.6, 0.94, 1.0, 0.0)
+	if takashi_ultimate_effects != null:
+		takashi_ultimate_effects.hide_enemy_impact_fvx()
 
 
 func _sync_enemy_impact_fvx_layout(target: Combatant = null) -> void:
-	if enemy_impact_fvx_sprite == null:
-		return
-
-	var fvx_texture: Texture2D = enemy_impact_fvx_sprite.texture
-	var base_scale: Vector2 = _get_enemy_impact_fvx_scale(fvx_texture)
-	var focus_target := target if target != null else enemy
-	var focus_position := ENEMY_IMPACT_FOCUS_OFFSET
-	if focus_target != null:
-		focus_position = focus_target.global_position + ENEMY_IMPACT_FOCUS_OFFSET
-	enemy_impact_fvx_sprite.global_position = focus_position
-	enemy_impact_fvx_sprite.scale = base_scale
-	if enemy_impact_fvx_glow_sprite != null:
-		enemy_impact_fvx_glow_sprite.global_position = focus_position
-		enemy_impact_fvx_glow_sprite.scale = base_scale * 1.5
+	if takashi_ultimate_effects != null:
+		takashi_ultimate_effects.sync_enemy_impact_fvx_layout(target if target != null else enemy)
 
 
 func _get_enemy_impact_fvx_scale(texture: Texture2D) -> Vector2:
-	if texture == null:
-		return Vector2.ONE
-
-	var texture_size: Vector2 = texture.get_size()
-	if texture_size.y <= 0.0:
-		return Vector2.ONE
-
-	var scale_value: float = ENEMY_IMPACT_FVX_TARGET_HEIGHT / texture_size.y
-	return Vector2(scale_value, scale_value)
+	if takashi_ultimate_effects != null:
+		return takashi_ultimate_effects.get_enemy_impact_fvx_scale(texture)
+	return Vector2.ONE
 
 
 func _setup_battle_bgm() -> void:

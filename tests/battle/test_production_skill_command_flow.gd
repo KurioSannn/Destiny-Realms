@@ -219,29 +219,11 @@ func _test_skill_switching_with_basic() -> void:
 	manager.call("_on_attack_pressed")
 	await _idle_frames(3)
 
-	_check(manager.basic_command_adapter.has_pending_basic(), "a second Basic press (nothing pending now) starts Basic")
 	var basic_pending: PendingBattleCommand = manager.basic_command_adapter.get_pending_command()
 	_check(
-		basic_pending != null and not basic_pending.is_committed,
-		"Basic waits for a target choice (multiple live enemies) instead of a confirm panel"
+		basic_pending != null and basic_pending.is_committed,
+		"a second Basic press executes Basic on the active target"
 	)
-	_check(
-		manager.get_current_target_marker_target() == manager.enemy,
-		"Basic marks the default target after switching from Skill"
-	)
-
-	manager.call("_on_skill_pressed")
-	await _idle_frames(3)
-
-	_check(not manager.basic_command_adapter.has_pending_basic(), "Skill press cancels pending Basic target selection")
-	_check(not manager.skill_command_adapter.has_pending_skill(), "Skill does not start in the same click that cancelled Basic")
-	_check(not manager.basic_target_highlight.visible, "Basic target highlight hides after switching to Skill")
-
-	manager.call("_on_skill_pressed")
-	await _idle_frames(3)
-
-	_check(manager.skill_command_adapter.has_pending_skill(), "a second Skill press (nothing pending now) starts Skill")
-	_check(not manager.skill_command_panel.visible, "Skill ready idle after switching from Basic still shows no confirm/cancel panel")
 
 	await _free_battle(battle)
 

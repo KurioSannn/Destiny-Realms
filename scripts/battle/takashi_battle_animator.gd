@@ -195,6 +195,35 @@ func stop_skill() -> void:
 	skill_animation_looping = false
 
 
+func play_ulti_pre_animation(tree: SceneTree, is_valid_state: Callable = Callable()) -> void:
+	if player_action_sprite == null or takashi_ulti_pre_frames.is_empty():
+		return
+
+	stop_idle()
+	stop_basic()
+	stop_skill()
+	var frame_duration: float = 1.0 / TAKASHI_ULTI_PRE_FRAME_RATE
+	for frame_texture in takashi_ulti_pre_frames:
+		if is_valid_state.is_valid() and not is_valid_state.call():
+			return
+		set_action_frame(frame_texture)
+		if tree != null:
+			await tree.create_timer(frame_duration).timeout
+
+
+func play_ulti_post_animation(tree: SceneTree, is_valid_state: Callable = Callable()) -> void:
+	if player_action_sprite == null or takashi_ulti_post_frames.is_empty():
+		return
+
+	var frame_duration: float = 1.0 / TAKASHI_ULTI_POST_FRAME_RATE
+	for frame_texture in takashi_ulti_post_frames:
+		if is_valid_state.is_valid() and not is_valid_state.call():
+			return
+		set_action_frame(frame_texture)
+		if tree != null:
+			await tree.create_timer(frame_duration).timeout
+
+
 func advance(delta: float) -> void:
 	_advance_idle(delta)
 	_advance_basic(delta)
