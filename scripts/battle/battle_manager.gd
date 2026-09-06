@@ -170,6 +170,8 @@ const BattleLegacyCommandPanelsScript := preload("res://scripts/battle/battle_le
 const BattleStageLayoutScript := preload("res://scripts/battle/battle_stage_layout.gd")
 const BattleEncounterSpawnerScript := preload("res://scripts/battle/battle_encounter_spawner.gd")
 const BattleEnemyTurnControllerScript := preload("res://scripts/battle/battle_enemy_turn_controller.gd")
+const TakashiSkillActionScript := preload("res://scripts/battle/takashi_skill_action.gd")
+
 
 
 
@@ -313,6 +315,8 @@ var interrupt_resume_token: int = 0
 var _consumed_interrupt_resume_tokens: Dictionary = {}
 var _processed_interrupt_request_ids: Dictionary = {}
 var enemy_turn_controller = BattleEnemyTurnControllerScript.new()
+var takashi_skill_action = TakashiSkillActionScript.new()
+
 
 var active_enemy_attack_token: int:
 	get:
@@ -3452,10 +3456,8 @@ func _spawn_skill_charge_effect(origin: Node2D) -> void:
 
 
 func _spawn_triangle_rift_effect(target: Node2D, large: bool) -> void:
-	if effect_layer == null or battle_vfx == null or target == null:
-		return
-	battle_vfx.spawn_triangle_rift_effect(target.global_position + Vector2(0.0, -118.0), large)
-
+	if takashi_skill_action != null:
+		takashi_skill_action.spawn_triangle_rift_effect(self, target, large)
 
 
 func _execute_triangle_rift(
@@ -3463,106 +3465,30 @@ func _execute_triangle_rift(
 	command: PendingBattleCommand = null,
 	spend_cost_before_cast: bool = false
 ) -> void:
-	if target == null:
-		target = enemy
-	if not _skill_execution_guard(command, target):
-		return
-
-	if spend_cost_before_cast:
-		_spend_skill_points(SKILL_POINT_COST_SKILL)
-	_spawn_skill_charge_effect(player)
-	await ui.play_skill_cast_feedback()
-	if not _skill_execution_guard(command, target):
-		return
-
-	ui.set_battle_log("Triangle Rift spends %d Skill Point and generates %d energy." % [SKILL_POINT_COST_SKILL, SKILL_ENERGY])
-	await player.play_skill_movement(target)
-	if not _skill_execution_guard(command, target):
-		return
-
-	await _resolve_triangle_rift_damage(target, command)
-	if not _skill_execution_guard(command, target, false):
-		return
-
-	_add_ultimate_energy(SKILL_ENERGY)
-	var log_text := "Triangle Rift deals %d damage." % SKILL_DAMAGE
-	if command != null:
-		_finish_skill_command_resolution(command, log_text)
-	else:
-		_finish_player_action(log_text)
+	if takashi_skill_action != null:
+		await takashi_skill_action.execute_triangle_rift(self, target, command, spend_cost_before_cast)
 
 
 func _resolve_triangle_rift_damage(
 	target: Combatant = null,
 	command: PendingBattleCommand = null
 ) -> void:
-	if target == null:
-		target = enemy
-	if not _skill_execution_guard(command, target):
-		return
-
-	_play_skill_release_sfx()
-	_spawn_triangle_rift_projectile(player, target)
-
-	await get_tree().create_timer(SKILL_RIFT_PROJECTILE_DURATION).timeout
-	if not _skill_execution_guard(command, target):
-		return
-	if command != null and not skill_command_adapter.begin_resolution(command):
-		return
-
-	if not _consume_skill_hit(command, 0):
-		return
-	target.take_damage(SKILL_DAMAGE)
-	_show_floating_damage(target, SKILL_DAMAGE)
-
-	if SKILL_IMPACT_HOLD_SECONDS > 0.0:
-		await get_tree().create_timer(SKILL_IMPACT_HOLD_SECONDS).timeout
-		if not _skill_execution_guard(command, target, false):
-			return
-
-	await _play_triangle_rift_impact(target, command)
-	if not _skill_execution_guard(command, target, false):
-		return
-
-	await target.play_hit_feedback()
+	if takashi_skill_action != null:
+		await takashi_skill_action.resolve_triangle_rift_damage(self, target, command)
 
 
 func _spawn_triangle_rift_projectile(origin: Node2D, target: Node2D) -> void:
-	if effect_layer == null or battle_vfx == null or origin == null or target == null:
-		return
-	var start_position: Vector2 = origin.global_position + Vector2(28.0, -128.0)
-	var end_position: Vector2 = target.global_position + Vector2(-8.0, -118.0)
-	battle_vfx.spawn_triangle_rift_projectile(start_position, end_position, SKILL_RIFT_PROJECTILE_DURATION)
-
+	if takashi_skill_action != null:
+		takashi_skill_action.spawn_triangle_rift_projectile(self, origin, target)
 
 
 func _play_triangle_rift_impact(
 	target: Node2D,
 	command: PendingBattleCommand = null
 ) -> void:
-	if effect_layer == null or target == null:
-		return
+	if takashi_skill_action != null:
+		await takashi_skill_action.play_triangle_rift_impact(self, target, command)
 
-	_play_rift_crack_sfx()
-	_play_screen_flash(Color(0.55, 0.92, 1.0, 0.22), 0.09)
-	_spawn_triangle_rift_effect(target, false)
-	_spawn_hit_spark(target, Color(0.45, 0.92, 1.0, 1.0))
-	_spawn_triangle_rift_break(target, 0)
-	_shake_camera_with_strength(SKILL_RIFT_CAMERA_SHAKE)
-
-	await _shake_target_once(target, SKILL_RIFT_TARGET_SHAKE, 0.055)
-
-	for pulse_index in range(SKILL_RIFT_IMPACT_PULSE_COUNT):
-		if not _skill_impact_guard(command, target):
-			return
-
-		_play_rift_crack_sfx()
-		if battle_vfx != null:
-			battle_vfx.play_triangle_rift_pulse_burst(target.global_position, pulse_index)
-		_shake_camera_with_strength(SKILL_RIFT_CAMERA_SHAKE + float(pulse_index) * 1.5)
-
-		await _shake_target_once(target, SKILL_RIFT_TARGET_SHAKE + float(pulse_index) * 2.0, 0.045)
-		await get_tree().create_timer(SKILL_RIFT_IMPACT_INTERVAL).timeout
 
 
 func _spawn_triangle_rift_break(target: Node2D, pulse_index: int) -> void:
