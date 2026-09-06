@@ -316,3 +316,25 @@ func hide_screen_flash() -> void:
 	if screen_flash != null:
 		screen_flash.visible = false
 		screen_flash.modulate = Color.WHITE
+
+
+func play_sriing_burst(target_position: Vector2, text_rise: float) -> void:
+	spawn_hit_spark(target_position + Vector2(0.0, -110.0), Color(1.0, 0.95, 0.62, 1.0))
+	var text_pos: Vector2 = target_position + Vector2(randf_range(-34.0, 18.0), randf_range(-142.0, -112.0))
+	spawn_cetar_text(text_pos, "SRIING", Color(0.78, 0.96, 1.0, 1.0), text_rise)
+	play_screen_flash(Color(0.92, 0.97, 1.0, 0.22), 0.08)
+
+
+func play_cetar_hit_burst(target_position: Vector2, hit_index: int, text_rise: float) -> void:
+	spawn_hit_spark(target_position + Vector2(0.0, -110.0), Color(1.0, 0.84, 0.32, 1.0))
+	spawn_cetar_slash_cross(target_position + Vector2(0.0, -112.0), hit_index)
+	spawn_cetar_triangle_shards(target_position + Vector2(0.0, -112.0), hit_index)
+	var text_pos: Vector2 = target_position + Vector2(randf_range(-34.0, 18.0), randf_range(-142.0, -112.0))
+	spawn_cetar_text(text_pos, "CETAR", Color(1.0, 0.86, 0.38, 1.0), text_rise)
+	play_screen_flash(Color(1.0, 0.92, 0.62, 0.18), 0.06)
+
+
+func play_triangle_rift_pulse_burst(target_position: Vector2, pulse_index: int) -> void:
+	spawn_triangle_rift_break(target_position + Vector2(0.0, -118.0), pulse_index + 1)
+	spawn_rift_crack_slashes(target_position + Vector2(0.0, -118.0), pulse_index)
+	spawn_rift_after_particles(target_position + Vector2(0.0, -118.0), pulse_index)

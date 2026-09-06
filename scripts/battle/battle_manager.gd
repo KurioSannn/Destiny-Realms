@@ -3574,9 +3574,8 @@ func _play_triangle_rift_impact(
 			return
 
 		_play_rift_crack_sfx()
-		_spawn_triangle_rift_break(target, pulse_index + 1)
-		_spawn_rift_crack_slashes(target, pulse_index)
-		_spawn_rift_after_particles(target, pulse_index)
+		if battle_vfx != null:
+			battle_vfx.play_triangle_rift_pulse_burst(target.global_position, pulse_index)
 		_shake_camera_with_strength(SKILL_RIFT_CAMERA_SHAKE + float(pulse_index) * 1.5)
 
 		await _shake_target_once(target, SKILL_RIFT_TARGET_SHAKE + float(pulse_index) * 2.0, 0.045)
@@ -3613,9 +3612,8 @@ func _play_basic_cetar_impact(
 	command: PendingBattleCommand = null
 ) -> void:
 	_play_sring_sfx()
-	_spawn_hit_spark(target, Color(1.0, 0.95, 0.62, 1.0))
-	_spawn_cetar_text(target, "SRIING", Color(0.78, 0.96, 1.0, 1.0))
-	_play_screen_flash(Color(0.92, 0.97, 1.0, 0.22), 0.08)
+	if battle_vfx != null:
+		battle_vfx.play_sriing_burst(target.global_position, BASIC_CETAR_TEXT_RISE)
 	_shake_target_once(target, BASIC_CETAR_TARGET_SHAKE * 0.65, BASIC_CETAR_INTERVAL * 0.75)
 	_shake_camera_with_strength(BASIC_CETAR_CAMERA_SHAKE * 0.65)
 	await get_tree().create_timer(0.045).timeout
@@ -3625,13 +3623,10 @@ func _play_basic_cetar_impact(
 			return
 
 		_play_cetar_sfx(hit_index)
-		_spawn_hit_spark(target, Color(1.0, 0.84, 0.32, 1.0))
-		_spawn_cetar_slash_cross(target, hit_index)
-		_spawn_cetar_triangle_shards(target, hit_index)
-		_spawn_cetar_text(target, "CETAR", Color(1.0, 0.86, 0.38, 1.0))
+		if battle_vfx != null:
+			battle_vfx.play_cetar_hit_burst(target.global_position, hit_index, BASIC_CETAR_TEXT_RISE)
 		_shake_target_once(target, BASIC_CETAR_TARGET_SHAKE + float(hit_index) * 1.5, BASIC_CETAR_INTERVAL * 0.75)
 		_shake_camera_with_strength(BASIC_CETAR_CAMERA_SHAKE + float(hit_index) * 0.8)
-		_play_screen_flash(Color(1.0, 0.92, 0.62, 0.18), 0.06)
 		await get_tree().create_timer(BASIC_CETAR_INTERVAL).timeout
 
 
