@@ -169,6 +169,8 @@ const BattleTargetingSystemScript := preload("res://scripts/battle/battle_target
 const BattleLegacyCommandPanelsScript := preload("res://scripts/battle/battle_legacy_command_panels.gd")
 const BattleStageLayoutScript := preload("res://scripts/battle/battle_stage_layout.gd")
 const BattleEncounterSpawnerScript := preload("res://scripts/battle/battle_encounter_spawner.gd")
+const BattleEnemyTurnControllerScript := preload("res://scripts/battle/battle_enemy_turn_controller.gd")
+
 
 
 @export var use_new_basic_command_flow: bool = true
@@ -310,12 +312,34 @@ var active_interrupt_window: StringName = &""
 var interrupt_resume_token: int = 0
 var _consumed_interrupt_resume_tokens: Dictionary = {}
 var _processed_interrupt_request_ids: Dictionary = {}
-var active_enemy_attack_token: int = 0
-var enemy_hit_tokens: Dictionary = {}
-var enemy_recovery_tokens: Dictionary = {}
-var enemy_turn_completion_tokens: Dictionary = {}
-var enemy_action_in_progress: bool = false
-var _enemy_attack_token_sequence: int = 0
+var enemy_turn_controller = BattleEnemyTurnControllerScript.new()
+
+var active_enemy_attack_token: int:
+	get:
+		return enemy_turn_controller.active_enemy_attack_token if enemy_turn_controller != null else 0
+	set(value):
+		if enemy_turn_controller != null:
+			enemy_turn_controller.active_enemy_attack_token = value
+
+var enemy_hit_tokens: Dictionary:
+	get:
+		return enemy_turn_controller.enemy_hit_tokens if enemy_turn_controller != null else {}
+
+var enemy_recovery_tokens: Dictionary:
+	get:
+		return enemy_turn_controller.enemy_recovery_tokens if enemy_turn_controller != null else {}
+
+var enemy_turn_completion_tokens: Dictionary:
+	get:
+		return enemy_turn_controller.enemy_turn_completion_tokens if enemy_turn_controller != null else {}
+
+var enemy_action_in_progress: bool:
+	get:
+		return enemy_turn_controller.enemy_action_in_progress if enemy_turn_controller != null else false
+	set(value):
+		if enemy_turn_controller != null:
+			enemy_turn_controller.enemy_action_in_progress = value
+
 var encounter_enemy_name: String = "Lesser Abyss"
 var encounter_enemy_max_hp: int = ENEMY_MAX_HP
 var encounter_enemy_damage: int = ENEMY_BASE_DAMAGE
@@ -2620,110 +2644,69 @@ func _begin_enemy_turn(log_text: String = "Enemy is preparing to attack.") -> vo
 ## _resume_after_enemy_action() twice. It changes nothing about damage,
 ## timing, movement, or animation on the normal single-invocation path.
 func _is_committed_enemy_attack(token: int) -> bool:
-	return token != 0 and active_enemy_attack_token == token
+	return enemy_turn_controller.is_committed_enemy_attack(token)
 
 
 func _enemy_attack_guard(token: int) -> bool:
-	return (
-		is_inside_tree()
-		and state == BattleState.ENEMY_TURN
-		and not _is_battle_over()
-		and is_instance_valid(enemy)
-		and is_instance_valid(player)
-		and _is_committed_enemy_attack(token)
+	return enemy_turn_controller.enemy_attack_guard(
+		token,
+		is_inside_tree(),
+		state,
+		_is_battle_over(),
+		enemy,
+		player,
+		BattleState.ENEMY_TURN
 	)
 
 
 func _enemy_recovery_guard(token: int) -> bool:
-	return _enemy_attack_guard(token) and enemy_hit_tokens.has(token)
+	return enemy_turn_controller.enemy_recovery_guard(
+		token,
+		is_inside_tree(),
+		state,
+		_is_battle_over(),
+		enemy,
+		player,
+		BattleState.ENEMY_TURN
+	)
 
 
 func _enemy_turn_completion_guard(token: int) -> bool:
-	return _enemy_attack_guard(token) and enemy_recovery_tokens.has(token)
+	return enemy_turn_controller.enemy_turn_completion_guard(
+		token,
+		is_inside_tree(),
+		state,
+		_is_battle_over(),
+		enemy,
+		player,
+		BattleState.ENEMY_TURN
+	)
 
 
 func _consume_enemy_hit(token: int) -> bool:
-	if enemy_hit_tokens.has(token):
-		return false
-	enemy_hit_tokens[token] = true
-	return true
+	return enemy_turn_controller.consume_enemy_hit(token)
 
 
 func _consume_enemy_recovery(token: int) -> bool:
-	if enemy_recovery_tokens.has(token):
-		return false
-	enemy_recovery_tokens[token] = true
-	return true
+	return enemy_turn_controller.consume_enemy_recovery(token)
 
 
 func _consume_enemy_turn_completion(token: int) -> bool:
-	if enemy_turn_completion_tokens.has(token):
-		return false
-	enemy_turn_completion_tokens[token] = true
-	return true
+	return enemy_turn_controller.consume_enemy_turn_completion(token)
 
 
 func _clear_enemy_attack_token(token: int) -> void:
-	if active_enemy_attack_token == token:
-		active_enemy_attack_token = 0
-	enemy_action_in_progress = false
+	enemy_turn_controller.clear_enemy_attack_token(token)
 
 
 func _reset_enemy_attack_runtime() -> void:
-	active_enemy_attack_token = 0
-	enemy_hit_tokens.clear()
-	enemy_recovery_tokens.clear()
-	enemy_turn_completion_tokens.clear()
-	enemy_action_in_progress = false
+	if enemy_turn_controller != null:
+		enemy_turn_controller.reset_enemy_attack_runtime()
 
 
 func _enemy_attack() -> void:
-	_enemy_attack_token_sequence += 1
-	var token: int = _enemy_attack_token_sequence
-	active_enemy_attack_token = token
-	enemy_action_in_progress = true
+	await enemy_turn_controller.execute_attack(self)
 
-	var damage: int = enemy.base_attack_damage
-	var log_text: String = "Enemy attacks for %d damage." % damage
-
-	await enemy.play_attack_movement(player)
-	if not _enemy_attack_guard(token):
-		_clear_enemy_attack_token(token)
-		return
-
-	if not _consume_enemy_hit(token):
-		_clear_enemy_attack_token(token)
-		return
-	_play_impact_sfx()
-	_spawn_enemy_claw_effect(player)
-	_spawn_hit_spark(player, Color(1.0, 0.4, 0.42, 1.0))
-	player.take_damage(damage)
-	_refresh_player_status_ui()
-	_show_floating_damage(player, damage)
-	if ENEMY_IMPACT_HOLD_SECONDS > 0.0:
-		await get_tree().create_timer(ENEMY_IMPACT_HOLD_SECONDS).timeout
-		if not _enemy_attack_guard(token):
-			_clear_enemy_attack_token(token)
-			return
-	await player.play_hit_feedback()
-	if not _enemy_recovery_guard(token) or not _consume_enemy_recovery(token):
-		_clear_enemy_attack_token(token)
-		return
-	_shake_camera()
-
-	if player.is_defeated():
-		if not _enemy_turn_completion_guard(token) or not _consume_enemy_turn_completion(token):
-			_clear_enemy_attack_token(token)
-			return
-		_clear_enemy_attack_token(token)
-		_lose("You were defeated.")
-		return
-
-	if not _enemy_turn_completion_guard(token) or not _consume_enemy_turn_completion(token):
-		_clear_enemy_attack_token(token)
-		return
-	_clear_enemy_attack_token(token)
-	await _resume_after_enemy_action(log_text)
 
 
 ## Safe window B guard: the only place _enemy_attack() no longer calls
