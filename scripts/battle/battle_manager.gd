@@ -172,6 +172,8 @@ const BattleEncounterSpawnerScript := preload("res://scripts/battle/battle_encou
 const BattleEnemyTurnControllerScript := preload("res://scripts/battle/battle_enemy_turn_controller.gd")
 const TakashiSkillActionScript := preload("res://scripts/battle/takashi_skill_action.gd")
 const TakashiUltimateDirectorScript := preload("res://scripts/battle/takashi_ultimate_director.gd")
+const BattleFlowCoordinatorScript := preload("res://scripts/battle/battle_flow_coordinator.gd")
+
 
 
 
@@ -325,6 +327,8 @@ var _processed_interrupt_request_ids: Dictionary = {}
 var enemy_turn_controller = BattleEnemyTurnControllerScript.new()
 var takashi_skill_action = TakashiSkillActionScript.new()
 var takashi_ultimate_director = TakashiUltimateDirectorScript.new()
+var battle_flow_coordinator = BattleFlowCoordinatorScript.new()
+
 
 
 
@@ -597,63 +601,19 @@ func _exit_tree() -> void:
 
 
 func restart_battle() -> void:
-	_start_player_idle_animation()
-	_reset_battle_values()
-	_begin_player_turn(encounter_opening_log)
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.restart_battle(self)
 
 
 func _configure_encounter() -> void:
-	if EncounterCoordinator.has_active_encounter():
-		_configure_from_encounter_context(EncounterCoordinator.get_active_context())
-		return
-
-	var progress := get_node_or_null("/root/WorldProgress")
-	if progress == null:
-		return
-	if StringName(progress.get("active_battle_id")) != BANDIT_ENCOUNTER_ID:
-		return
-
-	is_bandit_encounter = true
-	encounter_enemy_name = "Bandit Captain"
-	encounter_enemy_max_hp = 150
-	encounter_enemy_damage = 12
-	encounter_opening_log = "Makoto and Mitsuki hold off the raiders. Break the captain's guard."
-	encounter_victory_log = "The captain falls. The old road to Werdonia is open again."
-	encounter_victory_scene_path = GRASSLANDS_SCENE_PATH
-	encounter_retry_scene_path = ""
-	encounter_intro_text = "THE CLOVER CLASH"
-	encounter_bgm_path = BANDIT_BGM_PATH
-	encounter_background_path = BANDIT_BACKGROUND_PATH
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.configure_encounter(self)
 
 
-## Block 14: configures the encounter from an accepted EncounterContext
-## instead of the legacy WorldProgress.active_battle_id flag. Reuses every
-## existing field _apply_encounter_presentation()/UI already read from --
-## no new presentation plumbing.
 func _configure_from_encounter_context(context: EncounterContext) -> void:
-	if context == null or context.battle_enemy_ids.is_empty():
-		push_error("BattleManager: active EncounterContext is invalid (null or empty roster); using default encounter")
-		return
-	var primary_id: StringName = context.battle_enemy_ids[0]
-	var primary_data: Dictionary = get_enemy_battle_profile_data(primary_id)
-	if primary_data.is_empty():
-		push_error("BattleManager: unknown battle_enemy_id '%s'; using default encounter" % primary_id)
-		return
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.configure_from_encounter_context(self, context)
 
-	is_bandit_encounter = false
-	encounter_enemy_name = primary_data.get("name", encounter_enemy_name)
-	encounter_enemy_max_hp = primary_data.get("max_hp", ENEMY_MAX_HP)
-	encounter_enemy_damage = primary_data.get("damage", ENEMY_BASE_DAMAGE)
-	encounter_opening_log = "A %s blocks the path. Choose Takashi's first action." % encounter_enemy_name
-	encounter_victory_log = ""
-	encounter_victory_scene_path = (
-		context.source_world_scene if not context.source_world_scene.is_empty() else ENDING_SCENE_PATH
-	)
-	encounter_retry_scene_path = ""
-	encounter_intro_text = "ENCOUNTER"
-	encounter_bgm_path = ""
-	encounter_background_path = ""
-	_pending_extra_battle_enemy_ids = context.battle_enemy_ids.slice(1)
 
 
 func _spawn_additional_encounter_enemies() -> void:
@@ -673,95 +633,34 @@ func _encounter_formation_slot_position(index: int) -> Vector2:
 
 
 func _stop_exploration_music() -> void:
-	var music_director := get_node_or_null("/root/MusicDirector")
-	if music_director != null:
-		music_director.call("stop_music", 0.0)
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.stop_exploration_music(self)
 
 
 func _apply_encounter_presentation() -> void:
-	if not encounter_background_path.is_empty() and forest_background != null:
-		forest_background.texture = load(encounter_background_path) as Texture2D
-
-	if not encounter_bgm_path.is_empty() and battle_bgm != null:
-		battle_bgm.stop()
-		battle_bgm.stream = load(encounter_bgm_path) as AudioStream
-
-	if enemy_placeholder_visual != null:
-		enemy_placeholder_visual.visible = not is_bandit_encounter
-	if enemy_action_sprite != null:
-		enemy_action_sprite.visible = is_bandit_encounter
-	if enemy_title_label != null:
-		enemy_title_label.text = encounter_enemy_name
-	if encounter_label != null:
-		encounter_label.text = encounter_enemy_name
-	if battle_intro_label != null:
-		battle_intro_label.text = encounter_intro_text
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.apply_encounter_presentation(self)
 
 
 func _reset_battle_values() -> void:
-	player.reset_hp()
-	enemy.reset_hp()
-	ultimate_energy = 0
-	skill_points = START_SKILL_POINTS
-	_apply_persisted_player_runtime_state()
-	_apply_opening_advantage_effects()
-	_reset_camera()
-	_hide_takashi_ultimate_glow_effect()
-	_global_selected_target = null
-	_reset_basic_command_runtime()
-	_reset_skill_command_runtime()
-	_reset_ultimate_command_runtime()
-	_reset_enemy_attack_runtime()
-	timing_bar.cancel_window()
-	ui.set_timing_mode(false)
-	ui.set_restart_visible(false)
-	_refresh_player_status_ui()
-	_refresh_energy_ui()
-	_refresh_skill_points_ui()
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.reset_battle_values(self)
 
 
-## Block 14: HP/Energy must not silently reset just because a battle scene
-## loaded. PartyRuntimeState.ensure_initialized() is idempotent -- the first
-## battle of a session creates the state at full HP/starting Energy
-## (identical to today's behavior), every battle after that continues from
-## wherever the previous one left off.
 func _apply_persisted_player_runtime_state() -> void:
-	var state: CharacterRuntimeState = PartyRuntimeState.ensure_initialized(
-		&"takashi", PLAYER_MAX_HP, MAX_ULTIMATE_ENERGY, 0
-	)
-	player.current_hp = clampi(state.current_hp, 0, player.max_hp)
-	ultimate_energy = clampi(state.current_energy, 0, MAX_ULTIMATE_ENERGY)
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.apply_persisted_player_runtime_state(self)
 
 
-## Block 14 Part F: maps EncounterContext.opening_advantage onto the safest
-## existing seam (Combatant.take_damage(), already used everywhere in normal
-## combat resolution) rather than touching turn order/scheduling -- the
-## player already always acts first every battle (state defaults to
-## PLAYER_TURN), so "who goes first" cannot be the differentiator. NEUTRAL
-## changes nothing; PLAYER_ADVANTAGE/ENEMY_ADVANTAGE apply a modest opening
-## hit representing the field strike that decided who was ambushed.
 func _apply_opening_advantage_effects() -> void:
-	if not EncounterCoordinator.has_active_encounter():
-		return
-	var context: EncounterContext = EncounterCoordinator.get_active_context()
-	if context == null:
-		return
-	match context.opening_advantage:
-		EncounterContext.OpeningAdvantage.PLAYER_ADVANTAGE:
-			enemy.take_damage(roundi(float(enemy.max_hp) * 0.15))
-		EncounterContext.OpeningAdvantage.ENEMY_ADVANTAGE:
-			player.take_damage(roundi(float(player.max_hp) * 0.10))
-		_:
-			pass
-	_refresh_player_status_ui()
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.apply_opening_advantage_effects(self)
 
 
-## Block 14: writes the battle-concluded HP/Energy back as the new
-## authoritative runtime state. Called from both _win() and _lose() so the
-## legacy bandit encounter also benefits (a fresh PartyRuntimeState entry at
-## full HP means a first-ever battle is unaffected either way).
 func _persist_player_runtime_state() -> void:
-	PartyRuntimeState.apply_battle_result(&"takashi", player.current_hp, ultimate_energy, player.is_defeated())
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.persist_player_runtime_state(self)
+
 
 
 func _apply_runtime_layout() -> void:
@@ -3421,80 +3320,14 @@ func _on_restart_pressed() -> void:
 
 
 func _win(log_text: String) -> void:
-	state = BattleState.WIN
-	active_basic_command_token = 0
-	active_skill_command_token = 0
-	active_ultimate_command_token = 0
-	_reset_ultimate_interrupt_queue()
-	_reset_enemy_attack_runtime()
-	# Block 9H: the happy path already returns the camera to its default
-	# position/offset/zoom via each cinematic's own zoom-out tween before
-	# resolution reaches here, but nothing previously guaranteed that if a
-	# shake/zoom tween was ever interrupted or skipped. An explicit reset
-	# here means victory can never leave a stray camera offset behind,
-	# regardless of which command ended the battle.
-	_reset_camera()
-	if basic_command_adapter != null:
-		basic_command_adapter.lock_for_outcome(true)
-	if skill_command_adapter != null:
-		skill_command_adapter.lock_for_outcome(true)
-	if ultimate_command_adapter != null:
-		ultimate_command_adapter.lock_for_outcome(true)
-	_hide_basic_target_highlight()
-	_hide_skill_target_highlight()
-	_set_skill_command_panel_visible(false)
-	_hide_ultimate_target_highlight()
-	_set_ultimate_command_panel_visible(false)
-	timing_bar.cancel_window()
-	ui.set_battle_input_enabled(false)
-	ui.set_turn_text("Victory")
-	ui.set_battle_log(encounter_victory_log if not encounter_victory_log.is_empty() else log_text)
-	ui.set_timing_mode(false)
-	_update_action_buttons(false)
-	ui.set_restart_visible(true)
-	_persist_player_runtime_state()
-	if is_bandit_encounter:
-		var progress := get_node_or_null("/root/WorldProgress")
-		if progress != null:
-			progress.call("complete_active_encounter")
-	await get_tree().create_timer(0.8).timeout
-	if state != BattleState.WIN:
-		return
-	if EncounterCoordinator.has_active_encounter():
-		BattleSessionCoordinator.report_battle_result(&"victory")
-	else:
-		SceneTransition.change_to_file(encounter_victory_scene_path)
+	if battle_flow_coordinator != null:
+		await battle_flow_coordinator.win(self, log_text)
 
 
 func _lose(log_text: String) -> void:
-	state = BattleState.LOSE
-	active_basic_command_token = 0
-	active_skill_command_token = 0
-	active_ultimate_command_token = 0
-	_reset_ultimate_interrupt_queue()
-	_reset_enemy_attack_runtime()
-	# Block 9H: see _win()'s matching comment -- guarantees no stray camera
-	# offset survives defeat either.
-	_reset_camera()
-	if basic_command_adapter != null:
-		basic_command_adapter.lock_for_outcome(false)
-	if skill_command_adapter != null:
-		skill_command_adapter.lock_for_outcome(false)
-	if ultimate_command_adapter != null:
-		ultimate_command_adapter.lock_for_outcome(false)
-	_hide_basic_target_highlight()
-	_hide_skill_target_highlight()
-	_set_skill_command_panel_visible(false)
-	_hide_ultimate_target_highlight()
-	_set_ultimate_command_panel_visible(false)
-	timing_bar.cancel_window()
-	ui.set_battle_input_enabled(false)
-	ui.set_turn_text("Defeat")
-	ui.set_battle_log(log_text)
-	ui.set_timing_mode(false)
-	_update_action_buttons(false)
-	ui.set_restart_visible(true)
-	_persist_player_runtime_state()
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.lose(self, log_text)
+
 
 
 func _refresh_energy_ui() -> void:
@@ -3554,17 +3387,10 @@ func _finish_player_action(log_text: String) -> void:
 ## _get_ultimate_candidate_targets(), just inverted: true only when no
 ## non-player Combatant in the battle is still alive.
 func _all_enemies_defeated() -> bool:
-	if battle_scene == null:
-		return enemy.is_defeated()
-	for child in battle_scene.get_children():
-		if (
-			child is Combatant
-			and child != player
-			and is_instance_valid(child)
-			and not (child as Combatant).is_defeated()
-		):
-			return false
-	return true
+	if battle_flow_coordinator != null:
+		return battle_flow_coordinator.all_enemies_defeated(self)
+	return enemy.is_defeated()
+
 
 
 func _is_battle_over() -> bool:
@@ -3714,4 +3540,3 @@ func _advance_player_basic_animation(delta: float) -> void:
 func _advance_player_skill_animation(delta: float) -> void:
 	if takashi_animator != null:
 		takashi_animator.advance(delta)
-
