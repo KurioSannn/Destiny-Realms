@@ -227,3 +227,21 @@ func lose(manager: Node, log_text: String) -> void:
 	manager._update_action_buttons(false)
 	manager.ui.set_restart_visible(true)
 	persist_player_runtime_state(manager)
+
+
+func on_restart_pressed(manager: Node) -> void:
+	if EncounterCoordinator.has_active_encounter():
+		BattleSessionCoordinator.report_battle_result(
+			&"victory" if manager.state == manager.BattleState.WIN else &"defeat"
+		)
+		return
+	if manager.is_bandit_encounter:
+		if manager.state == manager.BattleState.WIN:
+			SceneTransition.change_to_file(manager.encounter_victory_scene_path)
+		else:
+			SceneTransition.reload_current()
+	elif not manager.encounter_retry_scene_path.is_empty():
+		SceneTransition.change_to_file(manager.encounter_retry_scene_path)
+	else:
+		SceneTransition.reload_current()
+

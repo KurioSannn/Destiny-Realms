@@ -338,3 +338,29 @@ func play_triangle_rift_pulse_burst(target_position: Vector2, pulse_index: int) 
 	spawn_triangle_rift_break(target_position + Vector2(0.0, -118.0), pulse_index + 1)
 	spawn_rift_crack_slashes(target_position + Vector2(0.0, -118.0), pulse_index)
 	spawn_rift_after_particles(target_position + Vector2(0.0, -118.0), pulse_index)
+
+
+func show_floating_damage(target: Node2D, damage: int, rise_distance: float = 38.0) -> void:
+	if battle_scene == null or target == null:
+		return
+
+	var label: Label = Label.new()
+	label.text = "-%d" % damage
+	label.z_index = 20
+	label.add_theme_font_size_override("font_size", 28)
+	label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.35, 1.0))
+	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.75))
+	label.add_theme_constant_override("shadow_offset_x", 2)
+	label.add_theme_constant_override("shadow_offset_y", 2)
+	battle_scene.add_child(label)
+
+	var start_position: Vector2 = target.position + Vector2(-18.0, -105.0)
+	label.position = start_position
+
+	var tween: Tween = create_tween()
+	tween.set_trans(Tween.TRANS_QUAD)
+	tween.set_ease(Tween.EASE_OUT)
+	tween.tween_property(label, "position", start_position + Vector2(0.0, -rise_distance), 0.55)
+	tween.parallel().tween_property(label, "modulate:a", 0.0, 0.55)
+	tween.tween_callback(label.queue_free)
+

@@ -3232,18 +3232,6 @@ func _spawn_triangle_rift_break(target: Node2D, pulse_index: int) -> void:
 	battle_vfx.spawn_triangle_rift_break(target.global_position + Vector2(0.0, -118.0), pulse_index)
 
 
-func _spawn_rift_crack_slashes(target: Node2D, pulse_index: int) -> void:
-	if effect_layer == null or battle_vfx == null or target == null:
-		return
-	battle_vfx.spawn_rift_crack_slashes(target.global_position + Vector2(0.0, -118.0), pulse_index)
-
-
-func _spawn_rift_after_particles(target: Node2D, pulse_index: int) -> void:
-	if effect_layer == null or battle_vfx == null or target == null:
-		return
-	battle_vfx.spawn_rift_after_particles(target.global_position + Vector2(0.0, -118.0), pulse_index)
-
-
 func _spawn_hit_spark(target: Node2D, color: Color) -> void:
 	if effect_layer == null or battle_vfx == null or target == null:
 		return
@@ -3274,25 +3262,6 @@ func _play_basic_cetar_impact(
 		await get_tree().create_timer(BASIC_CETAR_INTERVAL).timeout
 
 
-func _spawn_cetar_slash_cross(target: Node2D, burst_index: int) -> void:
-	if effect_layer == null or battle_vfx == null or target == null:
-		return
-	battle_vfx.spawn_cetar_slash_cross(target.global_position + Vector2(0.0, -112.0), burst_index)
-
-
-func _spawn_cetar_triangle_shards(target: Node2D, burst_index: int) -> void:
-	if effect_layer == null or battle_vfx == null or target == null:
-		return
-	battle_vfx.spawn_cetar_triangle_shards(target.global_position + Vector2(0.0, -112.0), burst_index)
-
-
-func _spawn_cetar_text(target: Node2D, text_value: String, color: Color) -> void:
-	if battle_vfx == null or target == null:
-		return
-	var start_position: Vector2 = target.position + Vector2(randf_range(-34.0, 18.0), randf_range(-142.0, -112.0))
-	battle_vfx.spawn_cetar_text(start_position, text_value, color, BASIC_CETAR_TEXT_RISE)
-
-
 func _play_screen_flash(color: Color, duration: float) -> void:
 	if battle_vfx != null:
 		battle_vfx.play_screen_flash(color, duration)
@@ -3305,18 +3274,8 @@ func _hide_screen_flash() -> void:
 
 
 func _on_restart_pressed() -> void:
-	if EncounterCoordinator.has_active_encounter():
-		BattleSessionCoordinator.report_battle_result(&"victory" if state == BattleState.WIN else &"defeat")
-		return
-	if is_bandit_encounter:
-		if state == BattleState.WIN:
-			SceneTransition.change_to_file(encounter_victory_scene_path)
-		else:
-			SceneTransition.reload_current()
-	elif not encounter_retry_scene_path.is_empty():
-		SceneTransition.change_to_file(encounter_retry_scene_path)
-	else:
-		SceneTransition.reload_current()
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.on_restart_pressed(self)
 
 
 func _win(log_text: String) -> void:
@@ -3398,25 +3357,8 @@ func _is_battle_over() -> bool:
 
 
 func _show_floating_damage(target: Combatant, damage: int) -> void:
-	var label: Label = Label.new()
-	label.text = "-%d" % damage
-	label.z_index = 20
-	label.add_theme_font_size_override("font_size", 28)
-	label.add_theme_color_override("font_color", Color(1.0, 0.9, 0.35, 1.0))
-	label.add_theme_color_override("font_shadow_color", Color(0.0, 0.0, 0.0, 0.75))
-	label.add_theme_constant_override("shadow_offset_x", 2)
-	label.add_theme_constant_override("shadow_offset_y", 2)
-	battle_scene.add_child(label)
-
-	var start_position: Vector2 = target.position + Vector2(-18.0, -105.0)
-	label.position = start_position
-
-	var tween: Tween = create_tween()
-	tween.set_trans(Tween.TRANS_QUAD)
-	tween.set_ease(Tween.EASE_OUT)
-	tween.tween_property(label, "position", start_position + Vector2(0.0, -FLOATING_TEXT_RISE), 0.55)
-	tween.parallel().tween_property(label, "modulate:a", 0.0, 0.55)
-	tween.tween_callback(label.queue_free)
+	if battle_vfx != null:
+		battle_vfx.show_floating_damage(target, damage, FLOATING_TEXT_RISE)
 
 
 func _shake_camera() -> void:
