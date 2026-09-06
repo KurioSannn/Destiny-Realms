@@ -1044,6 +1044,10 @@ func _is_committed_skill_command(command: PendingBattleCommand) -> bool:
 	return command_coordinator.is_committed_skill_command(command)
 
 
+func _consume_skill_hit(command: PendingBattleCommand, pulse_index: int) -> bool:
+	return command_coordinator.consume_skill_hit(command, pulse_index)
+
+
 func _claim_skill_hit_token(command: PendingBattleCommand, pulse_index: int) -> bool:
 	return command_coordinator.claim_skill_hit_token(command, pulse_index)
 
