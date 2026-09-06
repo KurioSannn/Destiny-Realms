@@ -387,6 +387,11 @@ func _finalize_camera_refs() -> void:
 	var party_c := PARTY_SLOTS[0] if not PARTY_SLOTS.is_empty() else Vector3.ZERO
 	var enemy_c := ENEMY_SLOTS[0] if not ENEMY_SLOTS.is_empty() else Vector3(2.5, 0.0, 0.0)
 	battle_camera_3d.set_formation_refs(party_c, enemy_c, ARENA_CENTER)
+	if _arena_profile != null:
+		battle_camera_3d.apply_arena_camera_offsets(
+			_arena_profile.camera_default_offset,
+			_arena_profile.camera_look_at_offset
+		)
 
 
 func _setup_battle_manager_hooks() -> void:
