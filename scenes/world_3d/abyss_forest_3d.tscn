@@ -13,6 +13,8 @@
 [ext_resource type="Texture2D" uid="uid://bloftkqexge0l" path="res://Asset HDRI/dikhololo_night_4k.hdr" id="10_night"]
 [ext_resource type="Script" path="res://scripts/world_3d/components/interactable_3d.gd" id="12_interactable"]
 [ext_resource type="Script" path="res://scripts/world_3d/components/pickup_3d.gd" id="13_pickup"]
+[ext_resource type="Script" path="res://scripts/world_3d/grass_field_3d.gd" id="14_grass_field"]
+[ext_resource type="PackedScene" path="res://scenes/world_3d/components/water_plane_3d.tscn" id="15_water"]
 [ext_resource type="Script" path="res://scripts/world_3d/components/area_trigger_3d.gd" id="14_trigger"]
 [ext_resource type="Script" path="res://scripts/world_3d/enemies/exploration_enemy_3d.gd" id="15_enemy"]
 [ext_resource type="Script" path="res://scripts/world_3d/enemies/patrol_route_3d.gd" id="16_patrol_route"]
@@ -185,6 +187,28 @@ omni_range = 5.5
 [node name="Mesh" type="MeshInstance3D" parent="Ground" unique_id=2113206200]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.15, 0)
 mesh = SubResource("GroundMesh")
+
+[node name="GrassField_Clearing" type="MultiMeshInstance3D" parent="." unique_id=1483022771]
+script = ExtResource("14_grass_field")
+field_size = Vector2(16, 14)
+blade_count = 2500
+
+[node name="GrassField_West" type="MultiMeshInstance3D" parent="." unique_id=1483022772]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -9, 0, -3)
+script = ExtResource("14_grass_field")
+field_size = Vector2(9, 9)
+blade_count = 1600
+random_seed = 42
+
+[node name="GrassField_East" type="MultiMeshInstance3D" parent="." unique_id=1483022773]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 9.5, 0, 8.5)
+script = ExtResource("14_grass_field")
+field_size = Vector2(8, 7)
+blade_count = 1400
+random_seed = 77
+
+[node name="AbyssPond" parent="." instance=ExtResource("15_water")]
+transform = Transform3D(0.45, 0, 0, 0, 1, 0, 0, 0, 0.35, -8.5, 0.02, -11.5)
 
 [node name="CollisionShape3D" type="CollisionShape3D" parent="Ground" unique_id=1158139791]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, -0.15, 0)
