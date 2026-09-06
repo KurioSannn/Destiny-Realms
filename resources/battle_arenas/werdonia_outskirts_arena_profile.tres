@@ -1,0 +1,18 @@
+[gd_resource type="Resource" script_class="BattleEnvironmentProfile" format=3 uid="uid://b15_werdonia_arena"]
+
+[ext_resource type="Script" path="res://scripts/battle/battle_environment_profile.gd" id="1_profile"]
+
+[resource]
+script = ExtResource("1_profile")
+arena_id = &"werdonia_outskirts"
+area_id = &"werdonia_outskirts"
+environment_scene = "res://scenes/battle/arenas/battle_arena_werdonia_outskirts.tscn"
+fog_color = Color(0.78, 0.82, 0.7, 1)
+fog_density = 0.008
+ambient_light_color = Color(0.85, 0.86, 0.78, 1)
+ambient_light_energy = 1.0
+ambient_audio_id = &""
+camera_default_offset = Vector3(-1.6, 4.6, 9.6)
+camera_look_at_offset = Vector3(0.7, 1.1, -0.6)
+arena_center = Vector3(0, 0, 0)
+arena_floor_y = 0.0
