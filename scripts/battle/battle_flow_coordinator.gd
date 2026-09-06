@@ -245,3 +245,133 @@ func on_restart_pressed(manager: Node) -> void:
 	else:
 		SceneTransition.reload_current()
 
+
+func play_battle_intro_effect(manager: Node) -> void:
+	if manager.battle_intro_overlay == null:
+		return
+
+	manager.battle_intro_overlay.visible = true
+	manager.battle_intro_overlay.modulate = Color(1.0, 1.0, 1.0, 1.0)
+	if manager.battle_intro_label != null:
+		manager.battle_intro_label.position.x = 0.0
+		manager.battle_intro_label.modulate = Color(1.0, 1.0, 1.0, 1.0)
+		var label_tween: Tween = manager.create_tween()
+		label_tween.tween_property(manager.battle_intro_label, "position:x", 22.0, 0.32)
+		label_tween.tween_property(manager.battle_intro_label, "modulate:a", 0.0, 0.35)
+
+	var overlay_tween: Tween = manager.create_tween()
+	overlay_tween.tween_interval(0.28)
+	overlay_tween.tween_property(manager.battle_intro_overlay, "modulate:a", 0.0, 0.45)
+	overlay_tween.tween_callback(Callable(manager, "_hide_battle_intro_overlay"))
+
+
+func hide_battle_intro_overlay(manager: Node) -> void:
+	if manager.battle_intro_overlay != null:
+		manager.battle_intro_overlay.visible = false
+
+
+func begin_player_turn(manager: Node, log_text: String = "Your turn. Choose an action.") -> void:
+	if is_battle_over(manager):
+		return
+
+	manager.state = manager.BattleState.PLAYER_TURN
+	if (
+		manager._global_selected_target == null
+		or not is_instance_valid(manager._global_selected_target)
+		or manager._global_selected_target.is_defeated()
+	):
+		var candidates: Array[Node] = manager._get_basic_attack_candidate_targets()
+		if not candidates.is_empty():
+			manager._global_selected_target = candidates[0] as Combatant
+	manager.ui.set_battle_input_enabled(true)
+	manager.ui.set_turn_text("Player Turn")
+	manager.ui.set_battle_log(log_text)
+	manager.ui.set_timing_mode(false)
+	manager.ui.set_restart_visible(true)
+	manager.ui.set_turn_order_highlight(true)
+	update_action_buttons(manager, true)
+
+
+func begin_enemy_turn(manager: Node, log_text: String = "Enemy is preparing to attack.") -> void:
+	if is_battle_over(manager):
+		return
+
+	manager.state = manager.BattleState.ENEMY_TURN
+	manager._start_player_idle_animation()
+	manager.ui.set_turn_text("Enemy Turn")
+	manager.ui.set_battle_log(log_text)
+	manager.ui.set_timing_mode(false)
+	manager.ui.set_turn_order_highlight(false)
+	update_action_buttons(manager, false)
+
+	await manager.get_tree().create_timer(manager.TURN_DELAY_SECONDS).timeout
+	if manager.state != manager.BattleState.ENEMY_TURN:
+		return
+	var processed_at_a1: bool = await manager._process_interrupt_queue_at_safe_window(&"before_enemy_commit")
+	if is_battle_over(manager) or not manager.is_inside_tree():
+		return
+	if not processed_at_a1 and manager.state == manager.BattleState.ENEMY_TURN:
+		manager._enemy_attack()
+
+
+func resume_after_enemy_action(manager: Node, log_text: String) -> void:
+	if is_battle_over(manager) or not manager.is_inside_tree():
+		return
+	var processed: bool = await manager._process_interrupt_queue_at_safe_window(&"after_enemy_recovery")
+	if is_battle_over(manager) or not manager.is_inside_tree():
+		return
+	if not processed:
+		begin_player_turn(manager, log_text)
+
+
+func finish_player_action(manager: Node, log_text: String) -> void:
+	refresh_energy_ui(manager)
+	refresh_skill_points_ui(manager)
+	manager._start_player_idle_animation()
+	if all_enemies_defeated(manager):
+		win(manager, "Enemy defeated. You win!")
+		return
+
+	begin_enemy_turn(manager, log_text)
+
+
+func is_battle_over(manager: Node) -> bool:
+	return manager.state == manager.BattleState.WIN or manager.state == manager.BattleState.LOSE
+
+
+func refresh_energy_ui(manager: Node) -> void:
+	manager.ui.set_energy(manager.ultimate_energy, manager.MAX_ULTIMATE_ENERGY)
+
+
+func refresh_player_status_ui(manager: Node) -> void:
+	manager.ui.set_player_status_hp(manager.player.current_hp, manager.player.max_hp)
+
+
+func refresh_skill_points_ui(manager: Node) -> void:
+	manager.ui.set_skill_points(manager.skill_points, manager.MAX_SKILL_POINTS)
+
+
+func update_action_buttons(manager: Node, enabled: bool) -> void:
+	manager.ui.set_actions_enabled(
+		enabled,
+		manager.ultimate_energy >= manager.MAX_ULTIMATE_ENERGY,
+		manager.skill_points >= manager.SKILL_POINT_COST_SKILL,
+		manager._can_request_off_turn_ultimate_input()
+	)
+
+
+func add_ultimate_energy(manager: Node, amount: int) -> void:
+	manager.ultimate_energy = mini(manager.ultimate_energy + amount, manager.MAX_ULTIMATE_ENERGY)
+	refresh_energy_ui(manager)
+
+
+func add_skill_points(manager: Node, amount: int) -> void:
+	manager.skill_points = mini(manager.skill_points + amount, manager.MAX_SKILL_POINTS)
+	refresh_skill_points_ui(manager)
+
+
+func spend_skill_points(manager: Node, amount: int) -> void:
+	manager.skill_points = maxi(manager.skill_points - amount, 0)
+	refresh_skill_points_ui(manager)
+
+

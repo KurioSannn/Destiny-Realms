@@ -1486,3 +1486,93 @@ func update_ultimate_command_panel(manager: Node, command: PendingBattleCommand)
 		manager.ultimate_energy,
 		manager.MAX_ULTIMATE_ENERGY
 	)
+
+
+# =========================================================================
+# Command Action Button Handlers
+# =========================================================================
+
+func on_attack_pressed(manager: Node) -> void:
+	if manager.state != manager.BattleState.PLAYER_TURN:
+		return
+	if has_pending_skill_command():
+		cancel_skill_command(manager)
+		return
+	if has_pending_ultimate_command():
+		show_ultimate_locked_message(manager)
+		return
+
+	if has_pending_basic_command():
+		confirm_basic_attack_command(manager)
+		return
+
+	if uses_new_basic_command_flow(manager):
+		begin_basic_attack_command(manager)
+		return
+
+	await manager._start_legacy_basic_attack()
+
+
+func on_confirm_pressed(manager: Node) -> void:
+	if uses_new_basic_command_flow(manager) and has_pending_basic_command():
+		confirm_basic_attack_command(manager)
+		return
+	if uses_new_skill_command_flow(manager) and has_pending_skill_command():
+		confirm_skill_command(manager)
+		return
+	if uses_new_ultimate_command_flow(manager) and has_pending_ultimate_command():
+		confirm_ultimate_command(manager)
+		return
+	if manager.state == manager.BattleState.PLAYER_TURN:
+		await on_attack_pressed(manager)
+
+
+func on_skill_pressed(manager: Node) -> void:
+	if manager.state != manager.BattleState.PLAYER_TURN:
+		return
+	if has_pending_skill_command():
+		confirm_skill_command(manager)
+		return
+	if has_pending_basic_command():
+		cancel_basic_attack_command(manager)
+		return
+	if has_pending_ultimate_command():
+		show_ultimate_locked_message(manager)
+		return
+
+	if uses_new_skill_command_flow(manager):
+		begin_skill_command(manager)
+		return
+
+	if manager.skill_points < manager.SKILL_POINT_COST_SKILL:
+		return
+	await manager._start_legacy_skill()
+
+
+func on_ultimate_pressed(manager: Node) -> void:
+	if has_pending_ultimate_command():
+		confirm_ultimate_command(manager)
+		return
+	if manager.state != manager.BattleState.PLAYER_TURN:
+		manager.request_off_turn_ultimate(manager.player)
+		return
+	if has_pending_basic_command():
+		cancel_basic_attack_command(manager)
+		return
+	if has_pending_skill_command():
+		cancel_skill_command(manager)
+		return
+
+	if uses_new_ultimate_command_flow(manager):
+		begin_ultimate_command(manager)
+		return
+
+	if manager.ultimate_energy < manager.MAX_ULTIMATE_ENERGY:
+		return
+	await manager._start_legacy_ultimate()
+
+
+func show_ultimate_locked_message(manager: Node) -> void:
+	if manager.ui != null:
+		manager.ui.set_battle_log("Octagram Fragment is locked in. Press Ultimate again or choose a target.")
+

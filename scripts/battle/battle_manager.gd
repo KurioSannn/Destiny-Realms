@@ -176,6 +176,7 @@ const BattleFlowCoordinatorScript := preload("res://scripts/battle/battle_flow_c
 const TakashiBasicActionScript := preload("res://scripts/battle/takashi_basic_action.gd")
 const BattleInterruptCoordinatorScript := preload("res://scripts/battle/battle_interrupt_coordinator.gd")
 const BattleCommandCoordinatorScript := preload("res://scripts/battle/battle_command_coordinator.gd")
+const BattleCameraCoordinatorScript := preload("res://scripts/battle/battle_camera_coordinator.gd")
 
 
 
@@ -198,14 +199,12 @@ const BattleCommandCoordinatorScript := preload("res://scripts/battle/battle_com
 @onready var battle_scene: Node2D = $".."
 @onready var battle_camera: Camera2D = get_node_or_null("../BattleCamera") as Camera2D
 @onready var battle_presentation_3d: BattlePresentation3D = get_node_or_null("../BattlePresentation3D") as BattlePresentation3D
-## Block 9H: the only fire-and-forget camera tween in this file (every
-## other camera tween -- Ultimate zoom in/out, enemy impact zoom -- is
-## always awaited by its caller before continuing). Tracked so
-## _reset_camera() can kill it: without this, a shake still mid-flight
-## when _win()/_lose() fires could keep overwriting the just-reset
-## offset for the shake's remaining ~0.1s, leaving a stray offset
-## briefly visible instead of the guaranteed-clean camera state.
-var _camera_shake_tween: Tween
+var camera_coordinator = BattleCameraCoordinatorScript.new()
+## Block 9H: camera tween property delegated to camera_coordinator.
+var _camera_shake_tween: Tween:
+	get: return camera_coordinator.camera_shake_tween if camera_coordinator != null else null
+	set(v):
+		if camera_coordinator != null: camera_coordinator.camera_shake_tween = v
 @onready var forest_background: Sprite2D = get_node_or_null("../Background/ForestBackground") as Sprite2D
 @onready var sky: Polygon2D = get_node_or_null("../Background/Sky") as Polygon2D
 @onready var forest_line: Polygon2D = get_node_or_null("../Background/ForestLine") as Polygon2D
@@ -1321,76 +1320,23 @@ func _update_ultimate_command_panel(command: PendingBattleCommand) -> void:
 
 
 func _play_battle_intro_effect() -> void:
-	if battle_intro_overlay == null:
-		return
-
-	battle_intro_overlay.visible = true
-	battle_intro_overlay.modulate = Color(1.0, 1.0, 1.0, 1.0)
-	if battle_intro_label != null:
-		battle_intro_label.position.x = 0.0
-		battle_intro_label.modulate = Color(1.0, 1.0, 1.0, 1.0)
-		var label_tween: Tween = create_tween()
-		label_tween.tween_property(battle_intro_label, "position:x", 22.0, 0.32)
-		label_tween.tween_property(battle_intro_label, "modulate:a", 0.0, 0.35)
-
-	var overlay_tween: Tween = create_tween()
-	overlay_tween.tween_interval(0.28)
-	overlay_tween.tween_property(battle_intro_overlay, "modulate:a", 0.0, 0.45)
-	overlay_tween.tween_callback(Callable(self, "_hide_battle_intro_overlay"))
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.play_battle_intro_effect(self)
 
 
 func _hide_battle_intro_overlay() -> void:
-	if battle_intro_overlay != null:
-		battle_intro_overlay.visible = false
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.hide_battle_intro_overlay(self)
 
 
 func _begin_player_turn(log_text: String = "Your turn. Choose an action.") -> void:
-	if _is_battle_over():
-		return
-
-	state = BattleState.PLAYER_TURN
-	if _global_selected_target == null or not is_instance_valid(_global_selected_target) or _global_selected_target.is_defeated():
-		var candidates := _get_basic_attack_candidate_targets()
-		if not candidates.is_empty():
-			_global_selected_target = candidates[0] as Combatant
-	ui.set_battle_input_enabled(true)
-	ui.set_turn_text("Player Turn")
-	ui.set_battle_log(log_text)
-	ui.set_timing_mode(false)
-	ui.set_restart_visible(true)
-	ui.set_turn_order_highlight(true)
-	_update_action_buttons(true)
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.begin_player_turn(self, log_text)
 
 
-## Block 9F: safe window A1 opens right after the pre-attack delay below,
-## before _enemy_attack() is ever called for this enemy turn — the exact
-## point docs/battle_system_spec.md's Block 9A audit identified as "safe
-## in principle, but there is no hook today." _process_interrupt_queue_at_safe_window()
-## processes at most one queued Ultimate here; if it does, that Ultimate's
-## own cancel/fail/finish handlers (via _resume_after_interrupt() ->
-## _resume_enemy_action_after_a1()) are responsible for calling
-## _enemy_attack() afterward, not this function. If nothing was processed,
-## _enemy_attack() is called directly below exactly as before Block 9F.
 func _begin_enemy_turn(log_text: String = "Enemy is preparing to attack.") -> void:
-	if _is_battle_over():
-		return
-
-	state = BattleState.ENEMY_TURN
-	_start_player_idle_animation()
-	ui.set_turn_text("Enemy Turn")
-	ui.set_battle_log(log_text)
-	ui.set_timing_mode(false)
-	ui.set_turn_order_highlight(false)
-	_update_action_buttons(false)
-
-	await get_tree().create_timer(TURN_DELAY_SECONDS).timeout
-	if state != BattleState.ENEMY_TURN:
-		return
-	var processed_at_a1: bool = await _process_interrupt_queue_at_safe_window(&"before_enemy_commit")
-	if _is_battle_over() or not is_inside_tree():
-		return
-	if not processed_at_a1 and state == BattleState.ENEMY_TURN:
-		_enemy_attack()
+	if battle_flow_coordinator != null:
+		await battle_flow_coordinator.begin_enemy_turn(self, log_text)
 
 
 ## Block 9C: enemy attack token model. Unlike Basic/Skill/Ultimate, the
@@ -1476,39 +1422,13 @@ func _enemy_attack() -> void:
 ## tail call was replaced, and only to add exactly one more decision point
 ## before player turn resumes.
 func _resume_after_enemy_action(log_text: String) -> void:
-	if _is_battle_over() or not is_inside_tree():
-		return
-	var processed: bool = await _process_interrupt_queue_at_safe_window(&"after_enemy_recovery")
-	if _is_battle_over() or not is_inside_tree():
-		return
-	if not processed:
-		_begin_player_turn(log_text)
+	if battle_flow_coordinator != null:
+		await battle_flow_coordinator.resume_after_enemy_action(self, log_text)
 
 
-## Block 9E: pressing a different command while Skill/Ultimate is pending
-## only cancels that pending command and returns to default command
-## select — it never also begins Basic in the same click. The player must
-## press Attack again afterward to actually execute it. This mirrors
-## _on_skill_pressed()/_on_ultimate_pressed() below.
 func _on_attack_pressed() -> void:
-	if state != BattleState.PLAYER_TURN:
-		return
-	if _has_pending_skill_command():
-		_cancel_skill_command()
-		return
-	if _has_pending_ultimate_command():
-		_show_ultimate_locked_message()
-		return
-
-	if _has_pending_basic_command():
-		_confirm_basic_attack_command()
-		return
-
-	if _uses_new_basic_command_flow():
-		_begin_basic_attack_command()
-		return
-
-	await _start_legacy_basic_attack()
+	if command_coordinator != null:
+		await command_coordinator.on_attack_pressed(self)
 
 
 func _start_legacy_basic_attack() -> void:
@@ -1525,46 +1445,13 @@ func _resolve_basic_attack(
 
 
 func _on_confirm_pressed() -> void:
-	if _uses_new_basic_command_flow() and _has_pending_basic_command():
-		_confirm_basic_attack_command()
-		return
-	if _uses_new_skill_command_flow() and _has_pending_skill_command():
-		_confirm_skill_command()
-		return
-	if _uses_new_ultimate_command_flow() and _has_pending_ultimate_command():
-		_confirm_ultimate_command()
-		return
-	if state == BattleState.PLAYER_TURN:
-		await _on_attack_pressed()
+	if command_coordinator != null:
+		await command_coordinator.on_confirm_pressed(self)
 
 
-## Block 9E: no confirm/cancel panel in production. Pressing Skill while
-## Skill is already pending commits to the active target (this is the
-## replacement for the old Confirm button — see confirm_pending_command(),
-## which _confirm_skill_command() already calls). Pressing Skill while a
-## *different* command (Basic/Ultimate) is pending only cancels that
-## command and returns to default select; it does not also begin Skill in
-## the same click, matching _on_attack_pressed() above.
 func _on_skill_pressed() -> void:
-	if state != BattleState.PLAYER_TURN:
-		return
-	if _has_pending_skill_command():
-		_confirm_skill_command()
-		return
-	if _has_pending_basic_command():
-		_cancel_basic_attack_command()
-		return
-	if _has_pending_ultimate_command():
-		_show_ultimate_locked_message()
-		return
-
-	if _uses_new_skill_command_flow():
-		_begin_skill_command()
-		return
-
-	if skill_points < SKILL_POINT_COST_SKILL:
-		return
-	await _start_legacy_skill()
+	if command_coordinator != null:
+		await command_coordinator.on_skill_pressed(self)
 
 
 func _start_legacy_skill() -> void:
@@ -1572,48 +1459,14 @@ func _start_legacy_skill() -> void:
 		await takashi_skill_action.start_legacy_skill(self)
 
 
-## Block 9E: no confirm/cancel panel in production. Pressing Ultimate while
-## an Ultimate is already pending commits to the active target — this
-## covers both on-turn ready idle and a queued/off-turn Ultimate's ready
-## idle during safe window B identically, since both are just a pending
-## ULTIMATE command underneath (_confirm_ultimate_command() already calls
-## confirm_pending_command(), which does not care whether the command was
-## on-turn or interrupt-sourced). Pressing Ultimate while a *different*
-## command (Basic/Skill) is pending only cancels that command and returns
-## to default select. The reverse is not true: once Ultimate itself is
-## pending, Basic/Skill/Escape only show the locked message.
 func _on_ultimate_pressed() -> void:
-	if _has_pending_ultimate_command():
-		_confirm_ultimate_command()
-		return
-	# Block 9B: off-turn requests only ever reach here when the Ultimate
-	# button was independently made interactable by
-	# _can_request_off_turn_ultimate_input() (see _update_action_buttons),
-	# which already requires state == ENEMY_TURN. Basic/Skill can never have
-	# a pending command in that state, so routing here first does not skip
-	# any cancellation the original PLAYER_TURN path used to do.
-	if state != BattleState.PLAYER_TURN:
-		request_off_turn_ultimate(player)
-		return
-	if _has_pending_basic_command():
-		_cancel_basic_attack_command()
-		return
-	if _has_pending_skill_command():
-		_cancel_skill_command()
-		return
-
-	if _uses_new_ultimate_command_flow():
-		_begin_ultimate_command()
-		return
-
-	if ultimate_energy < MAX_ULTIMATE_ENERGY:
-		return
-	await _start_legacy_ultimate()
+	if command_coordinator != null:
+		await command_coordinator.on_ultimate_pressed(self)
 
 
 func _show_ultimate_locked_message() -> void:
-	if ui != null:
-		ui.set_battle_log("Octagram Fragment is locked in. Press Ultimate again or choose a target.")
+	if command_coordinator != null:
+		command_coordinator.show_ultimate_locked_message(self)
 
 
 func _start_legacy_ultimate() -> void:
@@ -2057,50 +1910,43 @@ func _lose(log_text: String) -> void:
 
 
 func _refresh_energy_ui() -> void:
-	ui.set_energy(ultimate_energy, MAX_ULTIMATE_ENERGY)
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.refresh_energy_ui(self)
 
 
 func _refresh_player_status_ui() -> void:
-	ui.set_player_status_hp(player.current_hp, player.max_hp)
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.refresh_player_status_ui(self)
 
 
 func _refresh_skill_points_ui() -> void:
-	ui.set_skill_points(skill_points, MAX_SKILL_POINTS)
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.refresh_skill_points_ui(self)
 
 
 func _update_action_buttons(enabled: bool) -> void:
-	ui.set_actions_enabled(
-		enabled,
-		ultimate_energy >= MAX_ULTIMATE_ENERGY,
-		skill_points >= SKILL_POINT_COST_SKILL,
-		_can_request_off_turn_ultimate_input()
-	)
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.update_action_buttons(self, enabled)
 
 
 func _add_ultimate_energy(amount: int) -> void:
-	ultimate_energy = mini(ultimate_energy + amount, MAX_ULTIMATE_ENERGY)
-	_refresh_energy_ui()
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.add_ultimate_energy(self, amount)
 
 
 func _add_skill_points(amount: int) -> void:
-	skill_points = mini(skill_points + amount, MAX_SKILL_POINTS)
-	_refresh_skill_points_ui()
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.add_skill_points(self, amount)
 
 
 func _spend_skill_points(amount: int) -> void:
-	skill_points = maxi(skill_points - amount, 0)
-	_refresh_skill_points_ui()
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.spend_skill_points(self, amount)
 
 
 func _finish_player_action(log_text: String) -> void:
-	_refresh_energy_ui()
-	_refresh_skill_points_ui()
-	_start_player_idle_animation()
-	if _all_enemies_defeated():
-		_win("Enemy defeated. You win!")
-		return
-
-	_begin_enemy_turn(log_text)
+	if battle_flow_coordinator != null:
+		battle_flow_coordinator.finish_player_action(self, log_text)
 
 
 ## Block 9G: victory must require every enemy in the battle to be
@@ -2120,6 +1966,8 @@ func _all_enemies_defeated() -> bool:
 
 
 func _is_battle_over() -> bool:
+	if battle_flow_coordinator != null:
+		return battle_flow_coordinator.is_battle_over(self)
 	return state == BattleState.WIN or state == BattleState.LOSE
 
 
@@ -2129,57 +1977,24 @@ func _show_floating_damage(target: Combatant, damage: int) -> void:
 
 
 func _shake_camera() -> void:
-	_shake_camera_with_strength(CAMERA_SHAKE_OFFSET)
+	if camera_coordinator != null:
+		camera_coordinator.shake_camera(self)
 
 
 func _shake_camera_with_strength(strength: float) -> void:
-	if battle_presentation_3d != null and is_instance_valid(battle_presentation_3d):
-		battle_presentation_3d.camera_shake(strength)
-		return
-
-	if battle_camera == null:
-		return
-
-	if _camera_shake_tween != null and _camera_shake_tween.is_valid():
-		_camera_shake_tween.kill()
-	_camera_shake_tween = create_tween()
-	_camera_shake_tween.tween_property(battle_camera, "offset", Vector2(strength, randf_range(-1.5, 1.5)), 0.025)
-	_camera_shake_tween.tween_property(battle_camera, "offset", Vector2(-strength, randf_range(-1.5, 1.5)), 0.035)
-	_camera_shake_tween.tween_property(battle_camera, "offset", Vector2.ZERO, 0.035)
+	if camera_coordinator != null:
+		camera_coordinator.shake_camera_with_strength(self, strength)
 
 
 func _shake_target_once(target: Node2D, strength: float, duration: float) -> Signal:
-	if target == null:
-		return get_tree().process_frame
-
-	var original_position: Vector2 = target.position
-	var half_duration: float = duration * 0.5
-	var tween: Tween = create_tween()
-	tween.set_trans(Tween.TRANS_QUAD)
-	tween.set_ease(Tween.EASE_OUT)
-	tween.tween_property(
-		target,
-		"position",
-		original_position + Vector2(
-			randf_range(-strength, strength),
-			randf_range(-strength * 0.35, strength * 0.35)
-		),
-		half_duration
-	)
-	tween.tween_property(target, "position", original_position, half_duration)
-	return tween.finished
+	if camera_coordinator != null:
+		return camera_coordinator.shake_target_once(self, target, strength, duration)
+	return get_tree().process_frame
 
 
 func _reset_camera() -> void:
-	if battle_camera != null:
-		if _camera_shake_tween != null and _camera_shake_tween.is_valid():
-			_camera_shake_tween.kill()
-		var viewport_size: Vector2 = get_viewport().get_visible_rect().size
-		if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
-			viewport_size = BASE_VIEWPORT_SIZE
-		battle_camera.position = viewport_size * 0.5
-		battle_camera.offset = Vector2.ZERO
-		battle_camera.zoom = Vector2.ONE
+	if camera_coordinator != null:
+		camera_coordinator.reset_camera(self)
 
 
 func _set_player_action_texture(texture: Texture2D) -> void:
