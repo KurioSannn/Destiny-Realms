@@ -173,6 +173,7 @@ const BattleEnemyTurnControllerScript := preload("res://scripts/battle/battle_en
 const TakashiSkillActionScript := preload("res://scripts/battle/takashi_skill_action.gd")
 const TakashiUltimateDirectorScript := preload("res://scripts/battle/takashi_ultimate_director.gd")
 const BattleFlowCoordinatorScript := preload("res://scripts/battle/battle_flow_coordinator.gd")
+const TakashiBasicActionScript := preload("res://scripts/battle/takashi_basic_action.gd")
 
 
 
@@ -328,6 +329,7 @@ var enemy_turn_controller = BattleEnemyTurnControllerScript.new()
 var takashi_skill_action = TakashiSkillActionScript.new()
 var takashi_ultimate_director = TakashiUltimateDirectorScript.new()
 var battle_flow_coordinator = BattleFlowCoordinatorScript.new()
+var takashi_basic_action = TakashiBasicActionScript.new()
 
 
 
@@ -821,26 +823,8 @@ func _on_basic_command_failed(
 
 
 func _execute_committed_basic_attack(command: PendingBattleCommand) -> void:
-	if not _uses_new_basic_command_flow():
-		return
-	if not _is_committed_basic_command(command):
-		return
-	if not basic_command_adapter.execute_committed_command():
-		return
-
-	var target := _selected_basic_target(command)
-	if target == null:
-		_abort_committed_basic_command(command, &"target_missing_during_execution")
-		return
-
-	active_basic_command_token = command.commit_token
-	state = BattleState.ACTION_RESOLUTION
-	_set_player_action_texture(TAKASHI_BASIC_TEXTURE)
-	if battle_presentation_3d != null:
-		battle_presentation_3d.play_party_attack()
-	ui.set_turn_text("Void Strike")
-	ui.set_battle_log("Void Strike!")
-	await _resolve_basic_attack(target, command)
+	if takashi_basic_action != null:
+		await takashi_basic_action.execute_committed_basic_attack(self, command)
 
 
 func _finish_basic_command_resolution(
@@ -2665,68 +2649,16 @@ func _on_attack_pressed() -> void:
 
 
 func _start_legacy_basic_attack() -> void:
-	state = BattleState.ACTION_RESOLUTION
-	_set_player_action_texture(TAKASHI_BASIC_TEXTURE)
-	_update_action_buttons(false)
-	ui.set_battle_input_enabled(false)
-	ui.set_turn_text("Void Strike")
-	ui.set_battle_log("Void Strike!")
-	await _resolve_basic_attack(enemy)
+	if takashi_basic_action != null:
+		await takashi_basic_action.start_legacy_basic_attack(self)
 
 
 func _resolve_basic_attack(
 	target: Combatant = null,
 	command: PendingBattleCommand = null
 ) -> void:
-	if state != BattleState.ACTION_RESOLUTION:
-		return
-	if target == null:
-		target = enemy
-	if not _basic_execution_guard(command, target):
-		return
-
-	var damage: int = BASIC_ATTACK_DAMAGE
-	var energy_gain: int = BASIC_ATTACK_ENERGY
-
-	_play_basic_sfx()
-	await player.play_attack_movement(target)
-	if state != BattleState.ACTION_RESOLUTION:
-		return
-	if not _basic_execution_guard(command, target):
-		return
-
-	_spawn_basic_slash_effect(target)
-	await get_tree().create_timer(0.08).timeout
-	if state != BattleState.ACTION_RESOLUTION:
-		return
-	if not _basic_execution_guard(command, target):
-		return
-	if command != null and not basic_command_adapter.begin_resolution(command):
-		return
-
-	target.take_damage(damage)
-	_show_floating_damage(target, damage)
-	if BASIC_IMPACT_HOLD_SECONDS > 0.0:
-		await get_tree().create_timer(BASIC_IMPACT_HOLD_SECONDS).timeout
-		if state != BattleState.ACTION_RESOLUTION or not _basic_execution_guard(command, target, false):
-			return
-	await _play_basic_cetar_impact(target, command)
-	if state != BattleState.ACTION_RESOLUTION:
-		return
-	if not _basic_execution_guard(command, target, false):
-		return
-
-	await target.play_hit_feedback()
-	if not _basic_execution_guard(command, target, false):
-		return
-	_shake_camera()
-	_add_ultimate_energy(energy_gain)
-	_add_skill_points(SKILL_POINT_GAIN_BASIC)
-	var log_text := "Void Strike deals %d damage, gains %d energy, and restores %d Skill Point." % [damage, energy_gain, SKILL_POINT_GAIN_BASIC]
-	if command != null:
-		_finish_basic_command_resolution(command, log_text)
-	else:
-		_finish_player_action(log_text)
+	if takashi_basic_action != null:
+		await takashi_basic_action.resolve_basic_attack(self, target, command)
 
 
 func _on_confirm_pressed() -> void:
@@ -3163,11 +3095,8 @@ func _play_cetar_sfx(hit_index: int) -> void:
 
 
 func _spawn_basic_slash_effect(target: Node2D) -> void:
-	if effect_layer == null or battle_vfx == null or target == null:
-		return
-	var start_position: Vector2 = player.global_position + Vector2(0.0, -118.0)
-	var end_position: Vector2 = target.global_position + Vector2(-10.0, -118.0)
-	battle_vfx.spawn_slash_projectile(start_position, end_position, Color(1.0, 0.97, 0.86, 0.92), 1.0)
+	if takashi_basic_action != null:
+		takashi_basic_action.spawn_basic_slash_effect(self, target)
 
 
 func _spawn_enemy_claw_effect(target: Node2D) -> void:
@@ -3243,23 +3172,8 @@ func _play_basic_cetar_impact(
 	target: Node2D,
 	command: PendingBattleCommand = null
 ) -> void:
-	_play_sring_sfx()
-	if battle_vfx != null:
-		battle_vfx.play_sriing_burst(target.global_position, BASIC_CETAR_TEXT_RISE)
-	_shake_target_once(target, BASIC_CETAR_TARGET_SHAKE * 0.65, BASIC_CETAR_INTERVAL * 0.75)
-	_shake_camera_with_strength(BASIC_CETAR_CAMERA_SHAKE * 0.65)
-	await get_tree().create_timer(0.045).timeout
-
-	for hit_index in range(BASIC_CETAR_HIT_COUNT):
-		if not _basic_impact_guard(command, target):
-			return
-
-		_play_cetar_sfx(hit_index)
-		if battle_vfx != null:
-			battle_vfx.play_cetar_hit_burst(target.global_position, hit_index, BASIC_CETAR_TEXT_RISE)
-		_shake_target_once(target, BASIC_CETAR_TARGET_SHAKE + float(hit_index) * 1.5, BASIC_CETAR_INTERVAL * 0.75)
-		_shake_camera_with_strength(BASIC_CETAR_CAMERA_SHAKE + float(hit_index) * 0.8)
-		await get_tree().create_timer(BASIC_CETAR_INTERVAL).timeout
+	if takashi_basic_action != null:
+		await takashi_basic_action.play_basic_cetar_impact(self, target, command)
 
 
 func _play_screen_flash(color: Color, duration: float) -> void:
