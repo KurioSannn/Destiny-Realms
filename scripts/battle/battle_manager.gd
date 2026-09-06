@@ -175,6 +175,7 @@ const TakashiUltimateDirectorScript := preload("res://scripts/battle/takashi_ult
 const BattleFlowCoordinatorScript := preload("res://scripts/battle/battle_flow_coordinator.gd")
 const TakashiBasicActionScript := preload("res://scripts/battle/takashi_basic_action.gd")
 const BattleInterruptCoordinatorScript := preload("res://scripts/battle/battle_interrupt_coordinator.gd")
+const BattleCommandCoordinatorScript := preload("res://scripts/battle/battle_command_coordinator.gd")
 
 
 
@@ -281,41 +282,164 @@ var enemy_impact_fvx_glow_sprite: Sprite2D:
 var _ultimate_cutscene_snapshot: Dictionary:
 	get: return takashi_ultimate_director.ultimate_cutscene_snapshot if takashi_ultimate_director != null else {}
 
-var _global_selected_target: Combatant = null
-var basic_command_adapter
-var basic_target_highlight: Line2D
-var active_basic_command_token: int = 0
-var basic_recovery_tokens: Dictionary = {}
-var basic_turn_completion_tokens: Dictionary = {}
-var skill_command_adapter
-var skill_target_highlight: Line2D
-var skill_command_panel: Panel
-var skill_ready_label: Label
-var skill_target_label: Label
-var skill_cost_label: Label
-var skill_confirm_button: Button
-var skill_cancel_button: Button
-var active_skill_command_token: int = 0
-var skill_recovery_tokens: Dictionary = {}
-var skill_turn_completion_tokens: Dictionary = {}
-var skill_hit_tokens: Dictionary = {}
+var command_coordinator = BattleCommandCoordinatorScript.new()
+
+var _global_selected_target: Combatant:
+	get: return command_coordinator.global_selected_target if command_coordinator != null else null
+	set(v):
+		if command_coordinator != null: command_coordinator.global_selected_target = v
+
+var basic_command_adapter:
+	get: return command_coordinator.basic_command_adapter if command_coordinator != null else null
+	set(v):
+		if command_coordinator != null: command_coordinator.basic_command_adapter = v
+
+var basic_target_highlight: Line2D:
+	get: return command_coordinator.basic_target_highlight if command_coordinator != null else null
+	set(v):
+		if command_coordinator != null: command_coordinator.basic_target_highlight = v
+
+var active_basic_command_token: int:
+	get: return command_coordinator.active_basic_command_token if command_coordinator != null else 0
+	set(v):
+		if command_coordinator != null: command_coordinator.active_basic_command_token = v
+
+var basic_recovery_tokens: Dictionary:
+	get: return command_coordinator.basic_recovery_tokens if command_coordinator != null else {}
+	set(v):
+		if command_coordinator != null: command_coordinator.basic_recovery_tokens = v
+
+var basic_turn_completion_tokens: Dictionary:
+	get: return command_coordinator.basic_turn_completion_tokens if command_coordinator != null else {}
+	set(v):
+		if command_coordinator != null: command_coordinator.basic_turn_completion_tokens = v
+
+var skill_command_adapter:
+	get: return command_coordinator.skill_command_adapter if command_coordinator != null else null
+	set(v):
+		if command_coordinator != null: command_coordinator.skill_command_adapter = v
+
+var skill_target_highlight: Line2D:
+	get: return command_coordinator.skill_target_highlight if command_coordinator != null else null
+	set(v):
+		if command_coordinator != null: command_coordinator.skill_target_highlight = v
+
+var skill_command_panel: Panel:
+	get: return command_coordinator.skill_command_panel if command_coordinator != null else null
+	set(v):
+		if command_coordinator != null: command_coordinator.skill_command_panel = v
+
+var skill_ready_label: Label:
+	get: return command_coordinator.skill_ready_label if command_coordinator != null else null
+	set(v):
+		if command_coordinator != null: command_coordinator.skill_ready_label = v
+
+var skill_target_label: Label:
+	get: return command_coordinator.skill_target_label if command_coordinator != null else null
+	set(v):
+		if command_coordinator != null: command_coordinator.skill_target_label = v
+
+var skill_cost_label: Label:
+	get: return command_coordinator.skill_cost_label if command_coordinator != null else null
+	set(v):
+		if command_coordinator != null: command_coordinator.skill_cost_label = v
+
+var skill_confirm_button: Button:
+	get: return command_coordinator.skill_confirm_button if command_coordinator != null else null
+	set(v):
+		if command_coordinator != null: command_coordinator.skill_confirm_button = v
+
+var skill_cancel_button: Button:
+	get: return command_coordinator.skill_cancel_button if command_coordinator != null else null
+	set(v):
+		if command_coordinator != null: command_coordinator.skill_cancel_button = v
+
+var active_skill_command_token: int:
+	get: return command_coordinator.active_skill_command_token if command_coordinator != null else 0
+	set(v):
+		if command_coordinator != null: command_coordinator.active_skill_command_token = v
+
+var skill_recovery_tokens: Dictionary:
+	get: return command_coordinator.skill_recovery_tokens if command_coordinator != null else {}
+	set(v):
+		if command_coordinator != null: command_coordinator.skill_recovery_tokens = v
+
+var skill_turn_completion_tokens: Dictionary:
+	get: return command_coordinator.skill_turn_completion_tokens if command_coordinator != null else {}
+	set(v):
+		if command_coordinator != null: command_coordinator.skill_turn_completion_tokens = v
+
+var skill_hit_tokens: Dictionary:
+	get: return command_coordinator.skill_hit_tokens if command_coordinator != null else {}
+	set(v):
+		if command_coordinator != null: command_coordinator.skill_hit_tokens = v
+
 var skill_animation_looping: bool:
 	get: return takashi_animator.skill_animation_looping if takashi_animator != null else false
 	set(value):
 		if takashi_animator != null:
 			takashi_animator.skill_animation_looping = value
-var ultimate_command_adapter
-var ultimate_target_highlight: Line2D
-var ultimate_command_panel: Panel
-var ultimate_ready_label: Label
-var ultimate_target_label: Label
-var ultimate_cost_label: Label
-var ultimate_confirm_button: Button
-var ultimate_cancel_button: Button
-var active_ultimate_command_token: int = 0
-var ultimate_recovery_tokens: Dictionary = {}
-var ultimate_turn_completion_tokens: Dictionary = {}
-var ultimate_hit_tokens: Dictionary = {}
+
+var ultimate_command_adapter:
+	get: return command_coordinator.ultimate_command_adapter if command_coordinator != null else null
+	set(v):
+		if command_coordinator != null: command_coordinator.ultimate_command_adapter = v
+
+var ultimate_target_highlight: Line2D:
+	get: return command_coordinator.ultimate_target_highlight if command_coordinator != null else null
+	set(v):
+		if command_coordinator != null: command_coordinator.ultimate_target_highlight = v
+
+var ultimate_command_panel: Panel:
+	get: return command_coordinator.ultimate_command_panel if command_coordinator != null else null
+	set(v):
+		if command_coordinator != null: command_coordinator.ultimate_command_panel = v
+
+var ultimate_ready_label: Label:
+	get: return command_coordinator.ultimate_ready_label if command_coordinator != null else null
+	set(v):
+		if command_coordinator != null: command_coordinator.ultimate_ready_label = v
+
+var ultimate_target_label: Label:
+	get: return command_coordinator.ultimate_target_label if command_coordinator != null else null
+	set(v):
+		if command_coordinator != null: command_coordinator.ultimate_target_label = v
+
+var ultimate_cost_label: Label:
+	get: return command_coordinator.ultimate_cost_label if command_coordinator != null else null
+	set(v):
+		if command_coordinator != null: command_coordinator.ultimate_cost_label = v
+
+var ultimate_confirm_button: Button:
+	get: return command_coordinator.ultimate_confirm_button if command_coordinator != null else null
+	set(v):
+		if command_coordinator != null: command_coordinator.ultimate_confirm_button = v
+
+var ultimate_cancel_button: Button:
+	get: return command_coordinator.ultimate_cancel_button if command_coordinator != null else null
+	set(v):
+		if command_coordinator != null: command_coordinator.ultimate_cancel_button = v
+
+var active_ultimate_command_token: int:
+	get: return command_coordinator.active_ultimate_command_token if command_coordinator != null else 0
+	set(v):
+		if command_coordinator != null: command_coordinator.active_ultimate_command_token = v
+
+var ultimate_recovery_tokens: Dictionary:
+	get: return command_coordinator.ultimate_recovery_tokens if command_coordinator != null else {}
+	set(v):
+		if command_coordinator != null: command_coordinator.ultimate_recovery_tokens = v
+
+var ultimate_turn_completion_tokens: Dictionary:
+	get: return command_coordinator.ultimate_turn_completion_tokens if command_coordinator != null else {}
+	set(v):
+		if command_coordinator != null: command_coordinator.ultimate_turn_completion_tokens = v
+
+var ultimate_hit_tokens: Dictionary:
+	get: return command_coordinator.ultimate_hit_tokens if command_coordinator != null else {}
+	set(v):
+		if command_coordinator != null: command_coordinator.ultimate_hit_tokens = v
+
 var interrupt_coordinator = BattleInterruptCoordinatorScript.new()
 
 var ultimate_interrupt_queue: UltimateInterruptQueue:
@@ -488,64 +612,8 @@ func _process(delta: float) -> void:
 
 
 func _unhandled_input(event: InputEvent) -> void:
-	if _uses_new_basic_command_flow() and _has_pending_basic_command():
-		if event.is_action_pressed("ui_cancel"):
-			if _cancel_basic_attack_command():
-				get_viewport().set_input_as_handled()
-		elif event.is_action_pressed("ui_left"):
-			if _cycle_basic_target(-1):
-				get_viewport().set_input_as_handled()
-		elif event.is_action_pressed("ui_right"):
-			if _cycle_basic_target(1):
-				get_viewport().set_input_as_handled()
-		elif event is InputEventMouseButton:
-			var mouse_event := event as InputEventMouseButton
-			if (
-				mouse_event.button_index == MOUSE_BUTTON_LEFT
-				and mouse_event.pressed
-				and _select_basic_target_at_position(mouse_event.position)
-			):
-				get_viewport().set_input_as_handled()
-		return
-
-	if _uses_new_skill_command_flow() and _has_pending_skill_command():
-		if event.is_action_pressed("ui_cancel"):
-			if _cancel_skill_command():
-				get_viewport().set_input_as_handled()
-		elif event.is_action_pressed("ui_left"):
-			if _cycle_skill_target(-1):
-				get_viewport().set_input_as_handled()
-		elif event.is_action_pressed("ui_right"):
-			if _cycle_skill_target(1):
-				get_viewport().set_input_as_handled()
-		elif event is InputEventMouseButton:
-			var mouse_event := event as InputEventMouseButton
-			if (
-				mouse_event.button_index == MOUSE_BUTTON_LEFT
-				and mouse_event.pressed
-				and _select_skill_target_at_position(mouse_event.position)
-			):
-				get_viewport().set_input_as_handled()
-		return
-
-	if _uses_new_ultimate_command_flow() and _has_pending_ultimate_command():
-		if event.is_action_pressed("ui_cancel"):
-			_show_ultimate_locked_message()
-			get_viewport().set_input_as_handled()
-		elif event.is_action_pressed("ui_left"):
-			if _cycle_ultimate_target(-1):
-				get_viewport().set_input_as_handled()
-		elif event.is_action_pressed("ui_right"):
-			if _cycle_ultimate_target(1):
-				get_viewport().set_input_as_handled()
-		elif event is InputEventMouseButton:
-			var mouse_event := event as InputEventMouseButton
-			if (
-				mouse_event.button_index == MOUSE_BUTTON_LEFT
-				and mouse_event.pressed
-				and _select_ultimate_target_at_position(mouse_event.position)
-			):
-				get_viewport().set_input_as_handled()
+	if command_coordinator != null and command_coordinator.handle_unhandled_input(self, event):
+		get_viewport().set_input_as_handled()
 		return
 
 	if state == BattleState.PLAYER_TURN and not _has_pending_basic_command() and not _has_pending_skill_command() and not _has_pending_ultimate_command():
@@ -569,6 +637,7 @@ func _unhandled_input(event: InputEvent) -> void:
 					get_viewport().set_input_as_handled()
 		return
 
+
 func _cycle_global_target(direction: int) -> void:
 	_global_selected_target = BattleTargetingSystemScript.cycle_global_target(
 		_get_basic_attack_candidate_targets(),
@@ -587,22 +656,14 @@ func _preselect_pending_target_without_commit(
 	command: PendingBattleCommand,
 	target: Combatant
 ) -> bool:
-	if command == null or command.is_committed or command.is_cancelled:
-		return false
-	if target == null or not is_instance_valid(target) or target.is_defeated():
-		return false
-	return command.select_target(target)
+	if command_coordinator != null:
+		return command_coordinator.preselect_pending_target_without_commit(command, target)
+	return false
 
 
 func get_current_target_marker_target() -> Combatant:
-	if _has_pending_basic_command():
-		return _selected_basic_target(basic_command_adapter.get_pending_command())
-	if _has_pending_skill_command():
-		return _selected_skill_target(skill_command_adapter.get_pending_command())
-	if _has_pending_ultimate_command():
-		return _selected_ultimate_target(ultimate_command_adapter.get_pending_command())
-	if state == BattleState.PLAYER_TURN:
-		return _global_selected_target
+	if command_coordinator != null:
+		return command_coordinator.get_current_target_marker_target(self)
 	return null
 
 
@@ -631,15 +692,8 @@ func _target_highlight_position(
 
 
 func _exit_tree() -> void:
-	active_basic_command_token = 0
-	if basic_command_adapter != null:
-		basic_command_adapter.reset()
-	active_skill_command_token = 0
-	if skill_command_adapter != null:
-		skill_command_adapter.reset()
-	active_ultimate_command_token = 0
-	if ultimate_command_adapter != null:
-		ultimate_command_adapter.reset()
+	if command_coordinator != null:
+		command_coordinator.reset_all(self)
 	_reset_ultimate_interrupt_queue()
 	_reset_enemy_attack_runtime()
 
@@ -739,129 +793,57 @@ func _apply_player_action_sprite_grounding() -> void:
 
 
 
+# =============================================================================
+# Command Coordination (Delegated to BattleCommandCoordinator)
+# =============================================================================
+
+# --- Basic Attack Flow ---
 func _setup_basic_command_runtime() -> void:
-	_setup_basic_command_adapter()
-	_create_basic_target_highlight()
+	command_coordinator.setup_basic_command_runtime(self)
 
 
 func _setup_basic_command_adapter() -> void:
-	if basic_command_adapter != null:
-		return
-	basic_command_adapter = BasicAttackAdapter.new()
-	basic_command_adapter.name = "BasicAttackCommandAdapter"
-	add_child(basic_command_adapter)
-	basic_command_adapter.configure(
-		player,
-		_get_basic_attack_candidate_targets,
-		_validate_basic_attack_command,
-		_commit_basic_attack_command_resources
-	)
-	basic_command_adapter.target_changed.connect(_on_basic_command_target_changed)
-	basic_command_adapter.basic_cancelled.connect(_on_basic_command_cancelled)
-	basic_command_adapter.basic_committed.connect(_on_basic_command_committed)
-	basic_command_adapter.basic_failed.connect(_on_basic_command_failed)
+	command_coordinator.setup_basic_command_adapter(self)
 
 
 func _reset_basic_command_runtime() -> void:
-	active_basic_command_token = 0
-	basic_recovery_tokens.clear()
-	basic_turn_completion_tokens.clear()
-	if basic_command_adapter != null:
-		basic_command_adapter.reset()
-	_hide_basic_target_highlight()
+	command_coordinator.reset_basic_command_runtime(self)
 
 
 func _uses_new_basic_command_flow() -> bool:
-	return use_new_basic_command_flow and basic_command_adapter != null
+	return command_coordinator.uses_new_basic_command_flow(self)
 
 
 func _begin_basic_attack_command() -> bool:
-	if not _uses_new_basic_command_flow():
-		return false
-	if state != BattleState.PLAYER_TURN or _is_battle_over():
-		return false
-	if _has_pending_basic_command() or _has_pending_skill_command():
-		return false
-	var preferred_target := _global_selected_target
-	var started = basic_command_adapter.begin_basic()
-	if started:
-		var command: PendingBattleCommand = basic_command_adapter.get_pending_command()
-		if (
-			not command.is_committed
-			and not command.is_cancelled
-			and preferred_target != null
-			and is_instance_valid(preferred_target)
-			and not preferred_target.is_defeated()
-		):
-			if _preselect_pending_target_without_commit(command, preferred_target):
-				_on_basic_command_target_changed(command, command.selected_targets.duplicate())
-		if command != null and not command.is_committed and not command.is_cancelled:
-			_confirm_basic_attack_command()
-	return started
+	return command_coordinator.begin_basic_attack_command(self)
 
 
 func _confirm_basic_attack_command() -> bool:
-	if not _has_pending_basic_command():
-		return false
-	_repair_basic_pending_target()
-	return basic_command_adapter.confirm_basic()
+	return command_coordinator.confirm_basic_attack_command(self)
 
 
 func _cancel_basic_attack_command() -> bool:
-	if not _has_pending_basic_command():
-		return false
-	return basic_command_adapter.cancel_basic()
+	return command_coordinator.cancel_basic_attack_command(self)
 
 
 func _has_pending_basic_command() -> bool:
-	return (
-		basic_command_adapter != null
-		and basic_command_adapter.has_pending_basic()
-	)
+	return command_coordinator.has_pending_basic_command()
 
 
-func _on_basic_command_target_changed(
-	command: PendingBattleCommand,
-	_targets: Array
-) -> void:
-	var selected := _selected_basic_target(command)
-	if selected != null:
-		_global_selected_target = selected
-	if command.candidate_targets.size() <= 1:
-		return
-	_show_basic_target_highlight(command)
-	ui.set_battle_log("Select target")
+func _on_basic_command_target_changed(command: PendingBattleCommand, targets: Array) -> void:
+	command_coordinator.on_basic_command_target_changed(self, command, targets)
 
 
-func _on_basic_command_cancelled(_command: PendingBattleCommand) -> void:
-	active_basic_command_token = 0
-	_hide_basic_target_highlight()
-	ui.set_battle_input_enabled(true)
-	ui.set_turn_text("Player Turn")
-	ui.set_battle_log("Void Strike cancelled.")
-	_update_action_buttons(true)
+func _on_basic_command_cancelled(command: PendingBattleCommand) -> void:
+	command_coordinator.on_basic_command_cancelled(self, command)
 
 
 func _on_basic_command_committed(command: PendingBattleCommand) -> void:
-	_hide_basic_target_highlight()
-	_update_action_buttons(false)
-	ui.set_battle_input_enabled(false)
-	call_deferred("_execute_committed_basic_attack", command)
+	command_coordinator.on_basic_command_committed(self, command)
 
 
-func _on_basic_command_failed(
-	_command: PendingBattleCommand,
-	reason: StringName
-) -> void:
-	active_basic_command_token = 0
-	_hide_basic_target_highlight()
-	if _is_battle_over():
-		return
-	state = BattleState.PLAYER_TURN
-	ui.set_battle_input_enabled(true)
-	ui.set_turn_text("Player Turn")
-	ui.set_battle_log(_basic_command_failure_message(reason))
-	_update_action_buttons(true)
+func _on_basic_command_failed(command: PendingBattleCommand, reason: StringName) -> void:
+	command_coordinator.on_basic_command_failed(self, command, reason)
 
 
 func _execute_committed_basic_attack(command: PendingBattleCommand) -> void:
@@ -869,411 +851,137 @@ func _execute_committed_basic_attack(command: PendingBattleCommand) -> void:
 		await takashi_basic_action.execute_committed_basic_attack(self, command)
 
 
-func _finish_basic_command_resolution(
-	command: PendingBattleCommand,
-	log_text: String
-) -> void:
-	if not _is_committed_basic_command(command):
-		return
-	if not basic_command_adapter.resolve_committed_command(command):
-		return
-	if not basic_command_adapter.begin_recovery(command):
-		return
-
-	var token := command.commit_token
-	if basic_recovery_tokens.has(token):
-		return
-	basic_recovery_tokens[token] = true
-	_start_player_idle_animation()
-	_hide_basic_target_highlight()
-	if not _basic_recovery_guard(command):
-		return
-	if not basic_command_adapter.complete_recovery(command):
-		return
-	if basic_turn_completion_tokens.has(token):
-		return
-	basic_turn_completion_tokens[token] = true
-	active_basic_command_token = 0
-	_finish_player_action(log_text)
+func _finish_basic_command_resolution(command: PendingBattleCommand, log_text: String) -> void:
+	command_coordinator.finish_basic_command_resolution(self, command, log_text)
 
 
-func _abort_committed_basic_command(
-	command: PendingBattleCommand,
-	reason: StringName
-) -> void:
-	active_basic_command_token = 0
-	if basic_command_adapter != null:
-		basic_command_adapter.fail_basic(command, reason)
-		basic_command_adapter.reset()
+func _abort_committed_basic_command(command: PendingBattleCommand, reason: StringName) -> void:
+	command_coordinator.abort_committed_basic_command(self, command, reason)
 
 
 func _validate_basic_attack_command(command: PendingBattleCommand) -> String:
-	if command == null:
-		return "missing_command"
-	if command.command_type != PendingBattleCommand.CommandType.BASIC_ATTACK:
-		return "unsupported_command"
-	if _is_battle_over():
-		return "battle_already_finished"
-	if state != BattleState.PLAYER_TURN:
-		return "battle_state_not_player_turn"
-	if active_basic_command_token != 0 or active_skill_command_token != 0:
-		return "action_execution_already_active"
-	if not is_instance_valid(player) or player.is_defeated():
-		return "actor_invalid"
-	if not command.has_required_targets():
-		return "target_invalid"
-	if _selected_basic_target(command) == null:
-		return "target_not_targetable"
-	return ""
+	return command_coordinator.validate_basic_attack_command(self, command)
 
 
-func _commit_basic_attack_command_resources(
-	command: PendingBattleCommand
-) -> bool:
-	return _validate_basic_attack_command(command).is_empty()
+func _commit_basic_attack_command_resources(command: PendingBattleCommand) -> bool:
+	return command_coordinator.commit_basic_attack_command_resources(self, command)
 
 
 func _get_basic_attack_candidate_targets() -> Array[Node]:
-	return BattleTargetingSystemScript.get_enemy_candidates(battle_scene, player)
+	return command_coordinator.get_basic_attack_candidate_targets(self)
 
 
 func _is_basic_attack_targetable(target: Node) -> bool:
-	return BattleTargetingSystemScript.is_enemy_targetable(target, player)
+	return command_coordinator.is_basic_attack_targetable(self, target)
 
 
 func _selected_basic_target(command: PendingBattleCommand) -> Combatant:
-	return BattleTargetingSystemScript.get_selected_target(command, player)
+	return command_coordinator.selected_basic_target(self, command)
 
 
 func _repair_basic_pending_target() -> bool:
-	var command: PendingBattleCommand = basic_command_adapter.get_pending_command() if basic_command_adapter != null else null
-	return BattleTargetingSystemScript.repair_pending_target(command, battle_scene, player)
+	return command_coordinator.repair_basic_pending_target(self)
 
 
 func _cycle_basic_target(direction: int) -> bool:
-	if not _has_pending_basic_command():
-		return false
-	return BattleTargetingSystemScript.cycle_command_target(
-		basic_command_adapter.get_pending_command(),
-		_get_basic_attack_candidate_targets(),
-		direction,
-		basic_command_adapter
-	)
+	return command_coordinator.cycle_basic_target(self, direction)
 
 
 func _select_basic_target_at_position(screen_position: Vector2) -> bool:
-	if not _has_pending_basic_command():
-		return false
-	return BattleTargetingSystemScript.select_target_at_position(
-		basic_command_adapter.get_pending_command(),
-		_get_basic_attack_candidate_targets(),
-		screen_position,
-		basic_command_adapter,
-		battle_presentation_3d
-	)
+	return command_coordinator.select_basic_target_at_position(self, screen_position)
 
 
-func _basic_execution_guard(
-	command: PendingBattleCommand,
-	target: Combatant,
-	require_live_target: bool = true
-) -> bool:
-	if (
-		not is_inside_tree()
-		or state != BattleState.ACTION_RESOLUTION
-		or _is_battle_over()
-		or not is_instance_valid(player)
-		or player.is_defeated()
-		or target == null
-		or not is_instance_valid(target)
-		or (require_live_target and target.is_defeated())
-	):
-		return false
-	if command == null:
-		return true
-	return (
-		basic_command_adapter != null
-		and command == basic_command_adapter.get_pending_command()
-		and command.is_committed
-		and active_basic_command_token == command.commit_token
-		and basic_command_adapter.is_token_active(command.commit_token)
-	)
+func _basic_execution_guard(command: PendingBattleCommand, target: Combatant, require_live_target: bool = true) -> bool:
+	return command_coordinator.basic_execution_guard(self, command, target, require_live_target)
 
 
-func _basic_impact_guard(
-	command: PendingBattleCommand,
-	target: Node2D
-) -> bool:
-	if command == null:
-		return state == BattleState.ACTION_RESOLUTION and is_inside_tree()
-	var combatant := target as Combatant
-	if combatant == null:
-		return false
-	return _basic_execution_guard(command, combatant, false)
+func _basic_impact_guard(command: PendingBattleCommand, target: Node2D) -> bool:
+	return command_coordinator.basic_impact_guard(self, command, target)
 
 
 func _basic_recovery_guard(command: PendingBattleCommand) -> bool:
-	return (
-		is_inside_tree()
-		and state == BattleState.ACTION_RESOLUTION
-		and not _is_battle_over()
-		and basic_command_adapter != null
-		and command == basic_command_adapter.get_pending_command()
-		and command.is_committed
-		and command.is_resolved
-		and active_basic_command_token == command.commit_token
-	)
+	return command_coordinator.basic_recovery_guard(self, command)
 
 
 func _is_committed_basic_command(command: PendingBattleCommand) -> bool:
-	return (
-		command != null
-		and command.command_type == PendingBattleCommand.CommandType.BASIC_ATTACK
-		and command.is_committed
-		and command.commit_token > 0
-	)
+	return command_coordinator.is_committed_basic_command(command)
 
 
 func _basic_command_failure_message(reason: StringName) -> String:
-	match reason:
-		&"target_invalid_before_confirm", &"target_not_targetable":
-			return "Void Strike target is no longer valid."
-		&"no_valid_targets", &"target_missing_during_execution":
-			return "Void Strike has no valid target."
-		&"battle_state_not_player_turn", &"action_execution_already_active":
-			return "Void Strike is not available right now."
-	return "Void Strike was cancelled safely."
+	return command_coordinator.basic_command_failure_message(reason)
 
 
 func _create_basic_target_highlight() -> void:
-	if basic_target_highlight != null or battle_scene == null:
-		return
-	basic_target_highlight = BattleTargetingSystemScript.create_reticle(
-		battle_scene,
-		"BasicTargetHighlight",
-		Color(0.98, 0.78, 0.28, 0.96),
-		4.0,
-		62.0,
-		78.0,
-		32,
-		30
-	)
+	command_coordinator.create_basic_target_highlight(self)
 
 
 func _show_basic_target_highlight(command: PendingBattleCommand) -> void:
-	if basic_target_highlight == null:
-		return
-	if _uses_3d_target_markers():
-		basic_target_highlight.visible = false
-		return
-	basic_target_highlight.visible = _selected_basic_target(command) != null
-	_sync_basic_target_highlight()
+	command_coordinator.show_basic_target_highlight(self, command)
 
 
 func _hide_basic_target_highlight() -> void:
-	if basic_target_highlight == null:
-		return
-	if _uses_3d_target_markers():
-		basic_target_highlight.visible = false
-		return
-	if state == BattleState.PLAYER_TURN and not _has_pending_skill_command() and not _has_pending_ultimate_command() and _global_selected_target != null:
-		basic_target_highlight.visible = true
-	else:
-		basic_target_highlight.visible = false
+	command_coordinator.hide_basic_target_highlight(self)
 
 
 func _sync_basic_target_highlight() -> void:
-	if basic_target_highlight == null:
-		return
-	if _uses_3d_target_markers():
-		basic_target_highlight.visible = false
-		return
-
-	var target: Combatant = null
-	if _has_pending_basic_command():
-		target = _selected_basic_target(basic_command_adapter.get_pending_command())
-	elif state == BattleState.PLAYER_TURN and not _has_pending_skill_command() and not _has_pending_ultimate_command():
-		target = _global_selected_target
-
-	if target == null or not is_instance_valid(target) or target.is_defeated():
-		if _global_selected_target == target:
-			_global_selected_target = null
-		basic_target_highlight.visible = false
-		return
-
-	BattleTargetingSystemScript.sync_reticle(
-		basic_target_highlight,
-		target,
-		Vector2(0.0, -72.0),
-		0.48,
-		0.008,
-		battle_presentation_3d
-	)
+	command_coordinator.sync_basic_target_highlight(self)
 
 
+# --- Skill Command Flow ---
 func _setup_skill_command_runtime() -> void:
-	_setup_skill_command_adapter()
-	_create_skill_target_highlight()
-	_create_skill_command_panel()
+	command_coordinator.setup_skill_command_runtime(self)
 
 
 func _setup_skill_command_adapter() -> void:
-	if skill_command_adapter != null:
-		return
-	skill_command_adapter = SkillCommandAdapterScript.new()
-	skill_command_adapter.name = "SkillCommandAdapter"
-	add_child(skill_command_adapter)
-	skill_command_adapter.configure(
-		player,
-		_get_skill_candidate_targets,
-		_validate_skill_command,
-		_commit_skill_command_resources
-	)
-	skill_command_adapter.skill_ready.connect(_on_skill_command_ready)
-	skill_command_adapter.target_changed.connect(_on_skill_command_target_changed)
-	skill_command_adapter.skill_cancelled.connect(_on_skill_command_cancelled)
-	skill_command_adapter.skill_committed.connect(_on_skill_command_committed)
-	skill_command_adapter.skill_failed.connect(_on_skill_command_failed)
+	command_coordinator.setup_skill_command_adapter(self)
 
 
 func _reset_skill_command_runtime() -> void:
-	active_skill_command_token = 0
-	skill_recovery_tokens.clear()
-	skill_turn_completion_tokens.clear()
-	skill_hit_tokens.clear()
-	if skill_command_adapter != null:
-		skill_command_adapter.reset()
-	_hide_skill_target_highlight()
-	_set_skill_command_panel_visible(false)
-	skill_animation_looping = false
+	command_coordinator.reset_skill_command_runtime(self)
 
 
 func _uses_new_skill_command_flow() -> bool:
-	return use_new_skill_command_flow and skill_command_adapter != null
+	return command_coordinator.uses_new_skill_command_flow(self)
 
 
 func _begin_skill_command() -> bool:
-	if not _uses_new_skill_command_flow():
-		return false
-	if state != BattleState.PLAYER_TURN or _is_battle_over():
-		return false
-	if _has_pending_basic_command() or _has_pending_skill_command():
-		return false
-	if skill_points < SKILL_POINT_COST_SKILL:
-		ui.set_battle_log("Triangle Rift needs %d Skill Point." % SKILL_POINT_COST_SKILL)
-		return false
-	var preferred_target := _global_selected_target
-	var started = skill_command_adapter.begin_skill(
-		&"triangle_rift",
-		PendingBattleCommand.TargetRule.SINGLE_ENEMY,
-		SKILL_POINT_COST_SKILL
-	)
-	if started:
-		var command: PendingBattleCommand = skill_command_adapter.get_pending_command()
-		if _preselect_pending_target_without_commit(command, preferred_target):
-			_on_skill_command_target_changed(command, command.selected_targets.duplicate())
-	return started
+	return command_coordinator.begin_skill_command(self)
 
 
 func _confirm_skill_command() -> bool:
-	if not _has_pending_skill_command():
-		return false
-	_repair_skill_pending_target()
-	return skill_command_adapter.confirm_skill()
+	return command_coordinator.confirm_skill_command(self)
 
 
 func _cancel_skill_command() -> bool:
-	if not _has_pending_skill_command():
-		return false
-	return skill_command_adapter.cancel_skill()
+	return command_coordinator.cancel_skill_command(self)
 
 
 func _has_pending_skill_command() -> bool:
-	return (
-		skill_command_adapter != null
-		and skill_command_adapter.has_pending_skill()
-	)
+	return command_coordinator.has_pending_skill_command()
 
 
-## Block 9E: no confirm/cancel panel in production — press Skill again or
-## click the target to commit. skill_command_panel/skill_confirm_button/
-## skill_cancel_button are kept constructed (see _create_skill_command_panel())
-## as an unused legacy fallback, documented in
-## docs/battle_command_flow_implementation.md, "Block 9E"; this handler
-## deliberately no longer calls _set_skill_command_panel_visible(true).
-## Buttons stay enabled (not disabled like before Block 9E) during ready
-## idle -- committing lives with the Skill/target-click input handlers now,
-## and Basic/Ultimate must stay clickable so pressing them can cancel this
-## pending Skill and return to default select, matching how Basic's own
-## multi-target pending already left buttons enabled (Block 8.5).
 func _on_skill_command_ready(command: PendingBattleCommand) -> void:
-	_start_skill_ready_idle()
-	if battle_presentation_3d != null:
-		battle_presentation_3d.camera_transition(BattleCamera3D.Preset.PLAYER_SKILL)
-	_update_action_buttons(true)
-	ui.set_battle_input_enabled(true)
-	ui.set_turn_text("Triangle Rift")
-	ui.set_battle_log("Triangle Rift ready. Press Skill again or choose a target.")
-	_update_skill_command_panel(command)
+	command_coordinator.on_skill_command_ready(self, command)
 
 
-func _on_skill_command_target_changed(
-	command: PendingBattleCommand,
-	_targets: Array
-) -> void:
-	var selected := _selected_skill_target(command)
-	if selected != null:
-		_global_selected_target = selected
-	_update_skill_command_panel(command)
-	_show_skill_target_highlight(command)
+func _on_skill_command_target_changed(command: PendingBattleCommand, targets: Array) -> void:
+	command_coordinator.on_skill_command_target_changed(self, command, targets)
 
 
-func _on_skill_command_cancelled(_command: PendingBattleCommand) -> void:
-	active_skill_command_token = 0
-	_stop_player_skill_animation()
-	_start_player_idle_animation()
-	if battle_presentation_3d != null:
-		battle_presentation_3d.camera_return_to_idle()
-	_hide_skill_target_highlight()
-	_set_skill_command_panel_visible(false)
-	ui.set_battle_input_enabled(true)
-	ui.set_turn_text("Player Turn")
-	ui.set_battle_log("Triangle Rift cancelled.")
-	_update_action_buttons(true)
+func _on_skill_command_cancelled(command: PendingBattleCommand) -> void:
+	command_coordinator.on_skill_command_cancelled(self, command)
 
 
 func _on_skill_command_committed(command: PendingBattleCommand) -> void:
-	_hide_skill_target_highlight()
-	_set_skill_command_panel_visible(false)
-	_update_action_buttons(false)
-	ui.set_battle_input_enabled(false)
-	call_deferred("_execute_committed_skill", command)
+	command_coordinator.on_skill_command_committed(self, command)
 
 
-func _on_skill_command_failed(
-	_command: PendingBattleCommand,
-	reason: StringName
-) -> void:
-	active_skill_command_token = 0
-	_stop_player_skill_animation()
-	_start_player_idle_animation()
-	if battle_presentation_3d != null:
-		battle_presentation_3d.camera_return_to_idle()
-	_hide_skill_target_highlight()
-	_set_skill_command_panel_visible(false)
-	if _is_battle_over():
-		return
-	state = BattleState.PLAYER_TURN
-	ui.set_battle_input_enabled(true)
-	ui.set_turn_text("Player Turn")
-	ui.set_battle_log(_skill_command_failure_message(reason))
-	_update_action_buttons(true)
+func _on_skill_command_failed(command: PendingBattleCommand, reason: StringName) -> void:
+	command_coordinator.on_skill_command_failed(self, command, reason)
 
 
 func _start_skill_ready_idle() -> void:
-	_start_player_skill_animation(true)
-	if takashi_skill_frames.is_empty():
-		_play_screen_flash(Color(0.42, 0.95, 1.0, 0.12), 0.08)
+	command_coordinator.start_skill_ready_idle(self)
 
 
 func _execute_committed_skill(command: PendingBattleCommand) -> void:
@@ -1281,337 +989,113 @@ func _execute_committed_skill(command: PendingBattleCommand) -> void:
 		await takashi_skill_action.execute_committed_skill(self, command)
 
 
-func _finish_skill_command_resolution(
-	command: PendingBattleCommand,
-	log_text: String
-) -> void:
-	if not _is_committed_skill_command(command):
-		return
-	if not skill_command_adapter.resolve_committed_command(command):
-		return
-	if not skill_command_adapter.begin_recovery(command):
-		return
-
-	var token := command.commit_token
-	if skill_recovery_tokens.has(token):
-		return
-	skill_recovery_tokens[token] = true
-	_start_player_idle_animation()
-	_hide_skill_target_highlight()
-	if not _skill_recovery_guard(command):
-		return
-	if not skill_command_adapter.complete_recovery(command):
-		return
-	if skill_turn_completion_tokens.has(token):
-		return
-	skill_turn_completion_tokens[token] = true
-	active_skill_command_token = 0
-	_finish_player_action(log_text)
+func _finish_skill_command_resolution(command: PendingBattleCommand, log_text: String) -> void:
+	command_coordinator.finish_skill_command_resolution(self, command, log_text)
 
 
-func _abort_committed_skill_command(
-	command: PendingBattleCommand,
-	reason: StringName
-) -> void:
-	active_skill_command_token = 0
-	if skill_command_adapter != null:
-		skill_command_adapter.fail_skill(command, reason)
-		skill_command_adapter.reset()
+func _abort_committed_skill_command(command: PendingBattleCommand, reason: StringName) -> void:
+	command_coordinator.abort_committed_skill_command(self, command, reason)
 
 
 func _validate_skill_command(command: PendingBattleCommand) -> String:
-	if command == null:
-		return "missing_command"
-	if command.command_type != PendingBattleCommand.CommandType.SKILL:
-		return "unsupported_command"
-	if command.action_id != &"triangle_rift":
-		return "unsupported_skill"
-	if _is_battle_over():
-		return "battle_already_finished"
-	if state != BattleState.PLAYER_TURN:
-		return "battle_state_not_player_turn"
-	if active_basic_command_token != 0 or active_skill_command_token != 0:
-		return "action_execution_already_active"
-	if not is_instance_valid(player) or player.is_defeated():
-		return "actor_invalid"
-	if skill_points < command.skill_point_cost:
-		return "not_enough_skill_points"
-	if not command.has_required_targets():
-		return "target_invalid"
-	if _selected_skill_target(command) == null:
-		return "target_not_targetable"
-	return ""
+	return command_coordinator.validate_skill_command(self, command)
 
 
-func _commit_skill_command_resources(
-	command: PendingBattleCommand
-) -> bool:
-	if not _validate_skill_command(command).is_empty():
-		return false
-	if command.skill_point_cost > 0:
-		_spend_skill_points(command.skill_point_cost)
-	return true
+func _commit_skill_command_resources(command: PendingBattleCommand) -> bool:
+	return command_coordinator.commit_skill_command_resources(self, command)
 
 
 func _get_skill_candidate_targets() -> Array[Node]:
-	return BattleTargetingSystemScript.get_enemy_candidates(battle_scene, player)
+	return command_coordinator.get_skill_candidate_targets(self)
 
 
 func _is_skill_targetable(target: Node) -> bool:
-	return BattleTargetingSystemScript.is_enemy_targetable(target, player)
+	return command_coordinator.is_skill_targetable(self, target)
 
 
 func _selected_skill_target(command: PendingBattleCommand) -> Combatant:
-	return BattleTargetingSystemScript.get_selected_target(command, player)
+	return command_coordinator.selected_skill_target(self, command)
 
 
 func _repair_skill_pending_target() -> bool:
-	var command: PendingBattleCommand = skill_command_adapter.get_pending_command() if skill_command_adapter != null else null
-	return BattleTargetingSystemScript.repair_pending_target(command, battle_scene, player)
+	return command_coordinator.repair_skill_pending_target(self)
 
 
 func _cycle_skill_target(direction: int) -> bool:
-	if not _has_pending_skill_command():
-		return false
-	return BattleTargetingSystemScript.cycle_command_target(
-		skill_command_adapter.get_pending_command(),
-		_get_skill_candidate_targets(),
-		direction,
-		skill_command_adapter
-	)
+	return command_coordinator.cycle_skill_target(self, direction)
 
 
 func _select_skill_target_at_position(screen_position: Vector2) -> bool:
-	if not _has_pending_skill_command():
-		return false
-	return BattleTargetingSystemScript.select_target_at_position(
-		skill_command_adapter.get_pending_command(),
-		_get_skill_candidate_targets(),
-		screen_position,
-		skill_command_adapter,
-		battle_presentation_3d
-	)
+	return command_coordinator.select_skill_target_at_position(self, screen_position)
 
 
-func _skill_execution_guard(
-	command: PendingBattleCommand,
-	target: Combatant,
-	require_live_target: bool = true
-) -> bool:
-	if (
-		not is_inside_tree()
-		or state != BattleState.ACTION_RESOLUTION
-		or _is_battle_over()
-		or not is_instance_valid(player)
-		or player.is_defeated()
-		or target == null
-		or not is_instance_valid(target)
-		or (require_live_target and target.is_defeated())
-	):
-		return false
-	if command == null:
-		return true
-	return (
-		skill_command_adapter != null
-		and command == skill_command_adapter.get_pending_command()
-		and command.is_committed
-		and active_skill_command_token == command.commit_token
-		and skill_command_adapter.is_token_active(command.commit_token)
-	)
+func _skill_execution_guard(command: PendingBattleCommand, target: Combatant, require_live_target: bool = true) -> bool:
+	return command_coordinator.skill_execution_guard(self, command, target, require_live_target)
 
 
-func _skill_impact_guard(
-	command: PendingBattleCommand,
-	target: Node2D
-) -> bool:
-	if command == null:
-		return state == BattleState.ACTION_RESOLUTION and is_inside_tree()
-	var combatant := target as Combatant
-	if combatant == null:
-		return false
-	return _skill_execution_guard(command, combatant, false)
+func _skill_impact_guard(command: PendingBattleCommand, target: Node2D) -> bool:
+	return command_coordinator.skill_impact_guard(self, command, target)
 
 
 func _skill_recovery_guard(command: PendingBattleCommand) -> bool:
-	return (
-		is_inside_tree()
-		and state == BattleState.ACTION_RESOLUTION
-		and not _is_battle_over()
-		and skill_command_adapter != null
-		and command == skill_command_adapter.get_pending_command()
-		and command.is_committed
-		and command.is_resolved
-		and active_skill_command_token == command.commit_token
-	)
+	return command_coordinator.skill_recovery_guard(self, command)
 
 
 func _is_committed_skill_command(command: PendingBattleCommand) -> bool:
-	return (
-		command != null
-		and command.command_type == PendingBattleCommand.CommandType.SKILL
-		and command.is_committed
-		and command.commit_token > 0
-	)
+	return command_coordinator.is_committed_skill_command(command)
 
 
-func _consume_skill_hit(
-	command: PendingBattleCommand,
-	hit_index: int
-) -> bool:
-	if command == null:
-		return true
-	var key := "%d:%d" % [command.commit_token, hit_index]
-	if skill_hit_tokens.has(key):
-		return false
-	skill_hit_tokens[key] = true
-	return true
+func _claim_skill_hit_token(command: PendingBattleCommand, pulse_index: int) -> bool:
+	return command_coordinator.claim_skill_hit_token(command, pulse_index)
 
 
 func _skill_command_failure_message(reason: StringName) -> String:
-	match reason:
-		&"not_enough_skill_points":
-			return "Triangle Rift needs %d Skill Point." % SKILL_POINT_COST_SKILL
-		&"target_invalid_before_confirm", &"target_not_targetable":
-			return "Triangle Rift target is no longer valid."
-		&"no_valid_targets", &"target_missing_during_execution":
-			return "Triangle Rift has no valid target."
-		&"battle_state_not_player_turn", &"action_execution_already_active":
-			return "Triangle Rift is not available right now."
-	return "Triangle Rift was cancelled safely."
+	return command_coordinator.skill_command_failure_message(reason)
 
 
 func _create_skill_target_highlight() -> void:
-	if skill_target_highlight != null or battle_scene == null:
-		return
-	skill_target_highlight = BattleTargetingSystemScript.create_reticle(
-		battle_scene,
-		"SkillTargetHighlight",
-		Color(0.42, 0.96, 1.0, 0.98),
-		4.0,
-		70.0,
-		86.0,
-		36,
-		31
-	)
+	command_coordinator.create_skill_target_highlight(self)
 
 
 func _show_skill_target_highlight(command: PendingBattleCommand) -> void:
-	if skill_target_highlight == null:
-		return
-	if _uses_3d_target_markers():
-		skill_target_highlight.visible = false
-		return
-	skill_target_highlight.visible = _selected_skill_target(command) != null
-	_sync_skill_target_highlight()
+	command_coordinator.show_skill_target_highlight(self, command)
 
 
 func _hide_skill_target_highlight() -> void:
-	if skill_target_highlight != null:
-		skill_target_highlight.visible = false
+	command_coordinator.hide_skill_target_highlight(self)
 
 
 func _sync_skill_target_highlight() -> void:
-	if skill_target_highlight == null or not skill_target_highlight.visible:
-		return
-	if _uses_3d_target_markers():
-		skill_target_highlight.visible = false
-		return
-	if not _has_pending_skill_command():
-		skill_target_highlight.visible = false
-		return
-	var target := _selected_skill_target(skill_command_adapter.get_pending_command())
-	if target == null:
-		skill_target_highlight.visible = false
-		return
-	BattleTargetingSystemScript.sync_reticle(
-		skill_target_highlight,
-		target,
-		Vector2(0.0, -76.0),
-		0.5,
-		-0.01,
-		battle_presentation_3d
-	)
+	command_coordinator.sync_skill_target_highlight(self)
 
 
 func _create_skill_command_panel() -> void:
-	if skill_command_panel != null or canvas_layer == null:
-		return
-	var elements := BattleLegacyCommandPanelsScript.create_skill_command_panel(
-		canvas_layer,
-		_confirm_skill_command,
-		_cancel_skill_command
-	)
-	if elements.is_empty():
-		return
-	skill_command_panel = elements["panel"]
-	skill_ready_label = elements["ready_label"]
-	skill_cost_label = elements["cost_label"]
-	skill_target_label = elements["target_label"]
-	skill_confirm_button = elements["confirm_button"]
-	skill_cancel_button = elements["cancel_button"]
+	command_coordinator.create_skill_command_panel(self)
 
 
 func _set_skill_command_panel_visible(is_visible: bool) -> void:
-	if skill_command_panel != null:
-		skill_command_panel.visible = is_visible
+	command_coordinator.set_skill_command_panel_visible(is_visible)
 
 
 func _update_skill_command_panel(command: PendingBattleCommand) -> void:
-	var labels := {
-		"ready": skill_ready_label,
-		"cost": skill_cost_label,
-		"target": skill_target_label
-	}
-	BattleLegacyCommandPanelsScript.update_skill_panel(
-		labels,
-		skill_confirm_button,
-		_selected_skill_target(command),
-		command,
-		skill_points,
-		MAX_SKILL_POINTS
-	)
+	command_coordinator.update_skill_command_panel(self, command)
 
 
-
+# --- Ultimate Command Setup & Flow ---
 func _setup_ultimate_command_runtime() -> void:
-	_setup_ultimate_command_adapter()
-	_create_ultimate_target_highlight()
-	_create_ultimate_command_panel()
+	command_coordinator.setup_ultimate_command_runtime(self)
 
 
 func _setup_ultimate_command_adapter() -> void:
-	if ultimate_command_adapter != null:
-		return
-	ultimate_command_adapter = UltimateCommandAdapterScript.new()
-	ultimate_command_adapter.name = "UltimateCommandAdapter"
-	add_child(ultimate_command_adapter)
-	ultimate_command_adapter.configure(
-		player,
-		_get_ultimate_candidate_targets,
-		_validate_ultimate_command,
-		_commit_ultimate_command_resources
-	)
-	ultimate_command_adapter.ultimate_ready.connect(_on_ultimate_command_ready)
-	ultimate_command_adapter.target_changed.connect(_on_ultimate_command_target_changed)
-	ultimate_command_adapter.ultimate_cancelled.connect(_on_ultimate_command_cancelled)
-	ultimate_command_adapter.ultimate_committed.connect(_on_ultimate_command_committed)
-	ultimate_command_adapter.ultimate_failed.connect(_on_ultimate_command_failed)
+	command_coordinator.setup_ultimate_command_adapter(self)
 
 
 func _reset_ultimate_command_runtime() -> void:
-	active_ultimate_command_token = 0
-	ultimate_recovery_tokens.clear()
-	ultimate_turn_completion_tokens.clear()
-	ultimate_hit_tokens.clear()
-	if ultimate_command_adapter != null:
-		ultimate_command_adapter.reset()
-	_hide_ultimate_target_highlight()
-	_set_ultimate_command_panel_visible(false)
-	_reset_ultimate_interrupt_queue()
+	command_coordinator.reset_ultimate_command_runtime(self)
 
 
 func _uses_new_ultimate_command_flow() -> bool:
-	return use_new_ultimate_command_flow and ultimate_command_adapter != null
+	return command_coordinator.uses_new_ultimate_command_flow(self)
 
 
 ## --- Block 9B off-turn interrupt queue integration ---------------------
@@ -1688,159 +1172,47 @@ func _finish_interrupt_ultimate_action(log_text: String) -> void:
 
 
 func _begin_ultimate_command() -> bool:
-	if not _uses_new_ultimate_command_flow():
-		return false
-	if state != BattleState.PLAYER_TURN or _is_battle_over():
-		return false
-	if (
-		_has_pending_basic_command()
-		or _has_pending_skill_command()
-		or _has_pending_ultimate_command()
-	):
-		return false
-	if ultimate_energy < MAX_ULTIMATE_ENERGY:
-		ui.set_battle_log("Octagram Fragment needs full Energy.")
-		return false
-	var preferred_target := _global_selected_target
-	var started = ultimate_command_adapter.begin_ultimate(
-		&"octagram_fragment",
-		PendingBattleCommand.TargetRule.SINGLE_ENEMY,
-		MAX_ULTIMATE_ENERGY
-	)
-	if started:
-		var command: PendingBattleCommand = ultimate_command_adapter.get_pending_command()
-		if _preselect_pending_target_without_commit(command, preferred_target):
-			_on_ultimate_command_target_changed(command, command.selected_targets.duplicate())
-	return started
+	return command_coordinator.begin_ultimate_command(self)
 
 
 func _confirm_ultimate_command() -> bool:
-	if not _has_pending_ultimate_command():
-		return false
-	_repair_ultimate_pending_target()
-	return ultimate_command_adapter.confirm_ultimate()
+	return command_coordinator.confirm_ultimate_command(self)
 
 
 func _cancel_ultimate_command() -> bool:
-	if not _has_pending_ultimate_command():
-		return false
-	_show_ultimate_locked_message()
-	return false
+	return command_coordinator.cancel_ultimate_command(self)
 
 
 func _has_pending_ultimate_command() -> bool:
-	return (
-		ultimate_command_adapter != null
-		and ultimate_command_adapter.has_pending_ultimate()
-	)
+	return command_coordinator.has_pending_ultimate_command()
 
 
-## Block 9E: no confirm/cancel panel in production — press Ultimate again
-## or click the target to commit. This fires identically for on-turn and
-## queued/off-turn (safe window B) Ultimate, since both are just a pending
-## ULTIMATE command underneath. ultimate_command_panel/ultimate_confirm_button/
-## ultimate_cancel_button are kept constructed (see
-## _create_ultimate_command_panel()) as an unused legacy fallback,
-## documented in docs/battle_command_flow_implementation.md, "Block 9E";
-## this handler deliberately no longer calls
-## _set_ultimate_command_panel_visible(true).
-## Buttons stay enabled during ready idle so the same Ultimate button can
-## commit on a second press. Basic/Skill/Escape are deliberately locked
-## out while Ultimate is pending; unlike Skill, Ultimate ready idle cannot
-## be cancelled by changing commands.
 func _on_ultimate_command_ready(command: PendingBattleCommand) -> void:
-	_start_ultimate_ready_idle()
-	if battle_presentation_3d != null:
-		battle_presentation_3d.camera_transition(BattleCamera3D.Preset.PLAYER_ULTIMATE)
-	_update_action_buttons(true)
-	ui.set_battle_input_enabled(true)
-	ui.set_turn_text("Octagram Fragment")
-	ui.set_battle_log("Octagram Fragment ready. Press Ultimate again or choose a target.")
-	_update_ultimate_command_panel(command)
+	command_coordinator.on_ultimate_command_ready(self, command)
 
 
-func _on_ultimate_command_target_changed(
-	command: PendingBattleCommand,
-	_targets: Array
-) -> void:
-	var selected := _selected_ultimate_target(command)
-	if selected != null:
-		_global_selected_target = selected
-	_update_ultimate_command_panel(command)
-	_show_ultimate_target_highlight(command)
+func _on_ultimate_command_target_changed(command: PendingBattleCommand, targets: Array) -> void:
+	command_coordinator.on_ultimate_command_target_changed(self, command, targets)
 
 
 func _on_ultimate_command_cancelled(command: PendingBattleCommand) -> void:
-	var was_interrupt := _is_interrupt_sourced(command)
-	active_ultimate_command_token = 0
-	_start_player_idle_animation()
-	if battle_presentation_3d != null:
-		battle_presentation_3d.camera_return_to_idle()
-	_hide_ultimate_target_highlight()
-	_set_ultimate_command_panel_visible(false)
-	if was_interrupt:
-		if not _consume_interrupt_resume_token(interrupt_resume_token):
-			return
-		is_processing_interrupt_queue = false
-		active_interrupt_request = null
-		_resume_after_interrupt("Octagram Fragment cancelled.")
-		return
-	ui.set_battle_input_enabled(true)
-	ui.set_turn_text("Player Turn")
-	ui.set_battle_log("Octagram Fragment cancelled.")
-	_update_action_buttons(true)
+	command_coordinator.on_ultimate_command_cancelled(self, command)
 
 
 func _on_ultimate_command_committed(command: PendingBattleCommand) -> void:
-	_hide_ultimate_target_highlight()
-	_set_ultimate_command_panel_visible(false)
-	_update_action_buttons(false)
-	ui.set_battle_input_enabled(false)
-	call_deferred("_execute_committed_ultimate", command)
+	command_coordinator.on_ultimate_command_committed(self, command)
 
 
-func _on_ultimate_command_failed(
-	command: PendingBattleCommand,
-	reason: StringName
-) -> void:
-	var was_interrupt := _is_interrupt_sourced(command)
-	active_ultimate_command_token = 0
-	_start_player_idle_animation()
-	_exit_ultimate_cutscene_presentation()
-	if battle_presentation_3d != null:
-		battle_presentation_3d.camera_return_to_idle()
-	_hide_ultimate_target_highlight()
-	_set_ultimate_command_panel_visible(false)
-	if _is_battle_over():
-		return
-	if was_interrupt:
-		if not _consume_interrupt_resume_token(interrupt_resume_token):
-			return
-		is_processing_interrupt_queue = false
-		active_interrupt_request = null
-		_resume_after_interrupt(_ultimate_command_failure_message(reason))
-		return
-	state = BattleState.PLAYER_TURN
-	ui.set_battle_input_enabled(true)
-	ui.set_turn_text("Player Turn")
-	ui.set_battle_log(_ultimate_command_failure_message(reason))
-	_update_action_buttons(true)
+func _on_ultimate_command_failed(command: PendingBattleCommand, reason: StringName) -> void:
+	command_coordinator.on_ultimate_command_failed(self, command, reason)
 
 
-## True when `command` was started via the Block 9B off-turn interrupt
-## queue rather than the normal on-turn Ultimate button.
 func _is_interrupt_sourced(command: PendingBattleCommand) -> bool:
-	return (
-		command != null
-		and command.request_source == PendingBattleCommand.RequestSource.INTERRUPT_REQUEST
-	)
+	return command_coordinator.is_interrupt_sourced(command)
 
 
 func _start_ultimate_ready_idle() -> void:
-	_stop_player_idle_animation()
-	_stop_player_basic_animation()
-	_stop_player_skill_animation()
-	_set_player_action_texture(TAKASHI_ULTIMATE_TEXTURE)
+	command_coordinator.start_ultimate_ready_idle(self)
 
 
 func _execute_committed_ultimate(command: PendingBattleCommand) -> void:
@@ -1848,304 +1220,104 @@ func _execute_committed_ultimate(command: PendingBattleCommand) -> void:
 		await takashi_ultimate_director.execute_committed_ultimate(self, command)
 
 
-func _finish_ultimate_command_resolution(
-	command: PendingBattleCommand,
-	log_text: String,
-	is_interrupt: bool = false
-) -> void:
-	if not _is_committed_ultimate_command(command):
-		return
-	if not ultimate_command_adapter.resolve_committed_command(command):
-		return
-	if not ultimate_command_adapter.begin_recovery(command):
-		return
-
-	var token := command.commit_token
-	if ultimate_recovery_tokens.has(token):
-		return
-	ultimate_recovery_tokens[token] = true
-	_start_player_idle_animation()
-	_hide_ultimate_target_highlight()
-	if not _ultimate_recovery_guard(command):
-		return
-	if not ultimate_command_adapter.complete_recovery(command):
-		return
-	if ultimate_turn_completion_tokens.has(token):
-		return
-	ultimate_turn_completion_tokens[token] = true
-	active_ultimate_command_token = 0
-	if is_interrupt:
-		_finish_interrupt_ultimate_action(log_text)
-	else:
-		_finish_player_action(log_text)
+func _finish_ultimate_command_resolution(command: PendingBattleCommand, log_text: String, is_interrupt: bool = false) -> void:
+	command_coordinator.finish_ultimate_command_resolution(self, command, log_text, is_interrupt)
 
 
-func _abort_committed_ultimate_command(
-	command: PendingBattleCommand,
-	reason: StringName
-) -> void:
-	active_ultimate_command_token = 0
-	_abort_ultimate_cutscene_visuals()
-	if ultimate_command_adapter != null:
-		ultimate_command_adapter.fail_ultimate(command, reason)
-		ultimate_command_adapter.reset()
+func _abort_committed_ultimate_command(command: PendingBattleCommand, reason: StringName) -> void:
+	command_coordinator.abort_committed_ultimate_command(self, command, reason)
 
 
-## Block 9D: named per the bridge audit in docs/battle_system_spec.md,
-## "Block 9D implementation status" so this specific check has a
-## documented, greppable identity. Still just `state == PLAYER_TURN` --
-## the audit found removing the `state = PLAYER_TURN` bridge in
-## _begin_queued_ultimate() unsafe to do broadly (see that function's doc
-## comment), so this helper does not widen what's accepted, it only names
-## the one check that genuinely depends on the bridge.
 func _is_ultimate_command_state_allowed() -> bool:
-	return state == BattleState.PLAYER_TURN
+	return command_coordinator.is_ultimate_command_state_allowed(self)
 
 
 func _validate_ultimate_command(command: PendingBattleCommand) -> String:
-	if command == null:
-		return "missing_command"
-	if command.command_type != PendingBattleCommand.CommandType.ULTIMATE:
-		return "unsupported_command"
-	if command.action_id != &"octagram_fragment":
-		return "unsupported_ultimate"
-	if _is_battle_over():
-		return "battle_already_finished"
-	if not _is_ultimate_command_state_allowed():
-		return "battle_state_not_player_turn"
-	if (
-		active_basic_command_token != 0
-		or active_skill_command_token != 0
-		or active_ultimate_command_token != 0
-	):
-		return "action_execution_already_active"
-	if not is_instance_valid(player) or player.is_defeated():
-		return "actor_invalid"
-	if ultimate_energy < command.energy_cost:
-		return "not_enough_energy"
-	if not command.has_required_targets():
-		return "target_invalid"
-	if _selected_ultimate_target(command) == null:
-		return "target_not_targetable"
-	return ""
+	return command_coordinator.validate_ultimate_command(self, command)
 
 
-func _commit_ultimate_command_resources(
-	command: PendingBattleCommand
-) -> bool:
-	if not _validate_ultimate_command(command).is_empty():
-		return false
-	ultimate_energy = maxi(ultimate_energy - command.energy_cost, 0)
-	_refresh_energy_ui()
-	return true
+func _commit_ultimate_command_resources(command: PendingBattleCommand) -> bool:
+	return command_coordinator.commit_ultimate_command_resources(self, command)
 
 
 func _get_ultimate_candidate_targets() -> Array[Node]:
-	return BattleTargetingSystemScript.get_enemy_candidates(battle_scene, player)
+	return command_coordinator.get_ultimate_candidate_targets(self)
 
 
 func _is_ultimate_targetable(target: Node) -> bool:
-	return BattleTargetingSystemScript.is_enemy_targetable(target, player)
+	return command_coordinator.is_ultimate_targetable(self, target)
 
 
 func _selected_ultimate_target(command: PendingBattleCommand) -> Combatant:
-	return BattleTargetingSystemScript.get_selected_target(command, player)
+	return command_coordinator.selected_ultimate_target(self, command)
 
 
 func _repair_ultimate_pending_target() -> bool:
-	var command: PendingBattleCommand = ultimate_command_adapter.get_pending_command() if ultimate_command_adapter != null else null
-	return BattleTargetingSystemScript.repair_pending_target(command, battle_scene, player)
+	return command_coordinator.repair_ultimate_pending_target(self)
 
 
 func _cycle_ultimate_target(direction: int) -> bool:
-	if not _has_pending_ultimate_command():
-		return false
-	return BattleTargetingSystemScript.cycle_command_target(
-		ultimate_command_adapter.get_pending_command(),
-		_get_ultimate_candidate_targets(),
-		direction,
-		ultimate_command_adapter
-	)
+	return command_coordinator.cycle_ultimate_target(self, direction)
 
 
 func _select_ultimate_target_at_position(screen_position: Vector2) -> bool:
-	if not _has_pending_ultimate_command():
-		return false
-	return BattleTargetingSystemScript.select_target_at_position(
-		ultimate_command_adapter.get_pending_command(),
-		_get_ultimate_candidate_targets(),
-		screen_position,
-		ultimate_command_adapter,
-		battle_presentation_3d
-	)
+	return command_coordinator.select_ultimate_target_at_position(self, screen_position)
 
 
-func _ultimate_execution_guard(
-	command: PendingBattleCommand,
-	target: Combatant,
-	require_live_target: bool = true
-) -> bool:
-	if (
-		not is_inside_tree()
-		or state != BattleState.ACTION_RESOLUTION
-		or _is_battle_over()
-		or not is_instance_valid(player)
-		or player.is_defeated()
-		or target == null
-		or not is_instance_valid(target)
-		or (require_live_target and target.is_defeated())
-	):
-		return false
-	if command == null:
-		return true
-	return (
-		ultimate_command_adapter != null
-		and command == ultimate_command_adapter.get_pending_command()
-		and command.is_committed
-		and active_ultimate_command_token == command.commit_token
-		and ultimate_command_adapter.is_token_active(command.commit_token)
-	)
+func _ultimate_execution_guard(command: PendingBattleCommand, target: Combatant, require_live_target: bool = true) -> bool:
+	return command_coordinator.ultimate_execution_guard(self, command, target, require_live_target)
+
+
+func _ultimate_impact_guard(command: PendingBattleCommand, target: Node2D) -> bool:
+	return command_coordinator.ultimate_impact_guard(self, command, target)
 
 
 func _ultimate_recovery_guard(command: PendingBattleCommand) -> bool:
-	return (
-		is_inside_tree()
-		and state == BattleState.ACTION_RESOLUTION
-		and not _is_battle_over()
-		and ultimate_command_adapter != null
-		and command == ultimate_command_adapter.get_pending_command()
-		and command.is_committed
-		and command.is_resolved
-		and active_ultimate_command_token == command.commit_token
-	)
+	return command_coordinator.ultimate_recovery_guard(self, command)
 
 
 func _is_committed_ultimate_command(command: PendingBattleCommand) -> bool:
-	return (
-		command != null
-		and command.command_type == PendingBattleCommand.CommandType.ULTIMATE
-		and command.is_committed
-		and command.commit_token > 0
-	)
+	return command_coordinator.is_committed_ultimate_command(command)
 
 
-func _consume_ultimate_hit(
-	command: PendingBattleCommand,
-	hit_index: int
-) -> bool:
-	if command == null:
-		return true
-	var key := "%d:%d" % [command.commit_token, hit_index]
-	if ultimate_hit_tokens.has(key):
-		return false
-	ultimate_hit_tokens[key] = true
-	return true
+func _consume_ultimate_hit(command: PendingBattleCommand, hit_index: int) -> bool:
+	return command_coordinator.consume_ultimate_hit(command, hit_index)
+
+
+func _claim_ultimate_hit_token(command: PendingBattleCommand, hit_index: int) -> bool:
+	return command_coordinator.claim_ultimate_hit_token(command, hit_index)
 
 
 func _ultimate_command_failure_message(reason: StringName) -> String:
-	match reason:
-		&"not_enough_energy":
-			return "Octagram Fragment needs full Energy."
-		&"target_invalid_before_confirm", &"target_not_targetable":
-			return "Octagram Fragment target is no longer valid."
-		&"no_valid_targets", &"target_missing_during_execution":
-			return "Octagram Fragment has no valid target."
-		&"battle_state_not_player_turn", &"action_execution_already_active":
-			return "Octagram Fragment is not available right now."
-	return "Octagram Fragment was cancelled safely."
+	return command_coordinator.ultimate_command_failure_message(reason)
 
 
 func _create_ultimate_target_highlight() -> void:
-	if ultimate_target_highlight != null or battle_scene == null:
-		return
-	ultimate_target_highlight = BattleTargetingSystemScript.create_reticle(
-		battle_scene,
-		"UltimateTargetHighlight",
-		Color(0.72, 0.95, 1.0, 0.98),
-		4.0,
-		78.0,
-		94.0,
-		40,
-		32
-	)
+	command_coordinator.create_ultimate_target_highlight(self)
 
 
 func _show_ultimate_target_highlight(command: PendingBattleCommand) -> void:
-	if ultimate_target_highlight == null:
-		return
-	if _uses_3d_target_markers():
-		ultimate_target_highlight.visible = false
-		return
-	ultimate_target_highlight.visible = _selected_ultimate_target(command) != null
-	_sync_ultimate_target_highlight()
+	command_coordinator.show_ultimate_target_highlight(self, command)
 
 
 func _hide_ultimate_target_highlight() -> void:
-	if ultimate_target_highlight != null:
-		ultimate_target_highlight.visible = false
+	command_coordinator.hide_ultimate_target_highlight(self)
 
 
 func _sync_ultimate_target_highlight() -> void:
-	if ultimate_target_highlight == null or not ultimate_target_highlight.visible:
-		return
-	if _uses_3d_target_markers():
-		ultimate_target_highlight.visible = false
-		return
-	if not _has_pending_ultimate_command():
-		ultimate_target_highlight.visible = false
-		return
-	var target := _selected_ultimate_target(ultimate_command_adapter.get_pending_command())
-	if target == null:
-		ultimate_target_highlight.visible = false
-		return
-	BattleTargetingSystemScript.sync_reticle(
-		ultimate_target_highlight,
-		target,
-		Vector2(0.0, -80.0),
-		0.52,
-		0.012,
-		battle_presentation_3d
-	)
+	command_coordinator.sync_ultimate_target_highlight(self)
 
 
 func _create_ultimate_command_panel() -> void:
-	if ultimate_command_panel != null or canvas_layer == null:
-		return
-	var elements := BattleLegacyCommandPanelsScript.create_ultimate_command_panel(
-		canvas_layer,
-		_confirm_ultimate_command,
-		_cancel_ultimate_command
-	)
-	if elements.is_empty():
-		return
-	ultimate_command_panel = elements["panel"]
-	ultimate_ready_label = elements["ready_label"]
-	ultimate_cost_label = elements["cost_label"]
-	ultimate_target_label = elements["target_label"]
-	ultimate_confirm_button = elements["confirm_button"]
-	ultimate_cancel_button = elements["cancel_button"]
+	command_coordinator.create_ultimate_command_panel(self)
 
 
 func _set_ultimate_command_panel_visible(is_visible: bool) -> void:
-	if ultimate_command_panel != null:
-		ultimate_command_panel.visible = is_visible
+	command_coordinator.set_ultimate_command_panel_visible(is_visible)
 
 
 func _update_ultimate_command_panel(command: PendingBattleCommand) -> void:
-	var labels := {
-		"ready": ultimate_ready_label,
-		"cost": ultimate_cost_label,
-		"target": ultimate_target_label
-	}
-	BattleLegacyCommandPanelsScript.update_ultimate_panel(
-		labels,
-		ultimate_confirm_button,
-		_selected_ultimate_target(command),
-		command,
-		ultimate_energy,
-		MAX_ULTIMATE_ENERGY
-	)
-
+	command_coordinator.update_ultimate_command_panel(self, command)
 
 
 func _play_battle_intro_effect() -> void:
