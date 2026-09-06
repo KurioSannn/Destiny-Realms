@@ -174,6 +174,7 @@ const TakashiSkillActionScript := preload("res://scripts/battle/takashi_skill_ac
 const TakashiUltimateDirectorScript := preload("res://scripts/battle/takashi_ultimate_director.gd")
 const BattleFlowCoordinatorScript := preload("res://scripts/battle/battle_flow_coordinator.gd")
 const TakashiBasicActionScript := preload("res://scripts/battle/takashi_basic_action.gd")
+const BattleInterruptCoordinatorScript := preload("res://scripts/battle/battle_interrupt_coordinator.gd")
 
 
 
@@ -315,16 +316,57 @@ var active_ultimate_command_token: int = 0
 var ultimate_recovery_tokens: Dictionary = {}
 var ultimate_turn_completion_tokens: Dictionary = {}
 var ultimate_hit_tokens: Dictionary = {}
-var ultimate_interrupt_queue: UltimateInterruptQueue
-var is_processing_interrupt_queue: bool = false
-var active_interrupt_request: UltimateInterruptRequest = null
-## Block 9F: which safe window (&"before_enemy_commit" / A1, or
-## &"after_enemy_recovery" / B) is currently processing active_interrupt_request.
-## This *is* the resume policy selector -- see _resume_after_interrupt().
-var active_interrupt_window: StringName = &""
-var interrupt_resume_token: int = 0
-var _consumed_interrupt_resume_tokens: Dictionary = {}
-var _processed_interrupt_request_ids: Dictionary = {}
+var interrupt_coordinator = BattleInterruptCoordinatorScript.new()
+
+var ultimate_interrupt_queue: UltimateInterruptQueue:
+	get:
+		return interrupt_coordinator.ultimate_interrupt_queue if interrupt_coordinator != null else null
+	set(value):
+		if interrupt_coordinator != null:
+			interrupt_coordinator.ultimate_interrupt_queue = value
+
+var is_processing_interrupt_queue: bool:
+	get:
+		return interrupt_coordinator.is_processing_interrupt_queue if interrupt_coordinator != null else false
+	set(value):
+		if interrupt_coordinator != null:
+			interrupt_coordinator.is_processing_interrupt_queue = value
+
+var active_interrupt_request: UltimateInterruptRequest:
+	get:
+		return interrupt_coordinator.active_interrupt_request if interrupt_coordinator != null else null
+	set(value):
+		if interrupt_coordinator != null:
+			interrupt_coordinator.active_interrupt_request = value
+
+var active_interrupt_window: StringName:
+	get:
+		return interrupt_coordinator.active_interrupt_window if interrupt_coordinator != null else &""
+	set(value):
+		if interrupt_coordinator != null:
+			interrupt_coordinator.active_interrupt_window = value
+
+var interrupt_resume_token: int:
+	get:
+		return interrupt_coordinator.interrupt_resume_token if interrupt_coordinator != null else 0
+	set(value):
+		if interrupt_coordinator != null:
+			interrupt_coordinator.interrupt_resume_token = value
+
+var _consumed_interrupt_resume_tokens: Dictionary:
+	get:
+		return interrupt_coordinator._consumed_interrupt_resume_tokens if interrupt_coordinator != null else {}
+	set(value):
+		if interrupt_coordinator != null:
+			interrupt_coordinator._consumed_interrupt_resume_tokens = value
+
+var _processed_interrupt_request_ids: Dictionary:
+	get:
+		return interrupt_coordinator._processed_interrupt_request_ids if interrupt_coordinator != null else {}
+	set(value):
+		if interrupt_coordinator != null:
+			interrupt_coordinator._processed_interrupt_request_ids = value
+
 var enemy_turn_controller = BattleEnemyTurnControllerScript.new()
 var takashi_skill_action = TakashiSkillActionScript.new()
 var takashi_ultimate_director = TakashiUltimateDirectorScript.new()
@@ -1575,38 +1617,19 @@ func _uses_new_ultimate_command_flow() -> bool:
 ## --- Block 9B off-turn interrupt queue integration ---------------------
 
 func _setup_ultimate_interrupt_queue() -> void:
-	if ultimate_interrupt_queue != null:
-		return
-	ultimate_interrupt_queue = UltimateInterruptQueue.new()
-	ultimate_interrupt_queue.configure(
-		_interrupt_energy_lookup,
-		_is_battle_over,
-		_is_ultimate_active_or_processing
-	)
+	if interrupt_coordinator != null:
+		interrupt_coordinator.setup(self)
 
 
 func _reset_ultimate_interrupt_queue() -> void:
-	if ultimate_interrupt_queue != null:
-		ultimate_interrupt_queue.clear()
-	is_processing_interrupt_queue = false
-	active_interrupt_request = null
-	active_interrupt_window = &""
-	_processed_interrupt_request_ids.clear()
-	_consumed_interrupt_resume_tokens.clear()
+	if interrupt_coordinator != null:
+		interrupt_coordinator.reset()
 
 
-## Block 9D: interrupt_resume_token was write-only through Block 9C (issued
-## in _begin_queued_ultimate(), never checked) -- double-resume was only
-## prevented incidentally, by is_processing_interrupt_queue already being
-## false by the time a second resume path could run. This makes that
-## guarantee explicit and independently testable: each resume token may
-## reach _begin_player_turn()/_win() exactly once, matching the same
-## single-consumption pattern as enemy_hit_tokens/enemy_recovery_tokens.
 func _consume_interrupt_resume_token(token: int) -> bool:
-	if token == 0 or _consumed_interrupt_resume_tokens.has(token):
-		return false
-	_consumed_interrupt_resume_tokens[token] = true
-	return true
+	if interrupt_coordinator != null:
+		return interrupt_coordinator.consume_interrupt_resume_token(token)
+	return false
 
 
 func _interrupt_energy_lookup(_actor: Node) -> int:
@@ -1614,268 +1637,54 @@ func _interrupt_energy_lookup(_actor: Node) -> int:
 
 
 func _is_ultimate_active_or_processing() -> bool:
-	return active_ultimate_command_token != 0 or is_processing_interrupt_queue
+	if interrupt_coordinator != null:
+		return interrupt_coordinator.is_ultimate_active_or_processing(self)
+	return active_ultimate_command_token != 0
 
 
-## True only while ENEMY_TURN is genuinely in progress and nothing else
-## (a committed command, an already-active Ultimate, an existing queued
-## request for this actor) makes an off-turn request unsafe to even queue.
-## Used both to gate the Ultimate button's independent interactable state
-## and as the first check inside request_off_turn_ultimate().
 func _can_request_off_turn_ultimate_input() -> bool:
-	return (
-		state == BattleState.ENEMY_TURN
-		and _uses_new_ultimate_command_flow()
-		and not is_processing_interrupt_queue
-		and active_ultimate_command_token == 0
-		and not _has_pending_ultimate_command()
-	)
+	if interrupt_coordinator != null:
+		return interrupt_coordinator.can_request_off_turn_ultimate_input(self)
+	return false
 
 
-## Off-turn Ultimate request entry point. This only enqueues — it never
-## spends Energy, never starts ready idle, never selects a target, never
-## starts a cut-in, and never changes whose turn it is. See
-## docs/battle_system_spec.md, "Block 9B implementation status" for the
-## full request lifecycle.
 func request_off_turn_ultimate(actor: Node) -> bool:
-	if ultimate_interrupt_queue == null or not _uses_new_ultimate_command_flow():
-		ui.set_battle_log("Cannot use Ultimate now.")
-		return false
-	if state == BattleState.PLAYER_TURN or _is_battle_over():
-		ui.set_battle_log("Cannot use Ultimate now.")
-		return false
-	if is_processing_interrupt_queue or active_ultimate_command_token != 0:
-		ui.set_battle_log("Cannot use Ultimate now.")
-		return false
-
-	var request := ultimate_interrupt_queue.request_ultimate(
-		actor,
-		&"octagram_fragment",
-		MAX_ULTIMATE_ENERGY,
-		state,
-		0
-	)
-	if request.validation_status != UltimateInterruptRequest.ValidationStatus.ACCEPTED:
-		ui.set_battle_log(_interrupt_request_failure_message(request.reject_reason))
-		return false
-
-	var actor_name: String = actor.combatant_name if actor is Combatant else "Ultimate"
-	ui.set_battle_log("Ultimate queued: %s" % actor_name)
-	return true
+	if interrupt_coordinator != null:
+		return interrupt_coordinator.request_off_turn_ultimate(self, actor)
+	return false
 
 
 func _interrupt_request_failure_message(reason: StringName) -> String:
-	match reason:
-		&"duplicate_request":
-			return "Ultimate already queued."
-		&"insufficient_energy":
-			return "Not enough Energy."
+	if interrupt_coordinator != null:
+		return interrupt_coordinator.interrupt_request_failure_message(reason)
 	return "Cannot use Ultimate now."
 
 
-## Safe window hook, called from exactly two places and nowhere else:
-## - &"before_enemy_commit" (Window A1, Block 9F): once from
-##   _begin_enemy_turn(), after the pre-attack delay but before
-##   _enemy_attack() is ever called -- resume policy
-##   AFTER_INTERRUPT_CONTINUE_ENEMY_ACTION.
-## - &"after_enemy_recovery" (Window B, Block 9B/9D): once from
-##   _resume_after_enemy_action(), after _enemy_attack() has fully
-##   finished -- resume policy AFTER_INTERRUPT_CONTINUE_TO_PLAYER_TURN.
-## Returns true if a queued Ultimate was actually begun (in which case its
-## own cancel/fail/finish handlers are responsible for eventually calling
-## _resume_after_interrupt() exactly once) or false if there was nothing
-## safe/valid to process (in which case the caller proceeds with its own
-## normal continuation -- _enemy_attack() for A1, _begin_player_turn() for
-## B). Never processes more than one request per call.
-##
-## Block 9F: both windows share every guard below unchanged from Block
-## 9B/9D. This is deliberate, not an oversight -- `enemy_action_in_progress`
-## and `active_enemy_attack_token != 0` are false at A1's call site for the
-## same reason they are false at B's: neither call site runs while
-## _enemy_attack() is actually mid-flight (A1 runs strictly before it
-## starts; B runs strictly after it finishes). If either guard is ever
-## true when this function runs, that already means something is
-## unsafe, regardless of which window asked -- so one guard chain serves
-## both correctly, with the window_id argument only selecting the resume
-## policy on completion, not which checks apply.
 func _process_interrupt_queue_at_safe_window(window_id: StringName) -> bool:
-	if window_id != &"after_enemy_recovery" and window_id != &"before_enemy_commit":
-		return false
-	if not is_inside_tree() or _is_battle_over():
-		return false
-	if ultimate_interrupt_queue == null or ultimate_interrupt_queue.is_empty():
-		return false
-	if is_processing_interrupt_queue or enemy_action_in_progress:
-		return false
-	if active_enemy_attack_token != 0:
-		return false
-	if (
-		active_basic_command_token != 0
-		or active_skill_command_token != 0
-		or active_ultimate_command_token != 0
-	):
-		return false
-	if (
-		_has_pending_basic_command()
-		or _has_pending_skill_command()
-		or _has_pending_ultimate_command()
-	):
-		return false
-
-	while not ultimate_interrupt_queue.is_empty():
-		var request: UltimateInterruptRequest = ultimate_interrupt_queue.dequeue_next()
-		if request == null:
-			return false
-		if _processed_interrupt_request_ids.has(request.unique_request_id):
-			continue
-		var reason := ultimate_interrupt_queue.revalidate(request)
-		if not reason.is_empty():
-			_processed_interrupt_request_ids[request.unique_request_id] = true
-			continue
-		return _begin_queued_ultimate(request, window_id)
-
+	if interrupt_coordinator != null:
+		return interrupt_coordinator.process_interrupt_queue_at_safe_window(self, window_id)
 	return false
 
 
-## Starts the queued Ultimate through the exact on-turn command flow
-## (UltimateCommandAdapter.begin_ultimate -> BattleCommandFlow.begin_command),
-## with request_source = INTERRUPT_REQUEST and interrupt_authorized = true
-## so BattleCommandFlow's normal rejection is bypassed for this one call
-## only. `state` is set to PLAYER_TURN first because every existing
-## Ultimate validation function (_validate_ultimate_command,
-## _begin_ultimate_command's own guard) already requires
-## `state == PLAYER_TURN`; this is genuinely accurate here too, since both
-## safe windows are, by construction, a moment where nothing else is
-## active and it is safe for the player to act -- window A1 (Block 9F)
-## sits strictly before _enemy_attack() starts, window B (Block 9B) sits
-## strictly after it finishes.
-##
-## Block 9D audit (see docs/battle_system_spec.md, "Block 9D implementation
-## status" for the full write-up): this `state = PLAYER_TURN` assignment is
-## a deliberately kept bridge, not forgotten cleanup. Only one guard has a
-## hard functional dependency on it (_validate_ultimate_command, at commit
-## time) -- but roughly ten other `state == PLAYER_TURN` checks across this
-## file (Basic/Skill begin-command guards, the Attack/Skill/Confirm button
-## handlers) were written assuming that value means "genuinely idle, safe
-## for new input," and none of them were designed or tested against a
-## queued-Ultimate-in-flight condition. The bridge is what makes all of
-## that already-tested machinery (including button-disabling, which is what
-## actually keeps Basic/Skill unreachable during this window -- see
-## _on_ultimate_command_ready) apply to the queued path for free. Removing
-## it would mean auditing and probably duplicating guard logic at every one
-## of those call sites, which is a materially larger and riskier change
-## than anything else in Block 9D. It stays, and this comment is the
-## documented technical debt: state == PLAYER_TURN during this window does
-## NOT mean a normal player turn is active -- always check
-## is_processing_interrupt_queue first if that distinction matters.
 func _begin_queued_ultimate(request: UltimateInterruptRequest, window_id: StringName) -> bool:
-	_processed_interrupt_request_ids[request.unique_request_id] = true
-	is_processing_interrupt_queue = true
-	active_interrupt_request = request
-	active_interrupt_window = window_id
-	interrupt_resume_token += 1
-	var resume_token := interrupt_resume_token
-
-	state = BattleState.PLAYER_TURN
-	ultimate_command_adapter.begin_ultimate(
-		&"octagram_fragment",
-		PendingBattleCommand.TargetRule.SINGLE_ENEMY,
-		request.energy_cost,
-		0,
-		PendingBattleCommand.RequestSource.INTERRUPT_REQUEST,
-		true
-	)
-
-	if _has_pending_ultimate_command():
-		return true
-
-	# begin_ultimate() failed before (or without) creating a pending command.
-	# _on_ultimate_command_failed already ran synchronously above as part of
-	# that call and, for an interrupt-sourced command, already reset the
-	# flags above and resumed via _resume_after_interrupt() itself. This
-	# block only fires as a defensive fallback for the rare case its own
-	# guard could not identify the failure as interrupt-sourced (e.g. a
-	# foreign pending command already existed) — so the battle can never
-	# get stuck waiting on a request that never actually started.
-	if is_processing_interrupt_queue and _consume_interrupt_resume_token(resume_token):
-		is_processing_interrupt_queue = false
-		active_interrupt_request = null
-		_resume_after_interrupt()
+	if interrupt_coordinator != null:
+		return interrupt_coordinator.begin_queued_ultimate(self, request, window_id)
 	return false
 
 
-## Block 9F: resume policy dispatch shared by both safe windows. Reads and
-## clears active_interrupt_window (set by _begin_queued_ultimate()) to
-## decide whether resuming means returning to a normal player turn
-## (window B, Block 9B/9D, AFTER_INTERRUPT_CONTINUE_TO_PLAYER_TURN) or
-## continuing the enemy's own attack (window A1, Block 9F,
-## AFTER_INTERRUPT_CONTINUE_ENEMY_ACTION). The two policies are never
-## mixed: exactly one of them runs per call, chosen solely by which window
-## actually began this request. `log_text` defaults to
-## _begin_player_turn()'s own default so omitting it here behaves
-## identically to the pre-Block-9F direct call.
 func _resume_after_interrupt(log_text: String = "Your turn. Choose an action.") -> void:
-	var window := active_interrupt_window
-	active_interrupt_window = &""
-	if window == &"before_enemy_commit":
-		_resume_enemy_action_after_a1()
-		return
-	_begin_player_turn(log_text)
+	if interrupt_coordinator != null:
+		interrupt_coordinator.resume_after_interrupt(self, log_text)
 
 
-## AFTER_INTERRUPT_CONTINUE_ENEMY_ACTION (Block 9F). Window A1 fires
-## before _enemy_attack() has ever run for this enemy turn, so there is no
-## suspended mid-action state to restore -- resuming means restoring
-## `state` to ENEMY_TURN (the bridge in _begin_queued_ultimate() moved it
-## to PLAYER_TURN for the Ultimate's own validation) and letting
-## _enemy_attack() run exactly as _begin_enemy_turn() would have called it
-## directly. Damage value, movement, and timing are untouched; a fresh
-## enemy attack token is generated by _enemy_attack() itself the normal
-## way — this function does not touch enemy guard tokens.
 func _resume_enemy_action_after_a1() -> void:
-	if _is_battle_over() or not is_inside_tree():
-		return
-	state = BattleState.ENEMY_TURN
-	_enemy_attack()
+	if interrupt_coordinator != null:
+		interrupt_coordinator.resume_enemy_action_after_a1(self)
 
 
-## Resume policy for Block 9B: AFTER_INTERRUPT_CONTINUE_TO_PLAYER_TURN.
-## Safe window B occurs after the enemy action has fully completed, so
-## there is no suspended mid-action state to restore — resuming means
-## exactly one call to _begin_player_turn(). See
-## docs/battle_system_spec.md, "Block 9B implementation status" for why a
-## full SuspendedBattleContext is not instantiated here (Block 9F's window
-## A1 makes the same "no mid-action state to preserve" call, for the
-## mirror-image reason: A1 sits strictly before the enemy action starts).
-##
-## Block 9D: guarded by _consume_interrupt_resume_token() as a second,
-## independent layer against ever resolving/resuming the same queued
-## Ultimate twice, on top of BattleCommandFlow's own commit-token
-## consumption.
-##
-## Block 9F: routes through _resume_after_interrupt() so a lethal confirm
-## at window A1 still wins the battle exactly as it does at window B
-## (the _all_enemies_defeated() check below is window-agnostic), while a
-## non-lethal confirm resumes whichever window actually began this
-## request.
-##
-## Block 9G: uses _all_enemies_defeated() rather than enemy.is_defeated()
-## -- in a multi-enemy battle, a queued Ultimate that kills only the
-## targeted enemy must not end the battle while another enemy is still
-## alive; see _all_enemies_defeated()'s doc comment.
 func _finish_interrupt_ultimate_action(log_text: String) -> void:
-	if not _consume_interrupt_resume_token(interrupt_resume_token):
-		return
-	_refresh_energy_ui()
-	_refresh_skill_points_ui()
-	_start_player_idle_animation()
-	is_processing_interrupt_queue = false
-	active_interrupt_request = null
-	if _all_enemies_defeated():
-		active_interrupt_window = &""
-		_win("Enemy defeated. You win!")
-		return
-	_resume_after_interrupt(log_text)
+	if interrupt_coordinator != null:
+		interrupt_coordinator.finish_interrupt_ultimate_action(self, log_text)
 
 
 func _begin_ultimate_command() -> bool:
