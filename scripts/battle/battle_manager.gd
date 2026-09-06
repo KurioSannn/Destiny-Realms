@@ -167,6 +167,7 @@ const TakashiBattleAnimatorScript := preload("res://scripts/battle/takashi_battl
 const TakashiUltimateEffectsScript := preload("res://scripts/battle/takashi_ultimate_effects.gd")
 const BattleTargetingSystemScript := preload("res://scripts/battle/battle_targeting_system.gd")
 const BattleLegacyCommandPanelsScript := preload("res://scripts/battle/battle_legacy_command_panels.gd")
+const BattleStageLayoutScript := preload("res://scripts/battle/battle_stage_layout.gd")
 
 
 @export var use_new_basic_command_flow: bool = true
@@ -752,72 +753,27 @@ func _persist_player_runtime_state() -> void:
 
 
 func _apply_runtime_layout() -> void:
-	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
-	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
-		viewport_size = BASE_VIEWPORT_SIZE
-
-	if battle_camera != null:
-		battle_camera.enabled = true
-		battle_camera.position = viewport_size * 0.5
-		battle_camera.offset = Vector2.ZERO
-
-	if forest_background != null and forest_background.texture != null:
-		var texture_size: Vector2 = forest_background.texture.get_size()
-		var cover_scale: float = maxf(viewport_size.x / texture_size.x, viewport_size.y / texture_size.y)
-		forest_background.position = Vector2.ZERO
-		forest_background.scale = Vector2(cover_scale, cover_scale)
-
-	if sky != null:
-		sky.polygon = PackedVector2Array([
-			Vector2.ZERO,
-			Vector2(viewport_size.x, 0.0),
-			viewport_size,
-			Vector2(0.0, viewport_size.y)
-		])
-	if forest_line != null:
-		forest_line.polygon = PackedVector2Array([
-			Vector2(0.0, viewport_size.y * 0.31),
-			Vector2(viewport_size.x * 0.08, viewport_size.y * 0.22),
-			Vector2(viewport_size.x * 0.16, viewport_size.y * 0.34),
-			Vector2(viewport_size.x * 0.28, viewport_size.y * 0.21),
-			Vector2(viewport_size.x * 0.43, viewport_size.y * 0.36),
-			Vector2(viewport_size.x * 0.57, viewport_size.y * 0.22),
-			Vector2(viewport_size.x * 0.72, viewport_size.y * 0.36),
-			Vector2(viewport_size.x * 0.86, viewport_size.y * 0.21),
-			Vector2(viewport_size.x, viewport_size.y * 0.31),
-			viewport_size,
-			Vector2(0.0, viewport_size.y)
-		])
-	if ground != null:
-		ground.polygon = PackedVector2Array([
-			Vector2(0.0, viewport_size.y * 0.72),
-			Vector2(viewport_size.x, viewport_size.y * 0.69),
-			viewport_size,
-			Vector2(0.0, viewport_size.y)
-		])
-
-	player.z_index = 5
-	enemy.z_index = 5
-	var player_home_position: Vector2 = Vector2(viewport_size.x * PLAYER_VIEWPORT_POSITION.x, viewport_size.y * PLAYER_VIEWPORT_POSITION.y)
-	var enemy_home_position: Vector2 = Vector2(viewport_size.x * ENEMY_VIEWPORT_POSITION.x, viewport_size.y * ENEMY_VIEWPORT_POSITION.y)
-	player.set_home_position(player_home_position)
-	enemy.set_home_position(enemy_home_position)
-	_apply_player_action_sprite_grounding()
-	_apply_stage_grounding(viewport_size, player_home_position, enemy_home_position)
+	BattleStageLayoutScript.apply_runtime_layout(
+		get_viewport(),
+		battle_camera,
+		forest_background,
+		sky,
+		forest_line,
+		ground,
+		bottom_vignette,
+		player,
+		enemy,
+		player_ground_shadow,
+		enemy_ground_shadow,
+		takashi_animator
+	)
 
 
 func _apply_stage_grounding(viewport_size: Vector2, player_home_position: Vector2, enemy_home_position: Vector2) -> void:
 	if bottom_vignette != null:
-		bottom_vignette.polygon = PackedVector2Array([
-			Vector2(0.0, viewport_size.y * 0.74),
-			Vector2(viewport_size.x, viewport_size.y * 0.70),
-			viewport_size,
-			Vector2(0.0, viewport_size.y)
-		])
-
+		bottom_vignette.polygon = BattleStageLayoutScript.build_bottom_vignette_polygon(viewport_size)
 	if player_ground_shadow != null:
 		player_ground_shadow.position = player_home_position + Vector2(0.0, PLAYER_ACTION_SPRITE_GROUND_Y + 4.0)
-
 	if enemy_ground_shadow != null:
 		enemy_ground_shadow.position = enemy_home_position + Vector2(0.0, 48.0)
 
@@ -3284,30 +3240,6 @@ func _setup_battle_effects() -> void:
 	takashi_ultimate_effects.setup(player, enemy, effect_layer, player_action_sprite)
 
 
-func _setup_takashi_ultimate_effect_nodes() -> void:
-	pass
-
-
-func _setup_enemy_impact_fvx_nodes() -> void:
-	pass
-
-
-func _create_additive_canvas_material() -> CanvasItemMaterial:
-	var material: CanvasItemMaterial = CanvasItemMaterial.new()
-	material.blend_mode = CanvasItemMaterial.BLEND_MODE_ADD
-	return material
-
-
-func _create_png_glow_shader_material(glow_color: Color, glow_radius: float, glow_strength: float, core_alpha: float) -> ShaderMaterial:
-	var material: ShaderMaterial = ShaderMaterial.new()
-	material.shader = TAKASHI_ULTIMATE_GLOW_SHADER
-	material.set_shader_parameter("glow_color", glow_color)
-	material.set_shader_parameter("glow_radius", glow_radius)
-	material.set_shader_parameter("glow_strength", glow_strength)
-	material.set_shader_parameter("core_alpha", core_alpha)
-	return material
-
-
 func _play_takashi_ultimate_fvx_intro() -> void:
 	if takashi_ultimate_effects != null:
 		await takashi_ultimate_effects.play_takashi_ultimate_fvx_intro(
@@ -4022,19 +3954,7 @@ func _set_player_action_frame(texture: Texture2D) -> void:
 
 
 func _setup_takashi_ultimate_fvx_frames() -> void:
-	takashi_ultimate_fvx_frames = _load_texture_frames(TAKASHI_ULTIMATE_FVX_FRAME_PATHS)
-
-
-func _load_texture_frames(frame_paths: Array[String]) -> Array[Texture2D]:
-	var frames: Array[Texture2D] = []
-	for frame_path in frame_paths:
-		if not FileAccess.file_exists(frame_path):
-			continue
-
-		var frame_texture: Texture2D = load(frame_path) as Texture2D
-		if frame_texture != null:
-			frames.append(frame_texture)
-	return frames
+	pass
 
 
 func _start_player_idle_animation() -> void:
