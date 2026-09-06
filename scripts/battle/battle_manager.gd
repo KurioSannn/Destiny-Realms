@@ -171,6 +171,8 @@ const BattleStageLayoutScript := preload("res://scripts/battle/battle_stage_layo
 const BattleEncounterSpawnerScript := preload("res://scripts/battle/battle_encounter_spawner.gd")
 const BattleEnemyTurnControllerScript := preload("res://scripts/battle/battle_enemy_turn_controller.gd")
 const TakashiSkillActionScript := preload("res://scripts/battle/takashi_skill_action.gd")
+const TakashiUltimateDirectorScript := preload("res://scripts/battle/takashi_ultimate_director.gd")
+
 
 
 
@@ -221,7 +223,8 @@ var _camera_shake_tween: Tween
 var state: int = BattleState.PLAYER_TURN
 var ultimate_energy: int = 0
 var skill_points: int = START_SKILL_POINTS
-var ultimate_frames: Array[Texture2D] = []
+var ultimate_frames: Array[Texture2D]:
+	get: return takashi_ultimate_director.ultimate_frames if takashi_ultimate_director != null else []
 var effect_layer: Node2D
 var screen_flash: ColorRect
 var battle_sfx: BattleSfx
@@ -263,12 +266,17 @@ var takashi_ultimate_fvx_playing: bool:
 	get: return takashi_ultimate_effects.takashi_ultimate_fvx_playing if takashi_ultimate_effects != null else false
 var takashi_ultimate_fvx_frame_index: int = 0
 var takashi_ultimate_fvx_frame_elapsed: float = 0.0
-var battle_ui_visible_before_ultimate: bool = true
+var battle_ui_visible_before_ultimate: bool:
+	get: return takashi_ultimate_director.battle_ui_visible_before_ultimate if takashi_ultimate_director != null else true
+	set(v):
+		if takashi_ultimate_director != null: takashi_ultimate_director.battle_ui_visible_before_ultimate = v
 var enemy_impact_fvx_sprite: Sprite2D:
 	get: return takashi_ultimate_effects.enemy_impact_fvx_sprite if takashi_ultimate_effects != null else null
 var enemy_impact_fvx_glow_sprite: Sprite2D:
 	get: return takashi_ultimate_effects.enemy_impact_fvx_glow_sprite if takashi_ultimate_effects != null else null
-var _ultimate_cutscene_snapshot: Dictionary = {}
+var _ultimate_cutscene_snapshot: Dictionary:
+	get: return takashi_ultimate_director.ultimate_cutscene_snapshot if takashi_ultimate_director != null else {}
+
 var _global_selected_target: Combatant = null
 var basic_command_adapter
 var basic_target_highlight: Line2D
@@ -316,6 +324,8 @@ var _consumed_interrupt_resume_tokens: Dictionary = {}
 var _processed_interrupt_request_ids: Dictionary = {}
 var enemy_turn_controller = BattleEnemyTurnControllerScript.new()
 var takashi_skill_action = TakashiSkillActionScript.new()
+var takashi_ultimate_director = TakashiUltimateDirectorScript.new()
+
 
 
 var active_enemy_attack_token: int:
@@ -2931,201 +2941,48 @@ func _run_ultimate_sequence(
 	target: Combatant,
 	command: PendingBattleCommand = null
 ) -> void:
-	if not _ultimate_execution_guard(command, target):
-		return
-
-	_enter_ultimate_cutscene_presentation(target)
-	_set_battle_ui_for_ultimate(false)
-	_start_ultimate_camera_zoom_in()
-	await _play_takashi_ultimate_fvx_intro()
-	if not _ultimate_execution_guard(command, target):
-		_abort_ultimate_cutscene_visuals()
-		return
-	await _play_takashi_ulti_pre_animation()
-	if not _ultimate_execution_guard(command, target):
-		_abort_ultimate_cutscene_visuals()
-		return
-	await _wait_for_remaining_ultimate_zoom_in()
-	if not _ultimate_execution_guard(command, target):
-		_abort_ultimate_cutscene_visuals()
-		return
-
-	await _play_ultimate_sequence()
-	if not _ultimate_execution_guard(command, target):
-		_abort_ultimate_cutscene_visuals()
-		return
-
-	_play_ultimate_shatter_sfx()
-	_play_ultimate_glass_burst_sfx(0.9)
-	_play_ultimate_cring_noise_sfx(0.65)
-	_play_ultimate_deep_boom_sfx(0.65)
-	_play_screen_flash(Color(0.72, 0.95, 1.0, 0.24), 0.12)
-	_shake_camera_with_strength(7.0)
-	await _play_takashi_ulti_post_animation()
-	if not _ultimate_execution_guard(command, target):
-		_abort_ultimate_cutscene_visuals()
-		return
-
-	await _play_ultimate_camera_zoom_out()
-	_set_battle_ui_for_ultimate(true)
-	if not _ultimate_execution_guard(command, target):
-		_abort_ultimate_cutscene_visuals()
-		return
-
-	await player.play_ultimate_feedback()
-	if not _ultimate_execution_guard(command, target):
-		_abort_ultimate_cutscene_visuals()
-		return
-
-	await player.play_skill_movement(target)
-	if not _ultimate_execution_guard(command, target):
-		_abort_ultimate_cutscene_visuals()
-		return
-
-	await _play_enemy_octagram_impact(target)
-	if not _ultimate_execution_guard(command, target):
-		_abort_ultimate_cutscene_visuals()
-		return
-
-	if command != null and not ultimate_command_adapter.begin_resolution(command):
-		return
-	if not _consume_ultimate_hit(command, 0):
-		return
-	target.take_damage(ULTIMATE_DAMAGE)
-	_show_floating_damage(target, ULTIMATE_DAMAGE)
-	if ULTIMATE_IMPACT_HOLD_SECONDS > 0.0:
-		await get_tree().create_timer(ULTIMATE_IMPACT_HOLD_SECONDS).timeout
-		if not _ultimate_execution_guard(command, target, false):
-			return
-	await target.play_hit_feedback()
-	if not _ultimate_execution_guard(command, target, false):
-		return
-	await _fade_out_takashi_ultimate_glow_effect(0.26)
-	if not _ultimate_execution_guard(command, target, false):
-		return
-	await _play_enemy_impact_camera_zoom_out()
-	if not _ultimate_execution_guard(command, target, false):
-		_abort_ultimate_cutscene_visuals()
-		return
-	_exit_ultimate_cutscene_presentation()
-	_shake_camera()
-	var log_text := "Octagram Fragment deals %d damage and consumes all energy." % ULTIMATE_DAMAGE
-	if command != null:
-		_finish_ultimate_command_resolution(command, log_text, _is_interrupt_sourced(command))
-	else:
-		_finish_player_action(log_text)
+	if takashi_ultimate_director != null:
+		await takashi_ultimate_director.run_ultimate_sequence(self, target, command)
 
 
 func _abort_ultimate_cutscene_visuals() -> void:
-	_hide_takashi_ultimate_glow_effect()
-	_hide_enemy_impact_fvx()
-	if ultimate_frame_player != null:
-		ultimate_frame_player.texture = null
-		ultimate_frame_player.visible = false
-	if ultimate_audio_player != null:
-		ultimate_audio_player.stop()
-	_set_battle_ui_for_ultimate(true)
-	_exit_ultimate_cutscene_presentation()
+	if takashi_ultimate_director != null:
+		takashi_ultimate_director.abort_cutscene_visuals(self)
 
 
 func _enter_ultimate_cutscene_presentation(target: Combatant) -> void:
-	if not _uses_3d_target_markers() or not _ultimate_cutscene_snapshot.is_empty():
-		return
-	_ultimate_cutscene_snapshot = {
-		"presentation_visible": battle_presentation_3d.visible,
-		"battle_camera_enabled": battle_camera.enabled if battle_camera != null else false,
-		"player_visible": player.visible if player != null else false,
-		"player_modulate": player.modulate if player != null else Color.WHITE,
-		"target": target,
-		"target_visible": target.visible if target != null else false,
-		"target_modulate": target.modulate if target != null else Color.WHITE,
-	}
-	battle_presentation_3d.visible = false
-	if battle_camera != null:
-		battle_camera.enabled = true
-	_show_combatant_for_ultimate_cutscene(player)
-	_show_combatant_for_ultimate_cutscene(target)
+	if takashi_ultimate_director != null:
+		takashi_ultimate_director.enter_cutscene_presentation(self, target)
 
 
 func _exit_ultimate_cutscene_presentation() -> void:
-	if _ultimate_cutscene_snapshot.is_empty():
-		return
-	if battle_presentation_3d != null and is_instance_valid(battle_presentation_3d):
-		battle_presentation_3d.visible = bool(_ultimate_cutscene_snapshot.get("presentation_visible", true))
-		battle_presentation_3d.camera_return_to_idle()
-	if battle_camera != null:
-		battle_camera.enabled = bool(_ultimate_cutscene_snapshot.get("battle_camera_enabled", false))
-	if player != null and is_instance_valid(player):
-		player.visible = bool(_ultimate_cutscene_snapshot.get("player_visible", player.visible))
-		player.modulate = _ultimate_cutscene_snapshot.get("player_modulate", player.modulate)
-	var target := _ultimate_cutscene_snapshot.get("target") as Combatant
-	if target != null and is_instance_valid(target):
-		target.visible = bool(_ultimate_cutscene_snapshot.get("target_visible", target.visible))
-		target.modulate = _ultimate_cutscene_snapshot.get("target_modulate", target.modulate)
-	_ultimate_cutscene_snapshot.clear()
+	if takashi_ultimate_director != null:
+		takashi_ultimate_director.exit_cutscene_presentation(self)
 
 
 func _show_combatant_for_ultimate_cutscene(combatant: Combatant) -> void:
-	if combatant == null or not is_instance_valid(combatant):
-		return
-	combatant.visible = true
-	combatant.modulate.a = 1.0
+	if takashi_ultimate_director != null:
+		takashi_ultimate_director.show_combatant_for_cutscene(combatant)
 
 
 func _set_battle_ui_for_ultimate(visible: bool) -> void:
-	if ui == null:
-		return
-
-	if visible:
-		ui.visible = battle_ui_visible_before_ultimate
-		return
-
-	battle_ui_visible_before_ultimate = ui.visible
-	ui.visible = false
+	if takashi_ultimate_director != null:
+		takashi_ultimate_director.set_battle_ui_for_ultimate(self, visible)
 
 
 func _start_ultimate_camera_zoom_in() -> void:
-	if battle_camera == null:
-		return
-
-	_play_ultimate_zoom_sfx()
-	var target_position: Vector2 = player.global_position + ULTIMATE_CAMERA_FOCUS_OFFSET
-	var tween: Tween = create_tween()
-	tween.set_trans(Tween.TRANS_SINE)
-	tween.set_ease(Tween.EASE_IN_OUT)
-	tween.tween_property(battle_camera, "position", target_position, ULTIMATE_ZOOM_DURATION)
-	tween.parallel().tween_property(battle_camera, "zoom", ULTIMATE_CAMERA_ZOOM, ULTIMATE_ZOOM_DURATION)
-	tween.parallel().tween_property(battle_camera, "offset", Vector2.ZERO, ULTIMATE_ZOOM_DURATION)
+	if takashi_ultimate_director != null:
+		takashi_ultimate_director.start_ultimate_camera_zoom_in(self)
 
 
 func _wait_for_remaining_ultimate_zoom_in() -> void:
-	var pre_animation_duration: float = 0.0
-	if TAKASHI_ULTI_PRE_FRAME_RATE > 0.0:
-		pre_animation_duration = float(takashi_ulti_pre_frames.size()) / TAKASHI_ULTI_PRE_FRAME_RATE
-
-	var remaining_duration: float = ULTIMATE_ZOOM_DURATION - pre_animation_duration
-	if remaining_duration <= 0.0:
-		return
-
-	await get_tree().create_timer(remaining_duration).timeout
+	if takashi_ultimate_director != null:
+		await takashi_ultimate_director.wait_for_remaining_ultimate_zoom_in(self)
 
 
 func _play_ultimate_camera_zoom_out() -> void:
-	if battle_camera == null:
-		return
-
-	_play_ultimate_zoom_out_wind_sfx()
-	var viewport_size: Vector2 = get_viewport().get_visible_rect().size
-	if viewport_size.x <= 0.0 or viewport_size.y <= 0.0:
-		viewport_size = BASE_VIEWPORT_SIZE
-
-	var tween: Tween = create_tween()
-	tween.set_trans(Tween.TRANS_SINE)
-	tween.set_ease(Tween.EASE_IN_OUT)
-	tween.tween_property(battle_camera, "position", viewport_size * 0.5, ULTIMATE_ZOOM_OUT_DURATION)
-	tween.parallel().tween_property(battle_camera, "zoom", Vector2.ONE, ULTIMATE_ZOOM_OUT_DURATION)
-	tween.parallel().tween_property(battle_camera, "offset", Vector2.ZERO, ULTIMATE_ZOOM_OUT_DURATION)
-	await tween.finished
+	if takashi_ultimate_director != null:
+		await takashi_ultimate_director.play_ultimate_camera_zoom_out(self)
 
 
 func _play_takashi_ulti_pre_animation() -> void:
@@ -3139,35 +2996,14 @@ func _play_takashi_ulti_post_animation() -> void:
 
 
 func _load_ultimate_frames() -> void:
-	ultimate_frames.clear()
-	for frame_index in range(1, ULTIMATE_FRAME_COUNT + 1):
-		var frame_path: String = ULTIMATE_FRAME_PATH_FORMAT % frame_index
-		var frame_texture: Texture2D = load(frame_path) as Texture2D
-		if frame_texture != null:
-			ultimate_frames.append(frame_texture)
+	if takashi_ultimate_director != null:
+		takashi_ultimate_director.load_ultimate_frames(ULTIMATE_FRAME_COUNT)
 
 
 func _play_ultimate_sequence() -> void:
-	if ultimate_frame_player == null or ultimate_frames.is_empty():
-		return
+	if takashi_ultimate_director != null:
+		await takashi_ultimate_director.play_ultimate_sequence(self)
 
-	if ultimate_audio_player != null:
-		ultimate_audio_player.stop()
-		ultimate_audio_player.volume_db = ULTIMATE_AUDIO_VOLUME_DB
-		ultimate_audio_player.play()
-
-	ultimate_frame_player.visible = true
-	ultimate_frame_player.modulate = Color(1.0, 1.0, 1.0, 1.0)
-
-	var frame_duration: float = 1.0 / ULTIMATE_FRAME_RATE
-	for frame_texture in ultimate_frames:
-		if state != BattleState.ACTION_RESOLUTION:
-			break
-		ultimate_frame_player.texture = frame_texture
-		await get_tree().create_timer(frame_duration).timeout
-
-	ultimate_frame_player.texture = null
-	ultimate_frame_player.visible = false
 
 
 func _setup_battle_effects() -> void:
