@@ -38,6 +38,14 @@ var arena_center: Vector3 = Vector3(0.0, 0.0, 0.0)
 
 var _current_preset: Preset = Preset.IDLE
 var _camera: Camera3D
+
+## Per-arena IDLE override (Block 15.2: arena-specific camera framing).
+## Set by BattlePresentation3D from the active BattleEnvironmentProfile.
+## Only IDLE is overridden -- the close-up action presets stay shared,
+## since they frame a single actor rather than the diorama.
+var _idle_pos_override: Vector3 = Vector3.ZERO
+var _idle_look_override: Vector3 = Vector3.ZERO
+var _has_idle_override: bool = false
 var _tween: Tween
 
 ## Preset definitions: [position_offset_from_arena_center, look_at_offset, fov]
@@ -112,6 +120,17 @@ func set_formation_refs(
 	enemy_center = p_enemy_center
 	arena_center = p_arena_center
 	_apply_preset_immediate(_current_preset)
+
+
+## Applies an arena-specific IDLE framing (position/look offsets from
+## arena_center). Pass the same defaults as the shared IDLE preset to
+## effectively clear the override.
+func apply_arena_camera_offsets(pos_offset: Vector3, look_offset: Vector3) -> void:
+	_idle_pos_override = pos_offset
+	_idle_look_override = look_offset
+	_has_idle_override = true
+	if _current_preset == Preset.IDLE:
+		_apply_preset_immediate(Preset.IDLE)
 
 
 func transition_to(preset: Preset) -> void:
@@ -208,4 +227,11 @@ func _smooth_look_at(t: float, target_look: Vector3) -> void:
 
 
 func _preset_config(preset: Preset) -> Dictionary:
-	return PRESET_CONFIGS.get(preset, PRESET_CONFIGS[Preset.IDLE])
+	var cfg: Dictionary = PRESET_CONFIGS.get(preset, PRESET_CONFIGS[Preset.IDLE])
+	if preset == Preset.IDLE and _has_idle_override:
+		return {
+			"pos": _idle_pos_override,
+			"look": _idle_look_override,
+			"fov": cfg["fov"],
+		}
+	return cfg
