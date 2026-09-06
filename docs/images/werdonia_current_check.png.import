@@ -2,21 +2,20 @@
 
 importer="texture"
 type="CompressedTexture2D"
-uid="uid://b1d5xipmsepaa"
-path.s3tc="res://.godot/imported/Leaves_GiantPine_C.png-6e8ccb6e83d030e63ea32447816286b2.s3tc.ctex"
+uid="uid://c66ao8hk8cxe4"
+path="res://.godot/imported/werdonia_current_check.png-d89df26edd77f6f039eed6a48cf7d1e8.ctex"
 metadata={
-"imported_formats": ["s3tc_bptc"],
-"vram_texture": true
+"vram_texture": false
 }
 
 [deps]
 
-source_file="res://Asset 3d/Stylized Nature MegaKit[Standard]/glTF/Leaves_GiantPine_C.png"
-dest_files=["res://.godot/imported/Leaves_GiantPine_C.png-6e8ccb6e83d030e63ea32447816286b2.s3tc.ctex"]
+source_file="res://docs/images/werdonia_current_check.png"
+dest_files=["res://.godot/imported/werdonia_current_check.png-d89df26edd77f6f039eed6a48cf7d1e8.ctex"]
 
 [params]
 
-compress/mode=2
+compress/mode=0
 compress/high_quality=false
 compress/lossy_quality=0.7
 compress/uastc_level=0
@@ -24,7 +23,7 @@ compress/rdo_quality_loss=0.0
 compress/hdr_compression=1
 compress/normal_map=0
 compress/channel_pack=0
-mipmaps/generate=true
+mipmaps/generate=false
 mipmaps/limit=-1
 roughness/mode=0
 roughness/src_normal=""
@@ -38,4 +37,4 @@ process/normal_map_invert_y=false
 process/hdr_as_srgb=false
 process/hdr_clamp_exposure=false
 process/size_limit=0
-detect_3d/compress_to=0
+detect_3d/compress_to=1
