@@ -33,10 +33,12 @@ class_name BattleEnvironmentProfile
 @export var ambient_audio_id: StringName = &""
 
 @export_category("Camera")
-## Camera default position offset from center (Y = height, Z = distance back).
-@export var camera_default_offset: Vector3 = Vector3(0.0, 2.8, 7.5)
+## Camera default (IDLE) position offset from arena center (Y = height, Z = distance back).
+## Defaults match BattleCamera3D's built-in IDLE preset -- a profile that
+## doesn't override these renders identically to the shared default.
+@export var camera_default_offset: Vector3 = Vector3(-1.4, 4.0, 8.6)
 ## Default camera look-at offset from arena center.
-@export var camera_look_at_offset: Vector3 = Vector3(0.0, 1.0, 0.0)
+@export var camera_look_at_offset: Vector3 = Vector3(0.6, 1.05, -0.5)
 
 @export_category("Formation")
 ## World-space center of the battle formation area.
