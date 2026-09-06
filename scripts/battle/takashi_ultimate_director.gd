@@ -152,6 +152,39 @@ func play_ultimate_sequence(manager: Node) -> void:
 	manager.ultimate_frame_player.visible = false
 
 
+func start_legacy_ultimate(manager: Node) -> void:
+	if manager.state != manager.BattleState.PLAYER_TURN or manager._is_battle_over():
+		return
+	manager.state = manager.BattleState.ACTION_RESOLUTION
+	manager._update_action_buttons(false)
+	manager.ui.set_turn_text("Octagram Fragment")
+	manager.ui.set_battle_log("Octagram Fragment awakens.")
+	manager.ultimate_energy = 0
+	manager._refresh_energy_ui()
+	await run_ultimate_sequence(manager, manager.enemy, null)
+
+
+func execute_committed_ultimate(manager: Node, command: PendingBattleCommand) -> void:
+	if not manager._uses_new_ultimate_command_flow():
+		return
+	if not manager._is_committed_ultimate_command(command):
+		return
+	if not manager.ultimate_command_adapter.execute_committed_command():
+		return
+
+	var target: Combatant = manager._selected_ultimate_target(command)
+	if target == null:
+		manager._abort_committed_ultimate_command(command, &"target_missing_during_execution")
+		return
+
+	manager.active_ultimate_command_token = command.commit_token
+	manager.state = manager.BattleState.ACTION_RESOLUTION
+	manager._update_action_buttons(false)
+	manager.ui.set_turn_text("Octagram Fragment")
+	manager.ui.set_battle_log("Octagram Fragment awakens.")
+	await run_ultimate_sequence(manager, target, command)
+
+
 func run_ultimate_sequence(
 	manager: Node,
 	target: Combatant,

@@ -2035,24 +2035,8 @@ func _start_ultimate_ready_idle() -> void:
 
 
 func _execute_committed_ultimate(command: PendingBattleCommand) -> void:
-	if not _uses_new_ultimate_command_flow():
-		return
-	if not _is_committed_ultimate_command(command):
-		return
-	if not ultimate_command_adapter.execute_committed_command():
-		return
-
-	var target := _selected_ultimate_target(command)
-	if target == null:
-		_abort_committed_ultimate_command(command, &"target_missing_during_execution")
-		return
-
-	active_ultimate_command_token = command.commit_token
-	state = BattleState.ACTION_RESOLUTION
-	_update_action_buttons(false)
-	ui.set_turn_text("Octagram Fragment")
-	ui.set_battle_log("Octagram Fragment awakens.")
-	await _run_ultimate_sequence(target, command)
+	if takashi_ultimate_director != null:
+		await takashi_ultimate_director.execute_committed_ultimate(self, command)
 
 
 func _finish_ultimate_command_resolution(
@@ -2652,13 +2636,8 @@ func _show_ultimate_locked_message() -> void:
 
 
 func _start_legacy_ultimate() -> void:
-	state = BattleState.ACTION_RESOLUTION
-	_update_action_buttons(false)
-	ui.set_turn_text("Octagram Fragment")
-	ui.set_battle_log("Octagram Fragment awakens.")
-	ultimate_energy = 0
-	_refresh_energy_ui()
-	await _run_ultimate_sequence(enemy, null)
+	if takashi_ultimate_director != null:
+		await takashi_ultimate_director.start_legacy_ultimate(self)
 
 
 func _run_ultimate_sequence(
