@@ -176,3 +176,48 @@ static func sync_reticle(
 		presentation_3d
 	)
 	reticle.rotation += rotation_delta
+
+
+## Checks whether a candidate node is a valid, living enemy combatant.
+static func is_enemy_targetable(target: Node, player: Node) -> bool:
+	return (
+		target is Combatant
+		and target != player
+		and is_instance_valid(target)
+		and not (target as Combatant).is_defeated()
+	)
+
+
+## Collects all living enemy combatants in the battle scene.
+static func get_enemy_candidates(battle_scene: Node, player: Node) -> Array[Node]:
+	var targets: Array[Node] = []
+	if battle_scene == null:
+		return targets
+	for child in battle_scene.get_children():
+		if is_enemy_targetable(child, player):
+			targets.append(child)
+	return targets
+
+
+## Extracts and validates the primary Combatant target of a PendingBattleCommand.
+static func get_selected_target(command: PendingBattleCommand, player: Node) -> Combatant:
+	if command == null or command.selected_targets.is_empty():
+		return null
+	var target := command.selected_targets[0] as Combatant
+	if target == null or not is_enemy_targetable(target, player):
+		return null
+	return target
+
+
+## Refreshes candidate targets for a pending command without switching targets silently.
+static func repair_pending_target(
+	command: PendingBattleCommand,
+	battle_scene: Node,
+	player: Node
+) -> bool:
+	if command == null:
+		return false
+	command.candidate_targets.assign(get_enemy_candidates(battle_scene, player))
+	command.refresh_candidates()
+	return get_selected_target(command, player) != null
+

@@ -892,52 +892,20 @@ func _commit_basic_attack_command_resources(
 
 
 func _get_basic_attack_candidate_targets() -> Array[Node]:
-	var targets: Array[Node] = []
-	if battle_scene == null:
-		return targets
-	for child in battle_scene.get_children():
-		if _is_basic_attack_targetable(child):
-			targets.append(child)
-	return targets
+	return BattleTargetingSystemScript.get_enemy_candidates(battle_scene, player)
 
 
 func _is_basic_attack_targetable(target: Node) -> bool:
-	return (
-		target is Combatant
-		and target != player
-		and is_instance_valid(target)
-		and not (target as Combatant).is_defeated()
-	)
+	return BattleTargetingSystemScript.is_enemy_targetable(target, player)
 
 
 func _selected_basic_target(command: PendingBattleCommand) -> Combatant:
-	if command == null or command.selected_targets.is_empty():
-		return null
-	var target := command.selected_targets[0] as Combatant
-	if target == null or not _is_basic_attack_targetable(target):
-		return null
-	return target
+	return BattleTargetingSystemScript.get_selected_target(command, player)
 
 
-## Block 9G: revalidates the *already-selected* target only -- refreshes
-## candidate_targets against the current battle state and re-checks
-## whether the specific target the player already chose is still alive
-## and valid. Deliberately does NOT auto-select a different candidate
-## when the selected target has died, even if another live enemy exists:
-## silently switching the pending command to a different target the
-## player never chose would let commit succeed against the wrong enemy.
-## In a single-enemy battle this distinction was invisible (candidate_targets
-## was always empty once the only enemy died, so the old fallback never
-## actually fired) -- see docs/battle_system_spec.md, "Block 9G
-## implementation status" for the multi-enemy audit that found it.
 func _repair_basic_pending_target() -> bool:
-	var command: PendingBattleCommand = basic_command_adapter.get_pending_command()
-	if command == null:
-		return false
-
-	command.candidate_targets.assign(_get_basic_attack_candidate_targets())
-	command.refresh_candidates()
-	return _selected_basic_target(command) != null
+	var command: PendingBattleCommand = basic_command_adapter.get_pending_command() if basic_command_adapter != null else null
+	return BattleTargetingSystemScript.repair_pending_target(command, battle_scene, player)
 
 
 func _cycle_basic_target(direction: int) -> bool:
@@ -1364,44 +1332,20 @@ func _commit_skill_command_resources(
 
 
 func _get_skill_candidate_targets() -> Array[Node]:
-	var targets: Array[Node] = []
-	if battle_scene == null:
-		return targets
-	for child in battle_scene.get_children():
-		if _is_skill_targetable(child):
-			targets.append(child)
-	return targets
+	return BattleTargetingSystemScript.get_enemy_candidates(battle_scene, player)
 
 
 func _is_skill_targetable(target: Node) -> bool:
-	return (
-		target is Combatant
-		and target != player
-		and is_instance_valid(target)
-		and not (target as Combatant).is_defeated()
-	)
+	return BattleTargetingSystemScript.is_enemy_targetable(target, player)
 
 
 func _selected_skill_target(command: PendingBattleCommand) -> Combatant:
-	if command == null or command.selected_targets.is_empty():
-		return null
-	var target := command.selected_targets[0] as Combatant
-	if target == null or not _is_skill_targetable(target):
-		return null
-	return target
+	return BattleTargetingSystemScript.get_selected_target(command, player)
 
 
-## Block 9G: see _repair_basic_pending_target()'s doc comment -- same
-## fix, same reason. Does not auto-select a different live enemy when the
-## selected target has died.
 func _repair_skill_pending_target() -> bool:
-	var command: PendingBattleCommand = skill_command_adapter.get_pending_command()
-	if command == null:
-		return false
-
-	command.candidate_targets.assign(_get_skill_candidate_targets())
-	command.refresh_candidates()
-	return _selected_skill_target(command) != null
+	var command: PendingBattleCommand = skill_command_adapter.get_pending_command() if skill_command_adapter != null else null
+	return BattleTargetingSystemScript.repair_pending_target(command, battle_scene, player)
 
 
 func _cycle_skill_target(direction: int) -> bool:
@@ -2224,46 +2168,20 @@ func _commit_ultimate_command_resources(
 
 
 func _get_ultimate_candidate_targets() -> Array[Node]:
-	var targets: Array[Node] = []
-	if battle_scene == null:
-		return targets
-	for child in battle_scene.get_children():
-		if _is_ultimate_targetable(child):
-			targets.append(child)
-	return targets
+	return BattleTargetingSystemScript.get_enemy_candidates(battle_scene, player)
 
 
 func _is_ultimate_targetable(target: Node) -> bool:
-	return (
-		target is Combatant
-		and target != player
-		and is_instance_valid(target)
-		and not (target as Combatant).is_defeated()
-	)
+	return BattleTargetingSystemScript.is_enemy_targetable(target, player)
 
 
 func _selected_ultimate_target(command: PendingBattleCommand) -> Combatant:
-	if command == null or command.selected_targets.is_empty():
-		return null
-	var target := command.selected_targets[0] as Combatant
-	if target == null or not _is_ultimate_targetable(target):
-		return null
-	return target
+	return BattleTargetingSystemScript.get_selected_target(command, player)
 
 
-## Block 9G: see _repair_basic_pending_target()'s doc comment -- same
-## fix, same reason. Does not auto-select a different live enemy when the
-## selected target has died. This also covers off-turn Ultimate (A1/B):
-## a queued request's target is revalidated, never silently swapped, at
-## commit time.
 func _repair_ultimate_pending_target() -> bool:
-	var command: PendingBattleCommand = ultimate_command_adapter.get_pending_command()
-	if command == null:
-		return false
-
-	command.candidate_targets.assign(_get_ultimate_candidate_targets())
-	command.refresh_candidates()
-	return _selected_ultimate_target(command) != null
+	var command: PendingBattleCommand = ultimate_command_adapter.get_pending_command() if ultimate_command_adapter != null else null
+	return BattleTargetingSystemScript.repair_pending_target(command, battle_scene, player)
 
 
 func _cycle_ultimate_target(direction: int) -> bool:
