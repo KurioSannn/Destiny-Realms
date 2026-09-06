@@ -165,6 +165,8 @@ const UltimateCommandAdapterScript := preload(
 const BattleVfxScript := preload("res://scripts/battle/battle_vfx.gd")
 const TakashiBattleAnimatorScript := preload("res://scripts/battle/takashi_battle_animator.gd")
 const TakashiUltimateEffectsScript := preload("res://scripts/battle/takashi_ultimate_effects.gd")
+const BattleTargetingSystemScript := preload("res://scripts/battle/battle_targeting_system.gd")
+const BattleLegacyCommandPanelsScript := preload("res://scripts/battle/battle_legacy_command_panels.gd")
 
 
 @export var use_new_basic_command_flow: bool = true
@@ -480,16 +482,11 @@ func _unhandled_input(event: InputEvent) -> void:
 		return
 
 func _cycle_global_target(direction: int) -> void:
-	var candidates := _get_basic_attack_candidate_targets()
-	if candidates.size() < 2:
-		return
-	var current_index := 0
-	if _global_selected_target != null:
-		current_index = candidates.find(_global_selected_target)
-		if current_index < 0:
-			current_index = 0
-	var next_index := wrapi(current_index + direction, 0, candidates.size())
-	_global_selected_target = candidates[next_index] as Combatant
+	_global_selected_target = BattleTargetingSystemScript.cycle_global_target(
+		_get_basic_attack_candidate_targets(),
+		_global_selected_target,
+		direction
+	)
 	if basic_target_highlight != null and not _uses_3d_target_markers():
 		basic_target_highlight.visible = true
 
@@ -525,27 +522,11 @@ func _pick_target_at_screen_position(
 	screen_position: Vector2,
 	candidates: Array[Node]
 ) -> Combatant:
-	if battle_presentation_3d != null:
-		var picked_3d := battle_presentation_3d.pick_enemy_combatant_at_screen_position(
-			screen_position,
-			candidates
-		)
-		if picked_3d != null:
-			return picked_3d
-
-	var closest_target: Combatant
-	var closest_distance := INF
-	for candidate in candidates:
-		var combatant := candidate as Combatant
-		if combatant == null:
-			continue
-		var distance := screen_position.distance_to(combatant.global_position)
-		if distance < closest_distance:
-			closest_distance = distance
-			closest_target = combatant
-	if closest_target == null or closest_distance > 170.0:
-		return null
-	return closest_target
+	return BattleTargetingSystemScript.pick_target_at_screen_position(
+		screen_position,
+		candidates,
+		battle_presentation_3d
+	)
 
 
 func _target_highlight_position(
@@ -553,11 +534,12 @@ func _target_highlight_position(
 	fallback_offset: Vector2,
 	vertical_ratio: float
 ) -> Vector2:
-	if battle_presentation_3d != null:
-		var projected := battle_presentation_3d.get_enemy_screen_position(target, vertical_ratio)
-		if not is_inf(projected.x) and not is_inf(projected.y):
-			return projected
-	return target.global_position + fallback_offset
+	return BattleTargetingSystemScript.get_target_highlight_position(
+		target,
+		fallback_offset,
+		vertical_ratio,
+		battle_presentation_3d
+	)
 
 
 func _exit_tree() -> void:
@@ -1110,35 +1092,24 @@ func _repair_basic_pending_target() -> bool:
 func _cycle_basic_target(direction: int) -> bool:
 	if not _has_pending_basic_command():
 		return false
-	var command: PendingBattleCommand = basic_command_adapter.get_pending_command()
-	command.candidate_targets.assign(_get_basic_attack_candidate_targets())
-	command.refresh_candidates()
-	if command.candidate_targets.size() < 2:
-		return false
-
-	var current_index := 0
-	if not command.selected_targets.is_empty():
-		current_index = command.candidate_targets.find(command.selected_targets[0])
-	if current_index < 0:
-		current_index = 0
-	var next_index := wrapi(
-		current_index + direction,
-		0,
-		command.candidate_targets.size()
+	return BattleTargetingSystemScript.cycle_command_target(
+		basic_command_adapter.get_pending_command(),
+		_get_basic_attack_candidate_targets(),
+		direction,
+		basic_command_adapter
 	)
-	return basic_command_adapter.select_target(command.candidate_targets[next_index])
 
 
 func _select_basic_target_at_position(screen_position: Vector2) -> bool:
 	if not _has_pending_basic_command():
 		return false
-	var command: PendingBattleCommand = basic_command_adapter.get_pending_command()
-	command.candidate_targets.assign(_get_basic_attack_candidate_targets())
-	command.refresh_candidates()
-	var closest_target := _pick_target_at_screen_position(screen_position, command.candidate_targets)
-	if closest_target == null:
-		return false
-	return basic_command_adapter.select_target(closest_target)
+	return BattleTargetingSystemScript.select_target_at_position(
+		basic_command_adapter.get_pending_command(),
+		_get_basic_attack_candidate_targets(),
+		screen_position,
+		basic_command_adapter,
+		battle_presentation_3d
+	)
 
 
 func _basic_execution_guard(
@@ -1216,19 +1187,16 @@ func _basic_command_failure_message(reason: StringName) -> String:
 func _create_basic_target_highlight() -> void:
 	if basic_target_highlight != null or battle_scene == null:
 		return
-	basic_target_highlight = Line2D.new()
-	basic_target_highlight.name = "BasicTargetHighlight"
-	basic_target_highlight.width = 4.0
-	basic_target_highlight.default_color = Color(0.98, 0.78, 0.28, 0.96)
-	basic_target_highlight.closed = true
-	basic_target_highlight.z_index = 30
-	for index in range(32):
-		var angle := TAU * float(index) / 32.0
-		basic_target_highlight.add_point(
-			Vector2(cos(angle) * 62.0, sin(angle) * 78.0)
-		)
-	battle_scene.add_child(basic_target_highlight)
-	basic_target_highlight.visible = false
+	basic_target_highlight = BattleTargetingSystemScript.create_reticle(
+		battle_scene,
+		"BasicTargetHighlight",
+		Color(0.98, 0.78, 0.28, 0.96),
+		4.0,
+		62.0,
+		78.0,
+		32,
+		30
+	)
 
 
 func _show_basic_target_highlight(command: PendingBattleCommand) -> void:
@@ -1272,9 +1240,14 @@ func _sync_basic_target_highlight() -> void:
 		basic_target_highlight.visible = false
 		return
 
-	basic_target_highlight.visible = true
-	basic_target_highlight.global_position = _target_highlight_position(target, Vector2(0.0, -72.0), 0.48)
-	basic_target_highlight.rotation += 0.008
+	BattleTargetingSystemScript.sync_reticle(
+		basic_target_highlight,
+		target,
+		Vector2(0.0, -72.0),
+		0.48,
+		0.008,
+		battle_presentation_3d
+	)
 
 
 func _setup_skill_command_runtime() -> void:
@@ -1583,35 +1556,24 @@ func _repair_skill_pending_target() -> bool:
 func _cycle_skill_target(direction: int) -> bool:
 	if not _has_pending_skill_command():
 		return false
-	var command: PendingBattleCommand = skill_command_adapter.get_pending_command()
-	command.candidate_targets.assign(_get_skill_candidate_targets())
-	command.refresh_candidates()
-	if command.candidate_targets.size() < 2:
-		return false
-
-	var current_index := 0
-	if not command.selected_targets.is_empty():
-		current_index = command.candidate_targets.find(command.selected_targets[0])
-	if current_index < 0:
-		current_index = 0
-	var next_index := wrapi(
-		current_index + direction,
-		0,
-		command.candidate_targets.size()
+	return BattleTargetingSystemScript.cycle_command_target(
+		skill_command_adapter.get_pending_command(),
+		_get_skill_candidate_targets(),
+		direction,
+		skill_command_adapter
 	)
-	return skill_command_adapter.select_target(command.candidate_targets[next_index])
 
 
 func _select_skill_target_at_position(screen_position: Vector2) -> bool:
 	if not _has_pending_skill_command():
 		return false
-	var command: PendingBattleCommand = skill_command_adapter.get_pending_command()
-	command.candidate_targets.assign(_get_skill_candidate_targets())
-	command.refresh_candidates()
-	var closest_target := _pick_target_at_screen_position(screen_position, command.candidate_targets)
-	if closest_target == null:
-		return false
-	return skill_command_adapter.select_target(closest_target)
+	return BattleTargetingSystemScript.select_target_at_position(
+		skill_command_adapter.get_pending_command(),
+		_get_skill_candidate_targets(),
+		screen_position,
+		skill_command_adapter,
+		battle_presentation_3d
+	)
 
 
 func _skill_execution_guard(
@@ -1704,19 +1666,16 @@ func _skill_command_failure_message(reason: StringName) -> String:
 func _create_skill_target_highlight() -> void:
 	if skill_target_highlight != null or battle_scene == null:
 		return
-	skill_target_highlight = Line2D.new()
-	skill_target_highlight.name = "SkillTargetHighlight"
-	skill_target_highlight.width = 4.0
-	skill_target_highlight.default_color = Color(0.42, 0.96, 1.0, 0.98)
-	skill_target_highlight.closed = true
-	skill_target_highlight.z_index = 31
-	for index in range(36):
-		var angle := TAU * float(index) / 36.0
-		skill_target_highlight.add_point(
-			Vector2(cos(angle) * 70.0, sin(angle) * 86.0)
-		)
-	battle_scene.add_child(skill_target_highlight)
-	skill_target_highlight.visible = false
+	skill_target_highlight = BattleTargetingSystemScript.create_reticle(
+		battle_scene,
+		"SkillTargetHighlight",
+		Color(0.42, 0.96, 1.0, 0.98),
+		4.0,
+		70.0,
+		86.0,
+		36,
+		31
+	)
 
 
 func _show_skill_target_highlight(command: PendingBattleCommand) -> void:
@@ -1747,105 +1706,32 @@ func _sync_skill_target_highlight() -> void:
 	if target == null:
 		skill_target_highlight.visible = false
 		return
-	skill_target_highlight.global_position = _target_highlight_position(target, Vector2(0.0, -76.0), 0.5)
-	skill_target_highlight.rotation -= 0.01
+	BattleTargetingSystemScript.sync_reticle(
+		skill_target_highlight,
+		target,
+		Vector2(0.0, -76.0),
+		0.5,
+		-0.01,
+		battle_presentation_3d
+	)
 
 
 func _create_skill_command_panel() -> void:
 	if skill_command_panel != null or canvas_layer == null:
 		return
-
-	skill_command_panel = Panel.new()
-	skill_command_panel.name = "SkillCommandPanel"
-	skill_command_panel.visible = false
-	skill_command_panel.anchor_left = 0.5
-	skill_command_panel.anchor_right = 0.5
-	skill_command_panel.anchor_top = 1.0
-	skill_command_panel.anchor_bottom = 1.0
-	skill_command_panel.offset_left = -170.0
-	skill_command_panel.offset_right = 170.0
-	skill_command_panel.offset_top = -254.0
-	skill_command_panel.offset_bottom = -116.0
-	skill_command_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	skill_command_panel.add_theme_stylebox_override(
-		"panel",
-		_make_skill_command_panel_style()
+	var elements := BattleLegacyCommandPanelsScript.create_skill_command_panel(
+		canvas_layer,
+		_confirm_skill_command,
+		_cancel_skill_command
 	)
-	canvas_layer.add_child(skill_command_panel)
-
-	var margin := MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 14)
-	margin.add_theme_constant_override("margin_top", 10)
-	margin.add_theme_constant_override("margin_right", 14)
-	margin.add_theme_constant_override("margin_bottom", 10)
-	skill_command_panel.add_child(margin)
-
-	var rows := VBoxContainer.new()
-	rows.add_theme_constant_override("separation", 5)
-	margin.add_child(rows)
-
-	skill_ready_label = Label.new()
-	skill_ready_label.text = "Triangle Rift Ready"
-	skill_ready_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	skill_ready_label.add_theme_font_size_override("font_size", 15)
-	skill_ready_label.add_theme_color_override(
-		"font_color",
-		Color(0.72, 0.98, 1.0, 1.0)
-	)
-	rows.add_child(skill_ready_label)
-
-	skill_cost_label = Label.new()
-	skill_cost_label.text = "Cost: -"
-	skill_cost_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	skill_cost_label.add_theme_font_size_override("font_size", 12)
-	skill_cost_label.add_theme_color_override(
-		"font_color",
-		Color(0.98, 0.92, 0.74, 1.0)
-	)
-	rows.add_child(skill_cost_label)
-
-	skill_target_label = Label.new()
-	skill_target_label.text = "Target: -"
-	skill_target_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	skill_target_label.add_theme_font_size_override("font_size", 13)
-	skill_target_label.add_theme_color_override(
-		"font_color",
-		Color(0.84, 0.92, 1.0, 1.0)
-	)
-	rows.add_child(skill_target_label)
-
-	var buttons := HBoxContainer.new()
-	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
-	buttons.add_theme_constant_override("separation", 8)
-	rows.add_child(buttons)
-
-	skill_confirm_button = Button.new()
-	skill_confirm_button.text = "Confirm"
-	skill_confirm_button.custom_minimum_size = Vector2(104.0, 32.0)
-	skill_confirm_button.pressed.connect(_confirm_skill_command)
-	buttons.add_child(skill_confirm_button)
-
-	skill_cancel_button = Button.new()
-	skill_cancel_button.text = "Cancel"
-	skill_cancel_button.custom_minimum_size = Vector2(104.0, 32.0)
-	skill_cancel_button.pressed.connect(_cancel_skill_command)
-	buttons.add_child(skill_cancel_button)
-
-
-func _make_skill_command_panel_style() -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.012, 0.04, 0.058, 0.94)
-	style.border_color = Color(0.42, 0.96, 1.0, 0.92)
-	style.border_width_left = 1
-	style.border_width_top = 1
-	style.border_width_right = 1
-	style.border_width_bottom = 1
-	style.corner_radius_top_left = 6
-	style.corner_radius_top_right = 6
-	style.corner_radius_bottom_right = 6
-	style.corner_radius_bottom_left = 6
-	return style
+	if elements.is_empty():
+		return
+	skill_command_panel = elements["panel"]
+	skill_ready_label = elements["ready_label"]
+	skill_cost_label = elements["cost_label"]
+	skill_target_label = elements["target_label"]
+	skill_confirm_button = elements["confirm_button"]
+	skill_cancel_button = elements["cancel_button"]
 
 
 func _set_skill_command_panel_visible(is_visible: bool) -> void:
@@ -1854,21 +1740,20 @@ func _set_skill_command_panel_visible(is_visible: bool) -> void:
 
 
 func _update_skill_command_panel(command: PendingBattleCommand) -> void:
-	if skill_target_label == null:
-		return
-	var target_name := "-"
-	var target := _selected_skill_target(command)
-	if target != null:
-		target_name = target.combatant_name
-	skill_target_label.text = "Target: %s" % target_name
-	if skill_cost_label != null and command != null:
-		skill_cost_label.text = "Cost: %d SP | SP %d/%d" % [
-			command.skill_point_cost,
-			skill_points,
-			MAX_SKILL_POINTS
-		]
-	if skill_confirm_button != null:
-		skill_confirm_button.disabled = target == null
+	var labels := {
+		"ready": skill_ready_label,
+		"cost": skill_cost_label,
+		"target": skill_target_label
+	}
+	BattleLegacyCommandPanelsScript.update_skill_panel(
+		labels,
+		skill_confirm_button,
+		_selected_skill_target(command),
+		command,
+		skill_points,
+		MAX_SKILL_POINTS
+	)
+
 
 
 func _setup_ultimate_command_runtime() -> void:
@@ -2533,35 +2418,24 @@ func _repair_ultimate_pending_target() -> bool:
 func _cycle_ultimate_target(direction: int) -> bool:
 	if not _has_pending_ultimate_command():
 		return false
-	var command: PendingBattleCommand = ultimate_command_adapter.get_pending_command()
-	command.candidate_targets.assign(_get_ultimate_candidate_targets())
-	command.refresh_candidates()
-	if command.candidate_targets.size() < 2:
-		return false
-
-	var current_index := 0
-	if not command.selected_targets.is_empty():
-		current_index = command.candidate_targets.find(command.selected_targets[0])
-	if current_index < 0:
-		current_index = 0
-	var next_index := wrapi(
-		current_index + direction,
-		0,
-		command.candidate_targets.size()
+	return BattleTargetingSystemScript.cycle_command_target(
+		ultimate_command_adapter.get_pending_command(),
+		_get_ultimate_candidate_targets(),
+		direction,
+		ultimate_command_adapter
 	)
-	return ultimate_command_adapter.select_target(command.candidate_targets[next_index])
 
 
 func _select_ultimate_target_at_position(screen_position: Vector2) -> bool:
 	if not _has_pending_ultimate_command():
 		return false
-	var command: PendingBattleCommand = ultimate_command_adapter.get_pending_command()
-	command.candidate_targets.assign(_get_ultimate_candidate_targets())
-	command.refresh_candidates()
-	var closest_target := _pick_target_at_screen_position(screen_position, command.candidate_targets)
-	if closest_target == null:
-		return false
-	return ultimate_command_adapter.select_target(closest_target)
+	return BattleTargetingSystemScript.select_target_at_position(
+		ultimate_command_adapter.get_pending_command(),
+		_get_ultimate_candidate_targets(),
+		screen_position,
+		ultimate_command_adapter,
+		battle_presentation_3d
+	)
 
 
 func _ultimate_execution_guard(
@@ -2642,19 +2516,16 @@ func _ultimate_command_failure_message(reason: StringName) -> String:
 func _create_ultimate_target_highlight() -> void:
 	if ultimate_target_highlight != null or battle_scene == null:
 		return
-	ultimate_target_highlight = Line2D.new()
-	ultimate_target_highlight.name = "UltimateTargetHighlight"
-	ultimate_target_highlight.width = 4.0
-	ultimate_target_highlight.default_color = Color(0.72, 0.95, 1.0, 0.98)
-	ultimate_target_highlight.closed = true
-	ultimate_target_highlight.z_index = 32
-	for index in range(40):
-		var angle := TAU * float(index) / 40.0
-		ultimate_target_highlight.add_point(
-			Vector2(cos(angle) * 78.0, sin(angle) * 94.0)
-		)
-	battle_scene.add_child(ultimate_target_highlight)
-	ultimate_target_highlight.visible = false
+	ultimate_target_highlight = BattleTargetingSystemScript.create_reticle(
+		battle_scene,
+		"UltimateTargetHighlight",
+		Color(0.72, 0.95, 1.0, 0.98),
+		4.0,
+		78.0,
+		94.0,
+		40,
+		32
+	)
 
 
 func _show_ultimate_target_highlight(command: PendingBattleCommand) -> void:
@@ -2685,105 +2556,32 @@ func _sync_ultimate_target_highlight() -> void:
 	if target == null:
 		ultimate_target_highlight.visible = false
 		return
-	ultimate_target_highlight.global_position = _target_highlight_position(target, Vector2(0.0, -80.0), 0.52)
-	ultimate_target_highlight.rotation += 0.012
+	BattleTargetingSystemScript.sync_reticle(
+		ultimate_target_highlight,
+		target,
+		Vector2(0.0, -80.0),
+		0.52,
+		0.012,
+		battle_presentation_3d
+	)
 
 
 func _create_ultimate_command_panel() -> void:
 	if ultimate_command_panel != null or canvas_layer == null:
 		return
-
-	ultimate_command_panel = Panel.new()
-	ultimate_command_panel.name = "UltimateCommandPanel"
-	ultimate_command_panel.visible = false
-	ultimate_command_panel.anchor_left = 0.5
-	ultimate_command_panel.anchor_right = 0.5
-	ultimate_command_panel.anchor_top = 1.0
-	ultimate_command_panel.anchor_bottom = 1.0
-	ultimate_command_panel.offset_left = -180.0
-	ultimate_command_panel.offset_right = 180.0
-	ultimate_command_panel.offset_top = -258.0
-	ultimate_command_panel.offset_bottom = -120.0
-	ultimate_command_panel.mouse_filter = Control.MOUSE_FILTER_STOP
-	ultimate_command_panel.add_theme_stylebox_override(
-		"panel",
-		_make_ultimate_command_panel_style()
+	var elements := BattleLegacyCommandPanelsScript.create_ultimate_command_panel(
+		canvas_layer,
+		_confirm_ultimate_command,
+		_cancel_ultimate_command
 	)
-	canvas_layer.add_child(ultimate_command_panel)
-
-	var margin := MarginContainer.new()
-	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
-	margin.add_theme_constant_override("margin_left", 14)
-	margin.add_theme_constant_override("margin_top", 10)
-	margin.add_theme_constant_override("margin_right", 14)
-	margin.add_theme_constant_override("margin_bottom", 10)
-	ultimate_command_panel.add_child(margin)
-
-	var rows := VBoxContainer.new()
-	rows.add_theme_constant_override("separation", 5)
-	margin.add_child(rows)
-
-	ultimate_ready_label = Label.new()
-	ultimate_ready_label.text = "Octagram Fragment Ready"
-	ultimate_ready_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	ultimate_ready_label.add_theme_font_size_override("font_size", 15)
-	ultimate_ready_label.add_theme_color_override(
-		"font_color",
-		Color(0.72, 0.95, 1.0, 1.0)
-	)
-	rows.add_child(ultimate_ready_label)
-
-	ultimate_cost_label = Label.new()
-	ultimate_cost_label.text = "Energy: -"
-	ultimate_cost_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	ultimate_cost_label.add_theme_font_size_override("font_size", 12)
-	ultimate_cost_label.add_theme_color_override(
-		"font_color",
-		Color(0.98, 0.92, 0.74, 1.0)
-	)
-	rows.add_child(ultimate_cost_label)
-
-	ultimate_target_label = Label.new()
-	ultimate_target_label.text = "Target: -"
-	ultimate_target_label.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
-	ultimate_target_label.add_theme_font_size_override("font_size", 13)
-	ultimate_target_label.add_theme_color_override(
-		"font_color",
-		Color(0.84, 0.92, 1.0, 1.0)
-	)
-	rows.add_child(ultimate_target_label)
-
-	var buttons := HBoxContainer.new()
-	buttons.alignment = BoxContainer.ALIGNMENT_CENTER
-	buttons.add_theme_constant_override("separation", 8)
-	rows.add_child(buttons)
-
-	ultimate_confirm_button = Button.new()
-	ultimate_confirm_button.text = "Confirm"
-	ultimate_confirm_button.custom_minimum_size = Vector2(104.0, 32.0)
-	ultimate_confirm_button.pressed.connect(_confirm_ultimate_command)
-	buttons.add_child(ultimate_confirm_button)
-
-	ultimate_cancel_button = Button.new()
-	ultimate_cancel_button.text = "Cancel"
-	ultimate_cancel_button.custom_minimum_size = Vector2(104.0, 32.0)
-	ultimate_cancel_button.pressed.connect(_cancel_ultimate_command)
-	buttons.add_child(ultimate_cancel_button)
-
-
-func _make_ultimate_command_panel_style() -> StyleBoxFlat:
-	var style := StyleBoxFlat.new()
-	style.bg_color = Color(0.02, 0.03, 0.06, 0.94)
-	style.border_color = Color(0.72, 0.95, 1.0, 0.92)
-	style.border_width_left = 1
-	style.border_width_top = 1
-	style.border_width_right = 1
-	style.border_width_bottom = 1
-	style.corner_radius_top_left = 6
-	style.corner_radius_top_right = 6
-	style.corner_radius_bottom_right = 6
-	style.corner_radius_bottom_left = 6
-	return style
+	if elements.is_empty():
+		return
+	ultimate_command_panel = elements["panel"]
+	ultimate_ready_label = elements["ready_label"]
+	ultimate_cost_label = elements["cost_label"]
+	ultimate_target_label = elements["target_label"]
+	ultimate_confirm_button = elements["confirm_button"]
+	ultimate_cancel_button = elements["cancel_button"]
 
 
 func _set_ultimate_command_panel_visible(is_visible: bool) -> void:
@@ -2792,20 +2590,20 @@ func _set_ultimate_command_panel_visible(is_visible: bool) -> void:
 
 
 func _update_ultimate_command_panel(command: PendingBattleCommand) -> void:
-	if ultimate_target_label == null:
-		return
-	var target_name := "-"
-	var target := _selected_ultimate_target(command)
-	if target != null:
-		target_name = target.combatant_name
-	ultimate_target_label.text = "Target: %s" % target_name
-	if ultimate_cost_label != null and command != null:
-		ultimate_cost_label.text = "Energy: %d/%d" % [
-			ultimate_energy,
-			MAX_ULTIMATE_ENERGY
-		]
-	if ultimate_confirm_button != null:
-		ultimate_confirm_button.disabled = target == null
+	var labels := {
+		"ready": ultimate_ready_label,
+		"cost": ultimate_cost_label,
+		"target": ultimate_target_label
+	}
+	BattleLegacyCommandPanelsScript.update_ultimate_panel(
+		labels,
+		ultimate_confirm_button,
+		_selected_ultimate_target(command),
+		command,
+		ultimate_energy,
+		MAX_ULTIMATE_ENERGY
+	)
+
 
 
 func _play_battle_intro_effect() -> void:
