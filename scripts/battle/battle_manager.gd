@@ -1235,28 +1235,8 @@ func _start_skill_ready_idle() -> void:
 
 
 func _execute_committed_skill(command: PendingBattleCommand) -> void:
-	if not _uses_new_skill_command_flow():
-		return
-	if not _is_committed_skill_command(command):
-		return
-	if not skill_command_adapter.execute_committed_command():
-		return
-
-	var target := _selected_skill_target(command)
-	if target == null:
-		_abort_committed_skill_command(command, &"target_missing_during_execution")
-		return
-
-	active_skill_command_token = command.commit_token
-	state = BattleState.ACTION_RESOLUTION
-	_set_player_action_texture(TAKASHI_SKILL_TEXTURE)
-	if battle_presentation_3d != null:
-		battle_presentation_3d.play_party_skill()
-	_play_skill_sfx()
-	_update_action_buttons(false)
-	ui.set_turn_text("Triangle Rift")
-	ui.set_battle_log("Triangle Rift charging...")
-	await _execute_triangle_rift(target, command)
+	if takashi_skill_action != null:
+		await takashi_skill_action.execute_committed_skill(self, command)
 
 
 func _finish_skill_command_resolution(
@@ -2623,13 +2603,8 @@ func _on_skill_pressed() -> void:
 
 
 func _start_legacy_skill() -> void:
-	state = BattleState.ACTION_RESOLUTION
-	_set_player_action_texture(TAKASHI_SKILL_TEXTURE)
-	_play_skill_sfx()
-	_update_action_buttons(false)
-	ui.set_turn_text("Triangle Rift")
-	ui.set_battle_log("Triangle Rift charging...")
-	await _execute_triangle_rift(enemy, null, true)
+	if takashi_skill_action != null:
+		await takashi_skill_action.start_legacy_skill(self)
 
 
 ## Block 9E: no confirm/cancel panel in production. Pressing Ultimate while
