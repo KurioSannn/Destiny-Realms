@@ -168,6 +168,7 @@ const TakashiUltimateEffectsScript := preload("res://scripts/battle/takashi_ulti
 const BattleTargetingSystemScript := preload("res://scripts/battle/battle_targeting_system.gd")
 const BattleLegacyCommandPanelsScript := preload("res://scripts/battle/battle_legacy_command_panels.gd")
 const BattleStageLayoutScript := preload("res://scripts/battle/battle_stage_layout.gd")
+const BattleEncounterSpawnerScript := preload("res://scripts/battle/battle_encounter_spawner.gd")
 
 
 @export var use_new_basic_command_flow: bool = true
@@ -617,47 +618,20 @@ func _configure_from_encounter_context(context: EncounterContext) -> void:
 	_pending_extra_battle_enemy_ids = context.battle_enemy_ids.slice(1)
 
 
-## Block 14.5: extra roster members beyond the primary `enemy` node.
-## Duplicates `enemy` (script, visual body, HP bar, name label all included)
-## rather than a bare Combatant.new() -- a bare Combatant has no
-## PlaceholderVisual/HpBar children at all, which made every dynamically
-## spawned encounter-group enemy completely invisible with no HP display,
-## even though it was fully alive and targetable. Placed via the named
-## EnemyFormation marker slots in battle_scene.tscn (falls back to a
-## computed offset if an older scene copy lacks them) and scaled down
-## slightly so a 2-3 enemy group fits the stage without running off-screen.
-const ENCOUNTER_GROUP_SCALE: float = 0.62
-
 func _spawn_additional_encounter_enemies() -> void:
-	if _pending_extra_battle_enemy_ids.is_empty():
-		return
-	for index in range(_pending_extra_battle_enemy_ids.size()):
-		var extra_id: StringName = _pending_extra_battle_enemy_ids[index]
-		var data: Dictionary = get_enemy_battle_profile_data(extra_id)
-		if data.is_empty():
-			push_error("BattleManager: unknown extra battle_enemy_id '%s'; skipping roster slot" % extra_id)
-			continue
-		var extra_enemy := enemy.duplicate() as Combatant
-		extra_enemy.name = "EncounterEnemy%d" % (index + 2)
-		extra_enemy.position = _encounter_formation_slot_position(index)
-		extra_enemy.home_scale = Vector2.ONE * ENCOUNTER_GROUP_SCALE
-		get_parent().add_child(extra_enemy)
-		extra_enemy.set_home_position(extra_enemy.position)
-		extra_enemy.setup(
-			data.get("name", "Lesser Abyss"), data.get("max_hp", ENEMY_MAX_HP), data.get("damage", ENEMY_BASE_DAMAGE)
-		)
-	_pending_extra_battle_enemy_ids.clear()
+	BattleEncounterSpawnerScript.spawn_additional_enemies(
+		_pending_extra_battle_enemy_ids,
+		enemy,
+		enemy_formation,
+		get_parent(),
+		get_enemy_battle_profile_data,
+		ENEMY_MAX_HP,
+		ENEMY_BASE_DAMAGE
+	)
 
 
-## `index` is 0-based across the *extra* roster (index 0 == the first enemy
-## beyond the primary), matching EnemySlot1, EnemySlot2, ... in
-## battle_scene.tscn's EnemyFormation group.
 func _encounter_formation_slot_position(index: int) -> Vector2:
-	if enemy_formation != null:
-		var slot := enemy_formation.get_node_or_null("EnemySlot%d" % (index + 1))
-		if slot is Node2D:
-			return (slot as Node2D).position
-	return enemy.position + Vector2(140.0 * float(index + 1), 0.0)
+	return BattleEncounterSpawnerScript.get_formation_slot_position(index, enemy, enemy_formation)
 
 
 func _stop_exploration_music() -> void:

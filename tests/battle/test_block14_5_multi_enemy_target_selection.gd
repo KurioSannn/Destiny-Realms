@@ -43,83 +43,83 @@ func _run() -> void:
 		_fail("Primary and secondary enemy are not meaningfully separated on the battle stage")
 		return
 
-	# --- Press Attack with 2 live enemies: must enter target-select, not
-	# auto-commit against an arbitrary one ---
+	# --- 1-Click Basic Attack on Secondary Enemy: pre-select secondary, then press attack ---
+	manager._global_selected_target = secondary
+	var primary_hp_before := primary.current_hp
+	var secondary_hp_before := secondary.current_hp
+
 	manager.call("_on_attack_pressed")
 	await _idle_frames(3)
 	if not manager.call("_has_pending_basic_command"):
 		_fail("Attack with 2 live enemies did not produce a pending command")
 		return
 	var command: PendingBattleCommand = manager.basic_command_adapter.get_pending_command()
-	if command.is_committed:
-		_fail("Attack with 2 live enemies must NOT auto-commit -- it must wait for the player to pick a target")
+	if not command.is_committed:
+		_fail("1-Click Basic Attack with pre-selected secondary must auto-commit immediately on press")
 		return
-	if command.candidate_targets.size() != 2:
-		_fail("Expected exactly 2 candidate targets, got %d" % command.candidate_targets.size())
+	if command.selected_targets.is_empty() or command.selected_targets[0] != secondary:
+		_fail("1-Click Basic Attack committed against the wrong enemy instead of secondary")
 		return
 
-	# --- Click precisely on the SECONDARY enemy: only it should take damage ---
-	var primary_hp_before := primary.current_hp
-	var secondary_hp_before := secondary.current_hp
-	var committed := bool(manager.call("_select_basic_target_at_position", secondary.global_position))
-	if not committed:
-		_fail("Clicking directly on the secondary enemy's position did not select/commit it as the target")
-		return
 	if not await _wait_for_hp_change(secondary, secondary_hp_before, 5.0):
-		_fail("Secondary enemy never took damage after being explicitly selected and attacked")
+		_fail("Secondary enemy never took damage after being attacked")
 		return
 	if primary.current_hp != primary_hp_before:
-		_fail("Primary enemy took damage even though the secondary enemy was the selected target (wrong-target bug)")
+		_fail("Primary enemy took damage even though secondary was selected")
 		return
 
-	print("MULTI_ENEMY_EXPLICIT_TARGET_OK clicking the secondary enemy committed the attack onto it specifically, primary untouched")
+	print("MULTI_ENEMY_EXPLICIT_TARGET_OK attack committed onto secondary specifically, primary untouched")
 
-	# --- Second attack, this time select the PRIMARY explicitly ---
+	# --- Second attack, this time select PRIMARY and press attack ---
 	await _wait_for_player_turn(manager, 5.0)
+	manager._global_selected_target = primary
+	primary_hp_before = primary.current_hp
+	secondary_hp_before = secondary.current_hp
+
 	manager.call("_on_attack_pressed")
 	await _idle_frames(3)
 	if not manager.call("_has_pending_basic_command"):
-		_fail("Second Attack press (2 live enemies still) did not produce a pending command")
+		_fail("Second Attack press did not produce a pending command")
 		return
-	primary_hp_before = primary.current_hp
-	secondary_hp_before = secondary.current_hp
-	committed = bool(manager.call("_select_basic_target_at_position", primary.global_position))
-	if not committed:
-		_fail("Clicking directly on the primary enemy's position did not select/commit it as the target")
+	command = manager.basic_command_adapter.get_pending_command()
+	if not command.is_committed:
+		_fail("1-Click Basic Attack with pre-selected primary must auto-commit immediately on press")
 		return
+	if command.selected_targets.is_empty() or command.selected_targets[0] != primary:
+		_fail("1-Click Basic Attack committed against the wrong enemy instead of primary")
+		return
+
 	if not await _wait_for_hp_change(primary, primary_hp_before, 5.0):
 		_fail("Primary enemy never took damage after being explicitly selected and attacked")
 		return
 	if secondary.current_hp != secondary_hp_before:
-		_fail("Secondary enemy took damage even though the primary enemy was the selected target (wrong-target bug)")
+		_fail("Secondary enemy took damage even though primary was selected")
 		return
 
 	print("MULTI_ENEMY_TARGET_SWITCH_OK re-selecting the other live enemy correctly redirected the attack")
 
-	# --- Now the real question: does an ACTUAL mouse click (not a direct
-	# _select_basic_target_at_position call) on the secondary enemy's
-	# on-screen position actually reach it? BattleUI's root Control covers
-	# the full viewport with the Control default MOUSE_FILTER_STOP -- if
-	# that swallows the click before _unhandled_input ever sees it, target
-	# selection is unusable from real gameplay input despite the underlying
-	# mechanism (just proven above) being correct. ---
+	# --- Third attack: test real mouse click selection on secondary, then attack press ---
 	await _wait_for_player_turn(manager, 5.0)
-	manager.call("_on_attack_pressed")
-	await _idle_frames(3)
-	if not manager.call("_has_pending_basic_command"):
-		_fail("Third Attack press did not produce a pending command")
-		return
 	primary_hp_before = primary.current_hp
 	secondary_hp_before = secondary.current_hp
+
 	_send_real_click(secondary.global_position)
 	await _idle_frames(5)
+	if manager._global_selected_target != secondary:
+		_fail("Real mouse click on secondary enemy screen position did not select it as _global_selected_target")
+		return
+
+	manager.call("_on_attack_pressed")
+	await _idle_frames(3)
 	command = manager.basic_command_adapter.get_pending_command()
-	if command != null and not command.is_committed:
-		_fail("REAL_CLICK_BUG_CONFIRMED: an actual mouse click on the secondary enemy's screen position did not select/commit it -- the command is still pending. This matches the 'gak bisa pilih musuh mana yang diserang' report: BattleUI's full-viewport root Control (default MOUSE_FILTER_STOP) is very likely swallowing the click before it reaches BattleManager._unhandled_input().")
+	if not command or not command.is_committed:
+		_fail("Pressing attack after mouse selecting secondary did not commit command")
 		return
+
 	if not await _wait_for_hp_change(secondary, secondary_hp_before, 5.0):
-		_fail("REAL_CLICK_BUG_CONFIRMED: secondary enemy never took damage after a real mouse click on its position")
+		_fail("Secondary enemy never took damage after mouse click selection + attack")
 		return
+
 	print("REAL_MOUSE_CLICK_TARGETING_OK an actual synthetic mouse click on the enemy's screen position selected and committed it")
 
 	print("BLOCK14_5_MULTI_ENEMY_TARGET_SELECTION_ALL_OK")
